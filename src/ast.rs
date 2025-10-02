@@ -30,6 +30,7 @@ pub enum Expr {
         op: UnaryOp,
         operand: Box<Expr>,
     },
+    FunctionCall(FunctionCall),
 }
 
 pub enum UnaryOp {
@@ -64,11 +65,13 @@ pub enum Type {
     Bool,
 }
 
+pub struct FunctionCall {
+    pub function: Ident,
+    pub paramaters: Vec<Expr>,
+}
+
 pub enum Statement {
-    FunctionCall {
-        function: Ident,
-        paramaters: Vec<Expr>,
-    },
+    FunctionCall(FunctionCall),
     FunctionDef {
         function: Ident,
         arguements: Vec<(Type, Ident)>,
