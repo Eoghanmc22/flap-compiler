@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{Context, bail};
 use itertools::Itertools;
 use pest::{
     Parser,
@@ -35,19 +35,21 @@ lazy_static::lazy_static! {
 struct FlapParser;
 
 pub fn parse_program(input: &str) -> anyhow::Result<Block> {
-    let mut pairs = FlapParser::parse(Rule::program, input)?;
+    let mut pairs = FlapParser::parse(Rule::program, input).context("Autogen parser")?;
     let program_pair = pairs.next().unwrap();
 
     parse_statements(program_pair.into_inner())
 }
 
-pub fn parse_statements(pairs: Pairs<Rule>) -> anyhow::Result<Block> {
+fn parse_statements(pairs: Pairs<Rule>) -> anyhow::Result<Block> {
     let mut statements = Vec::new();
     for statement_pair in pairs {
-        if statement_pair.as_rule() == Rule::statement {
-            statements.push(parse_statement(statement_pair)?);
-        } else {
-            bail!("Got unexpected rule: {:?}", statement_pair.as_rule());
+        match statement_pair.as_rule() {
+            Rule::statement => {
+                statements.push(parse_statement(statement_pair)?);
+            }
+            Rule::EOI => {}
+            _ => bail!("Got unexpected rule: {:?}", statement_pair.as_rule()),
         }
     }
 
@@ -61,17 +63,41 @@ fn parse_statement(pair: Pair<Rule>) -> anyhow::Result<Statement> {
         Rule::function_call => Ok(Statement::FunctionCall(parse_function_call(target)?)),
         Rule::function_def => {
             let mut inner = target.into_inner();
+            let return_type = parse_type(inner.next().unwrap())?;
             let function = parse_ident(inner.next().unwrap())?;
+
+            let mut last_arg_type = None;
+            let mut arguements = Vec::new();
+            let mut statements = Vec::new();
+
+            for pair in inner {
+                match pair.as_rule() {
+                    Rule::var_type => {
+                        last_arg_type = Some(parse_type(pair)?);
+                    }
+                    Rule::ident => {
+                        let Some(last_arg_type) = last_arg_type.take() else {
+                            bail!("Got var name before var type: {:?}", pair.as_rule())
+                        };
+
+                        let ident = parse_ident(pair)?;
+                        arguements.push((last_arg_type, ident));
+                    }
+                    Rule::statement => {
+                        statements.push(parse_statement(pair)?);
+                    }
+                    _ => bail!(
+                        "Unsupported function paramaters token: {:?}",
+                        pair.as_rule()
+                    ),
+                }
+            }
 
             Ok(Statement::FunctionDef {
                 function,
-                arguements: inner
-                    .tuples()
-                    .map(|(var_type, ident)| Ok((parse_type(var_type)?, parse_ident(ident)?)))
-                    .collect::<anyhow::Result<_>>()?,
-                contents: Block {
-                    statements: inner.map(parse_statement).collect::<anyhow::Result<_>>()?,
-                },
+                arguements,
+                contents: Block { statements },
+                return_type,
             })
         }
         Rule::static_var => {
@@ -139,12 +165,18 @@ fn parse_if_block(pair: Pair<Rule>) -> anyhow::Result<IfCase> {
 }
 
 fn parse_type(pair: Pair<Rule>) -> anyhow::Result<Type> {
-    todo!()
+    let target = pair.into_inner().next().unwrap();
+
+    match target.as_rule() {
+        Rule::int_type => Ok(Type::Int),
+        Rule::bool_type => Ok(Type::Bool),
+        _ => bail!("Unexpected type: {:?}", target),
+    }
 }
 
 fn parse_ident(pair: Pair<Rule>) -> anyhow::Result<Ident> {
     if !matches!(pair.as_rule(), Rule::ident) {
-        bail!("Got {:?}, expected ident", pair.as_rule());
+        bail!("Got {:?}, expected ident", pair);
     }
 
     Ok(pair.as_str().to_string())
@@ -182,7 +214,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> anyhow::Result<Expr> {
                 Rule::gt => BinaryOp::Gt,
                 Rule::logical_and => BinaryOp::LAnd,
                 Rule::logical_or => BinaryOp::LOr,
-                _ => return bail!("Unexpected infix op: {:?}", op),
+                _ => bail!("Unexpected infix op: {:?}", op),
             };
             Ok(Expr::BinaryOp {
                 op: bin_op,
@@ -195,7 +227,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> anyhow::Result<Expr> {
             let un_op = match op.as_rule() {
                 Rule::subtract => UnaryOp::Negate,
                 Rule::logical_not => UnaryOp::LNot,
-                _ => return bail!("Unexpected prefix op: {:?}", op),
+                _ => bail!("Unexpected prefix op: {:?}", op),
             };
             Ok(Expr::UnaryOp {
                 op: un_op,
@@ -219,5 +251,11 @@ fn parse_function_call(pair: Pair<Rule>) -> anyhow::Result<FunctionCall> {
 }
 
 fn parse_value(pair: Pair<Rule>) -> anyhow::Result<Value> {
-    todo!()
+    let target = pair.into_inner().next().unwrap();
+
+    match target.as_rule() {
+        Rule::number => Ok(Value::Int(target.as_str().parse()?)),
+        Rule::boolean => Ok(Value::Bool(target.as_str().parse()?)),
+        _ => bail!("Unexpected value: {:?}", target),
+    }
 }

@@ -1,5 +1,6 @@
 pub type Ident = String;
 
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i32),
     Bool(bool),
@@ -18,6 +19,7 @@ impl Value {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum Expr {
     Value(Value),
     Ident(Ident),
@@ -33,11 +35,13 @@ pub enum Expr {
     FunctionCall(FunctionCall),
 }
 
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
     Negate,
     LNot,
 }
 
+#[derive(Debug, Clone)]
 pub enum BinaryOp {
     // Arithmetic
     Add,
@@ -60,22 +64,26 @@ pub enum BinaryOp {
     LOr,
 }
 
+#[derive(Debug, Clone)]
 pub enum Type {
     Int,
     Bool,
 }
 
+#[derive(Debug, Clone)]
 pub struct FunctionCall {
     pub function: Ident,
     pub paramaters: Vec<Expr>,
 }
 
+#[derive(Debug, Clone)]
 pub enum Statement {
     FunctionCall(FunctionCall),
     FunctionDef {
         function: Ident,
         arguements: Vec<(Type, Ident)>,
         contents: Block,
+        return_type: Type,
     },
     Static {
         name: Ident,
@@ -96,10 +104,12 @@ pub enum Statement {
     },
 }
 
+#[derive(Debug, Clone)]
 pub struct Block {
     pub statements: Vec<Statement>,
 }
 
+#[derive(Debug, Clone)]
 pub struct IfCase {
     pub condition: Expr,
     pub contents: Block,

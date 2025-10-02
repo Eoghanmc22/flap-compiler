@@ -1,17 +1,23 @@
 // TODO: Structs, Arrays, special syntax for builtins?
 
+multiline_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
+COMMENT = _{ multiline_comment | singleline_comment }
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 number = @{ ASCII_DIGIT+ | ("0x" ~ ASCII_HEX_DIGIT+) | ("0b" ~ ASCII_BIN_DIGIT+) | ("0o" ~ ASCII_OCT_DIGIT+) }
 true = { "true" }
 false = { "false" }
-boolean = { true | false }
+boolean = @{ true | false }
 value = { number | boolean }
 
-ident = { ASCII_ALPHANUMERIC+ }
-type = { "int" | "bool" }
-atom = _{ ident | number | function_call | ( "(" ~ expression ~ ")") }
-expression = { ident | value | function_call | operation }
+ident_start_chars = { ASCII_ALPHA | "-" | "_" }
+ident_chars = { ASCII_ALPHANUMERIC | "-" | "_" }
+ident = @{ ident_start_chars+ ~ ident_chars* }
+
+int_type = { "int" }
+bool_type = { "bool" }
+var_type = { int_type | bool_type }
 
 // Arithmetic operators
 add = { "+" }
@@ -35,17 +41,23 @@ logical_or = { "||" }
 logical_not = { "!" }
 
 
-bin_op = { add | subtract | multiply | divide | modulo | power | eq | ne | le | ge | lt | gt | logical_and | logical_or }
-unary_op = { subtract | logical_not }
+// bin_op = { add | subtract | multiply | divide | modulo | power | eq | ne | le | ge | lt | gt | logical_and | logical_or }
+// unary_op = { subtract | logical_not }
 
-unary_operation = { unary_op ~ atom }
-binary_operation = { atom ~ bin_op ~ atom }
-operation = { binary_operation | unary_operation }
+// unary_operation = { unary_op ~ atom }
+// binary_operation = { atom ~ bin_op ~ atom }
+// operation = { binary_operation | unary_operation }
+// atom = _{ ident | number | function_call | ( "(" ~ expression ~ ")") }
+// expression = { function_call | value | operation | ident }
+
+infix_op = _{ add | subtract | power | multiply | divide | modulo | eq | ne | le | ge | lt | gt | logical_and | logical_or | logical_not }
+atom = _{ function_call | ident | value | ( "(" ~ expression ~ ")") }
+expression = { atom ~ (infix_op ~ atom)* }
 
 // A static_var can only take on the value of a literal
-// static_var = { "static" ~ type ~ "=" ~ expression }
-static_var = { "static" ~ type ~ "=" ~ value }
-local_var = { type ~ ident ~ "=" ~ expression }
+// static_var = { "static" ~ var_type ~ "=" ~ expression }
+static_var = { "static" ~ var_type ~ ident ~ "=" ~ value }
+local_var = { var_type ~ ident ~ "=" ~ expression }
 
 function_parameters = _{ ( expression ~ ("," ~ expression)* )? }
 function_call = { ident ~ "(" ~ function_parameters ~ ")"  }
@@ -57,10 +69,10 @@ if_else_block = _{ "else" ~ if_block }
 else_block = { "else" ~ block }
 if_statement = { if_block ~ if_else_block* ~ else_block? }
 
-statement = { (function_call | static_var | local_var | return_statement | if_statement ~ ";") | function_def }
+statement = { ((function_call | static_var | local_var | return_statement) ~ ";") | if_statement | function_def }
 
-function_parameters_def = _{ ( type ~ ident ~ ("," ~ type ~ ident)* )? }
-function_def = { type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
+function_parameters_def = _{ ( var_type ~ ident ~ ("," ~ var_type ~ ident)* )? }
+function_def = { var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
 
 block = _{ "{" ~ statement* ~ "}" | statement }
 
