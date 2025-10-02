@@ -4,7 +4,7 @@ static int test = 5;
 
 int sqrt(int num) {
   int sqrt_inner(int i) {
-    if ((i*i) > num) {
+    if (i*i > num) {
       return i-1;
     }
     return sqrt_inner(i+1);

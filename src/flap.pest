@@ -50,9 +50,10 @@ logical_not = { "!" }
 // atom = _{ ident | number | function_call | ( "(" ~ expression ~ ")") }
 // expression = { function_call | value | operation | ident }
 
-infix_op = _{ add | subtract | power | multiply | divide | modulo | eq | ne | le | ge | lt | gt | logical_and | logical_or | logical_not }
+binary_op = _{ add | subtract | power | multiply | divide | modulo | eq | ne | le | ge | lt | gt | logical_and | logical_or }
+unary_op = _{ subtract | logical_not }
 atom = _{ function_call | ident | value | ( "(" ~ expression ~ ")") }
-expression = { atom ~ (infix_op ~ atom)* }
+expression = { unary_op? ~ atom ~ (binary_op ~ unary_op? ~atom)* }
 
 // A static_var can only take on the value of a literal
 // static_var = { "static" ~ var_type ~ "=" ~ expression }

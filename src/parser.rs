@@ -1,9 +1,9 @@
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use itertools::Itertools;
 use pest::{
-    Parser,
     iterators::{Pair, Pairs},
     pratt_parser::{Assoc, Op, PrattParser},
+    Parser,
 };
 use pest_derive::Parser;
 
