@@ -1,0 +1,12 @@
+[package]
+name = "flap-compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = "4.5.48"
+itertools = "0.14.0"
+lazy_static = "1.5.0"
+pest = "2.8.2"
+pest_derive = "2.8.2"

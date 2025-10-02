@@ -1,0 +1,67 @@
+// TODO: Structs, Arrays, special syntax for builtins?
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+number = @{ ASCII_DIGIT+ | ("0x" ~ ASCII_HEX_DIGIT+) | ("0b" ~ ASCII_BIN_DIGIT+) | ("0o" ~ ASCII_OCT_DIGIT+) }
+true = { "true" }
+false = { "false" }
+boolean = { true | false }
+value = { number | boolean }
+
+ident = { ASCII_ALPHANUMERIC+ }
+type = { "int" | "bool" }
+atom = _{ ident | number | function_call | ( "(" ~ expression ~ ")") }
+expression = { ident | value | function_call | operation }
+
+// Arithmetic operators
+add = { "+" }
+subtract = { "-" }
+multiply = { "*" }
+divide = { "/" }
+modulo = { "%" }
+power = { "**" }
+
+// Comparison operators
+eq = { "==" }
+ne = { "!=" }
+le = { "<=" }  // Must come before "<" to avoid tokenizing "<=" as "<" + "="
+ge = { ">=" }  // Must come before ">" to avoid tokenizing ">=" as ">" + "="
+lt = { "<" }
+gt = { ">" }
+
+// Logical operators
+logical_and = { "&&" }
+logical_or = { "||" }
+logical_not = { "!" }
+
+
+bin_op = { add | subtract | multiply | divide | modulo | power | eq | ne | le | ge | lt | gt | logical_and | logical_or }
+unary_op = { subtract | logical_not }
+
+unary_operation = { unary_op ~ atom }
+binary_operation = { atom ~ bin_op ~ atom }
+operation = { binary_operation | unary_operation }
+
+// A static_var can only take on the value of a literal
+// static_var = { "static" ~ type ~ "=" ~ expression }
+static_var = { "static" ~ type ~ "=" ~ value }
+local_var = { type ~ ident ~ "=" ~ expression }
+
+function_parameters = _{ ( expression ~ ("," ~ expression)* )? }
+function_call = { ident ~ "(" ~ function_parameters ~ ")"  }
+
+return_statement = { "return" ~ expression }
+
+if_block = { "if" ~ "(" ~ expression ~ ")" ~ block }
+if_else_block = _{ "else" ~ if_block }
+else_block = { "else" ~ block }
+if_statement = { if_block ~ if_else_block* ~ else_block? }
+
+statement = { (function_call | static_var | local_var | return_statement | if_statement ~ ";") | function_def }
+
+function_parameters_def = _{ ( type ~ ident ~ ("," ~ type ~ ident)* )? }
+function_def = { type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
+
+block = _{ "{" ~ statement* ~ "}" | statement }
+
+program = { SOI ~ block* ~ EOI }
