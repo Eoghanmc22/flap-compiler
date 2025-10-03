@@ -85,6 +85,8 @@ fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> anyh
 
 fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> anyhow::Result<()> {
     let data_ref = walk_expr(ctx, expr)?;
+    // TODO: handle types that arent 1 sized
+    ctx.bring_up_references(&[data_ref], 1);
 
     // FIXME: This only works for return in ending position
     // todo!("We dont actualy have infra to return yet")

@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt,
+    fmt::{self, Display},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -36,7 +36,7 @@ pub struct ScopeFrame<'a> {
     pub definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CodegenCtx<'a> {
     pub tokens: Vec<ClacToken<'a>>,
     pub scope_stack: Vec<ScopeFrame<'a>>,
@@ -101,6 +101,15 @@ impl<'a> CodegenCtx<'a> {
         let def_ident = DefinitionIdent::Function(ident);
         let num = FUNCTION_COUNTER.fetch_add(1, Ordering::Relaxed);
 
+        self.top_scope_frame().definitions.insert(
+            StoredDefinitionIdent(def_ident),
+            (
+                MangledIdent(format!("func-{}-{}", ident, num)),
+                // TODO: Remove clone
+                signature.clone(),
+            ),
+        );
+
         self.push_token(ClacToken::StartDef(def_ident));
 
         {
@@ -141,11 +150,6 @@ impl<'a> CodegenCtx<'a> {
         }
 
         self.push_token(ClacToken::EndDef);
-
-        self.top_scope_frame().definitions.insert(
-            StoredDefinitionIdent(def_ident),
-            (MangledIdent(format!("func-{}-{}", ident, num)), signature),
-        );
 
         Ok(def_ident)
     }
@@ -269,6 +273,16 @@ impl<'a> CodegenCtx<'a> {
         }
 
         None
+    }
+}
+
+impl Display for CodegenCtx<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for token in &self.tokens {
+            token.write(self, f)?;
+        }
+
+        Ok(())
     }
 }
 

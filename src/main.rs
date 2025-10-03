@@ -1,9 +1,15 @@
 #![feature(push_mut)]
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::Write,
+    path::PathBuf,
+};
 
 use anyhow::Context;
 use clap::Parser;
+
+use crate::codegen::CodegenCtx;
 
 pub mod ast;
 pub mod codegen;
@@ -37,8 +43,17 @@ fn compile(file: PathBuf) -> anyhow::Result<()> {
     let contents = fs::read_to_string(file).context("Read file")?;
 
     let program = parser::parse_program(&contents).context("Parse program")?;
-
     println!("Parsed AST: {program:#?}");
+
+    let mut ctx = CodegenCtx::default();
+    middleware::walk_block(&mut ctx, &program).context("Ast to Clac")?;
+
+    let mut file = OpenOptions::new()
+        .truncate(true)
+        .write(true)
+        .open("out.clac")
+        .context("Open output file")?;
+    write!(&mut file, "{ctx}").context("Write code")?;
 
     Ok(())
 }
