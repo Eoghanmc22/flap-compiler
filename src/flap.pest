@@ -11,8 +11,8 @@ false = { "false" }
 boolean = @{ true | false }
 value = { number | boolean }
 
-ident_start_chars = { ASCII_ALPHA | "-" | "_" }
-ident_chars = { ASCII_ALPHANUMERIC | "-" | "_" }
+ident_start_chars = { ASCII_ALPHA | "_" }
+ident_chars = { ASCII_ALPHANUMERIC | "_" }
 ident = @{ ident_start_chars+ ~ ident_chars* }
 
 int_type = { "int" }
@@ -22,6 +22,7 @@ var_type = { int_type | bool_type }
 // Arithmetic operators
 add = { "+" }
 subtract = { "-" }
+negate = { "-" }
 multiply = { "*" }
 divide = { "/" }
 modulo = { "%" }
@@ -40,18 +41,8 @@ logical_and = { "&&" }
 logical_or = { "||" }
 logical_not = { "!" }
 
-
-// bin_op = { add | subtract | multiply | divide | modulo | power | eq | ne | le | ge | lt | gt | logical_and | logical_or }
-// unary_op = { subtract | logical_not }
-
-// unary_operation = { unary_op ~ atom }
-// binary_operation = { atom ~ bin_op ~ atom }
-// operation = { binary_operation | unary_operation }
-// atom = _{ ident | number | function_call | ( "(" ~ expression ~ ")") }
-// expression = { function_call | value | operation | ident }
-
 binary_op = _{ add | subtract | power | multiply | divide | modulo | eq | ne | le | ge | lt | gt | logical_and | logical_or }
-unary_op = _{ subtract | logical_not }
+unary_op = _{ negate | logical_not }
 atom = _{ function_call | ident | value | ( "(" ~ expression ~ ")") }
 expression = { unary_op? ~ atom ~ (binary_op ~ unary_op? ~atom)* }
 

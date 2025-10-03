@@ -1,4 +1,9 @@
-use color_eyre::eyre::{ContextCompat, Result};
+use color_eyre::{
+    Section,
+    eyre::{Context, ContextCompat, Result},
+};
+use pest::Span;
+use std::fmt::Write;
 
 use crate::{
     ast::{
@@ -8,7 +13,7 @@ use crate::{
     codegen::{ClacOp, CodegenCtx, DataReference, FunctionSignature},
 };
 
-pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block) -> Result<()> {
+pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<()> {
     for statement in &block.statements {
         match statement {
             Statement::Static(static_def) => walk_static_def(ctx, static_def)?,
@@ -27,7 +32,7 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block) -> Result<()> 
 
 fn walk_function_call<'a>(
     ctx: &mut CodegenCtx<'a>,
-    func_call: &'a FunctionCall,
+    func_call: &'a FunctionCall<'a>,
 ) -> Result<DataReference<'a>> {
     let parameters = func_call
         .paramaters
@@ -40,7 +45,11 @@ fn walk_function_call<'a>(
         parameters,
     };
 
-    let tempoary = clac_op.append_into(ctx).unwrap();
+    let tempoary = clac_op
+        .append_into(ctx)
+        .wrap_err_with(|| format!("Walk function '{:?}' failed", func_call.function))
+        .with_section(|| generate_span_error_section(func_call.span))?
+        .unwrap();
     Ok(DataReference::Tempoary(tempoary))
 }
 
@@ -51,7 +60,7 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
             arguements: func_def
                 .arguements
                 .iter()
-                .map(|(var_type, ident)| (*var_type, ident.as_str()))
+                .map(|(var_type, ident)| (*var_type, *ident))
                 .collect(),
             return_type: func_def.return_type,
         },
@@ -66,6 +75,7 @@ fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> R
         name,
         var_type,
         value,
+        ..
     } = static_def;
 
     ctx.define_static(name, *var_type, *value);
@@ -102,8 +112,9 @@ fn walk_if_statement_inner<'a>(
     otherwise: Option<&'a Block>,
 ) -> Result<()> {
     if let Some((next_case, remaining)) = if_cases.split_first() {
-        let condition =
-            walk_expr(ctx, &next_case.condition).expect("If cond should return something");
+        let condition = walk_expr(ctx, &next_case.condition)
+            .wrap_err("If cond should return something")
+            .with_section(|| generate_span_error_section(next_case.span))?;
 
         let on_true = ctx.define_function("on_true", FunctionSignature::default(), |ctx| {
             walk_block(ctx, &next_case.contents)
@@ -137,9 +148,17 @@ fn walk_if_statement_inner<'a>(
 fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReference<'a>> {
     match expr {
         // TODO: Do we need to handle bools seperatly?
-        Expr::Value(value) => Ok(DataReference::Number(value.as_repr())),
-        Expr::Ident(ident) => ctx.lookup_ident_data_ref(ident).wrap_err("Got bad ident"),
-        Expr::BinaryOp { op, left, right } => {
+        Expr::Value(value, span) => Ok(DataReference::Number(value.as_repr())),
+        Expr::Ident(ident, span) => ctx
+            .lookup_ident_data_ref(ident)
+            .wrap_err_with(|| format!("Could not find identifier: {ident}"))
+            .with_section(|| generate_span_error_section(*span)),
+        Expr::BinaryOp {
+            op,
+            left,
+            right,
+            span,
+        } => {
             let lhs = walk_expr(ctx, left)?;
             let rhs = walk_expr(ctx, right)?;
 
@@ -160,10 +179,14 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReferen
                 BinaryOp::LOr => ClacOp::LOr { lhs, rhs },
             };
 
-            let tempoary = clac_op.append_into(ctx).unwrap();
+            let tempoary = clac_op
+                .append_into(ctx)
+                .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
+                .with_section(|| generate_span_error_section(*span))?
+                .unwrap();
             Ok(DataReference::Tempoary(tempoary))
         }
-        Expr::UnaryOp { op, operand } => {
+        Expr::UnaryOp { op, operand, span } => {
             let value = walk_expr(ctx, operand)?;
 
             let clac_op = match op {
@@ -171,9 +194,22 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReferen
                 crate::ast::UnaryOp::LNot => ClacOp::Not { value },
             };
 
-            let tempoary = clac_op.append_into(ctx).unwrap();
+            let tempoary = clac_op
+                .append_into(ctx)
+                .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
+                .with_section(|| generate_span_error_section(*span))?
+                .unwrap();
             Ok(DataReference::Tempoary(tempoary))
         }
         Expr::FunctionCall(func_call) => walk_function_call(ctx, func_call),
     }
+}
+
+fn generate_span_error_section(span: Span) -> String {
+    let mut string = String::new();
+    for line_span in span.lines_span() {
+        let (line, _col) = line_span.start_pos().line_col();
+        write!(&mut string, "{line:4} | {}", line_span.as_str()).unwrap();
+    }
+    string
 }

@@ -9,7 +9,7 @@ use pest::{
 use pest_derive::Parser;
 
 use crate::ast::{
-    BinaryOp, Block, Expr, FunctionCall, FunctionDef, Ident, IfCase, IfStatement, LocalDef,
+    BinaryOp, Block, Expr, FunctionCall, FunctionDef, IdentRef, IfCase, IfStatement, LocalDef,
     Statement, StaticDef, Type, UnaryOp, Value,
 };
 
@@ -28,7 +28,7 @@ lazy_static::lazy_static! {
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))  // * / %
             .op(Op::infix(power, Right))               // ^ ** (right-associative)
             // Highest precedence
-            .op(Op::prefix(logical_not) | Op::prefix(subtract))               // ! - (unary)
+            .op(Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
     };
 }
 
@@ -36,7 +36,7 @@ lazy_static::lazy_static! {
 #[grammar = "flap.pest"]
 struct FlapParser;
 
-pub fn parse_program(input: &str) -> Result<Block> {
+pub fn parse_program<'a>(input: &'a str) -> Result<Block<'a>> {
     let mut pairs = FlapParser::parse(Rule::program, input).wrap_err("Autogen parser")?;
     let program_pair = pairs.next().unwrap();
 
@@ -59,6 +59,7 @@ fn parse_statements(pairs: Pairs<Rule>) -> Result<Block> {
 }
 
 fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
+    let span = pair.as_span();
     let target = pair.into_inner().next().unwrap();
 
     match target.as_rule() {
@@ -100,6 +101,7 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
                 arguements,
                 contents: Block { statements },
                 return_type,
+                span,
             }))
         }
         Rule::static_var => {
@@ -112,6 +114,7 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
                 name,
                 var_type,
                 value,
+                span,
             }))
         }
         Rule::local_var => {
@@ -124,6 +127,7 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
                 name,
                 var_type,
                 expr,
+                span,
             }))
         }
         Rule::return_statement => {
@@ -133,7 +137,7 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
             Ok(Statement::Return(value))
         }
         Rule::if_statement => {
-            let mut inner = target.into_inner();
+            let inner = target.into_inner();
             let mut cases = Vec::new();
             let mut otherwise = None;
 
@@ -149,13 +153,18 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
                 }
             }
 
-            Ok(Statement::If(IfStatement { cases, otherwise }))
+            Ok(Statement::If(IfStatement {
+                cases,
+                otherwise,
+                span,
+            }))
         }
         _ => bail!("Unsupported statement type: {:?}", target.as_rule()),
     }
 }
 
 fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
+    let span = pair.as_span();
     let mut inner = pair.into_inner();
     let condition = parse_expr(inner.next().unwrap().into_inner())?;
     let contents = parse_statements(inner)?;
@@ -163,6 +172,7 @@ fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     Ok(IfCase {
         condition,
         contents,
+        span,
     })
 }
 
@@ -176,21 +186,23 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     }
 }
 
-fn parse_ident(pair: Pair<Rule>) -> Result<Ident> {
+fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     if !matches!(pair.as_rule(), Rule::ident) {
         bail!("Got {:?}, expected ident", pair);
     }
 
-    Ok(pair.as_str().to_string())
+    Ok(pair.as_str())
 }
 
 fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
     PRATT_PARSER
         .map_primary(|primary| {
+            let span = primary.as_span();
+
             // Handle primary expressions (atoms)
             match primary.as_rule() {
-                Rule::value => Ok(Expr::Value(parse_value(primary)?)),
-                Rule::ident => Ok(Expr::Ident(parse_ident(primary)?)),
+                Rule::value => Ok(Expr::Value(parse_value(primary)?, span)),
+                Rule::ident => Ok(Expr::Ident(parse_ident(primary)?, span)),
                 Rule::expression => {
                     // Parenthesized expression
                     Ok(parse_expr(primary.into_inner())?)
@@ -222,6 +234,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 op: bin_op,
                 left: Box::new(lhs?),
                 right: Box::new(rhs?),
+                span: op.as_span(),
             })
         })
         .map_prefix(|op, rhs| {
@@ -234,12 +247,14 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             Ok(Expr::UnaryOp {
                 op: un_op,
                 operand: Box::new(rhs?),
+                span: op.as_span(),
             })
         })
         .parse(pairs)
 }
 
 fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
+    let span = pair.as_span();
     let mut inner = pair.into_inner();
     let function = parse_ident(inner.next().unwrap())?;
 
@@ -249,6 +264,7 @@ fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
             .map(|it| it.into_inner())
             .map(parse_expr)
             .collect::<Result<_>>()?,
+        span,
     })
 }
 

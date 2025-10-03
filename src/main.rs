@@ -30,6 +30,8 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let cli = Cli::parse();
 
     println!("Hello, world!");

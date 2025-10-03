@@ -1,3 +1,5 @@
+use pest::Span;
+
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
@@ -21,19 +23,21 @@ impl Value {
 }
 
 #[derive(Debug, Clone)]
-pub enum Expr {
-    Value(Value),
-    Ident(Ident),
+pub enum Expr<'a> {
+    Value(Value, Span<'a>),
+    Ident(IdentRef<'a>, Span<'a>),
     BinaryOp {
         op: BinaryOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Box<Expr<'a>>,
+        right: Box<Expr<'a>>,
+        span: Span<'a>,
     },
     UnaryOp {
         op: UnaryOp,
-        operand: Box<Expr>,
+        operand: Box<Expr<'a>>,
+        span: Span<'a>,
     },
-    FunctionCall(FunctionCall),
+    FunctionCall(FunctionCall<'a>),
 }
 
 #[derive(Debug, Clone)]
@@ -83,20 +87,22 @@ impl Type {
 }
 
 #[derive(Debug, Clone)]
-pub struct FunctionCall {
-    pub function: Ident,
-    pub paramaters: Vec<Expr>,
+pub struct FunctionCall<'a> {
+    pub function: IdentRef<'a>,
+    pub paramaters: Vec<Expr<'a>>,
+    pub span: Span<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FunctionDef {
-    pub function: Ident,
-    pub arguements: Vec<(Type, Ident)>,
-    pub contents: Block,
+pub struct FunctionDef<'a> {
+    pub function: IdentRef<'a>,
+    pub arguements: Vec<(Type, IdentRef<'a>)>,
+    pub contents: Block<'a>,
     pub return_type: Type,
+    pub span: Span<'a>,
 }
 
-impl FunctionDef {
+impl FunctionDef<'_> {
     pub fn paramater_width(&self) -> u32 {
         self.arguements
             .iter()
@@ -114,42 +120,46 @@ impl FunctionDef {
 }
 
 #[derive(Debug, Clone)]
-pub struct StaticDef {
-    pub name: Ident,
+pub struct StaticDef<'a> {
+    pub name: IdentRef<'a>,
     pub var_type: Type,
     pub value: Value,
+    pub span: Span<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct LocalDef {
-    pub name: Ident,
+pub struct LocalDef<'a> {
+    pub name: IdentRef<'a>,
     pub var_type: Type,
-    pub expr: Expr,
+    pub expr: Expr<'a>,
+    pub span: Span<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct IfCase {
-    pub condition: Expr,
-    pub contents: Block,
+pub struct IfCase<'a> {
+    pub condition: Expr<'a>,
+    pub contents: Block<'a>,
+    pub span: Span<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct IfStatement {
-    pub cases: Vec<IfCase>,
-    pub otherwise: Option<Block>,
+pub struct IfStatement<'a> {
+    pub cases: Vec<IfCase<'a>>,
+    pub otherwise: Option<Block<'a>>,
+    pub span: Span<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Statement {
-    FunctionCall(FunctionCall),
-    FunctionDef(FunctionDef),
-    Static(StaticDef),
-    Local(LocalDef),
-    Return(Expr),
-    If(IfStatement),
+pub enum Statement<'a> {
+    FunctionCall(FunctionCall<'a>),
+    FunctionDef(FunctionDef<'a>),
+    Static(StaticDef<'a>),
+    Local(LocalDef<'a>),
+    Return(Expr<'a>),
+    If(IfStatement<'a>),
 }
 
 #[derive(Debug, Clone)]
-pub struct Block {
-    pub statements: Vec<Statement>,
+pub struct Block<'a> {
+    pub statements: Vec<Statement<'a>>,
 }

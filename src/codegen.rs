@@ -1,4 +1,4 @@
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{ContextCompat, Result};
 
 use std::{
     collections::HashMap,
@@ -45,6 +45,12 @@ pub struct CodegenCtx<'a> {
     // Index of one past the top of the stack
     // Aka the length of the stack
     cursor: i32,
+
+    // A function defined inside another function goes out of the scope stack when the outer
+    // function goes out of scope, this means its not avaible for code gen. To prevent this we
+    // store a copy of every definition ever made here.
+    pub definitions_for_codegen:
+        HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
 }
 
 // FIXME: Many of these functions should be private
@@ -59,7 +65,18 @@ impl<'a> CodegenCtx<'a> {
     }
 
     pub fn pop_scope_frame(&mut self) -> Option<ScopeFrame<'a>> {
-        self.scope_stack.pop()
+        let old_frame = self.scope_stack.pop();
+
+        if let Some(ref old_frame) = old_frame {
+            self.definitions_for_codegen.extend(
+                old_frame
+                    .definitions
+                    .iter()
+                    .map(|(key, value)| (*key, value.clone())),
+            );
+        }
+
+        old_frame
     }
 
     pub fn top_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
@@ -112,7 +129,7 @@ impl<'a> CodegenCtx<'a> {
             ),
         );
 
-        self.push_token(ClacToken::StartDef(def_ident));
+        self.push_token(ClacToken::StartDef(def_ident)).unwrap();
 
         {
             let frame = self.push_scope_frame();
@@ -143,9 +160,9 @@ impl<'a> CodegenCtx<'a> {
                 // TODO: Optimize, generalize
                 if signature.return_width() > 0 {
                     assert_eq!(signature.return_width(), 1);
-                    self.push_token(ClacToken::Swap);
+                    self.push_token(ClacToken::Swap)?;
                 }
-                self.push_token(ClacToken::Drop);
+                self.push_token(ClacToken::Drop)?;
             }
 
             assert_eq!(
@@ -154,7 +171,7 @@ impl<'a> CodegenCtx<'a> {
             );
         }
 
-        self.push_token(ClacToken::EndDef);
+        self.push_token(ClacToken::EndDef)?;
 
         Ok(def_ident)
     }
@@ -164,19 +181,9 @@ impl<'a> CodegenCtx<'a> {
         ident: IdentRef<'a>,
         var_type: Type,
         value: Value,
-    ) -> DefinitionIdent<'a> {
+    ) -> Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Static(ident);
         let num = STATIC_COUNTER.fetch_add(1, Ordering::Relaxed);
-
-        self.push_token(ClacToken::StartDef(def_ident));
-
-        {
-            self.push_scope_frame();
-            self.push_token(ClacToken::Number(value.as_repr()));
-            self.pop_scope_frame();
-        }
-
-        self.push_token(ClacToken::EndDef);
 
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
@@ -189,25 +196,40 @@ impl<'a> CodegenCtx<'a> {
             ),
         );
 
-        def_ident
+        self.push_token(ClacToken::StartDef(def_ident)).unwrap();
+
+        {
+            self.push_scope_frame();
+            self.push_token(ClacToken::Number(value.as_repr()))?;
+            self.pop_scope_frame();
+        }
+
+        self.push_token(ClacToken::EndDef)?;
+
+        Ok(def_ident)
     }
 
     /// Copies the data pointed to by the references to the top of the stack
     /// Stack after call: S, r_1, ..., r_n
-    pub fn bring_up_references(&mut self, references: &[DataReference<'a>], expected_width: u32) {
+    #[must_use]
+    pub fn bring_up_references(
+        &mut self,
+        references: &[DataReference<'a>],
+        expected_width: u32,
+    ) -> Result<()> {
         // TODO: Optimize
         let starting_cursor = self.cursor;
         for reference in references {
             match *reference {
-                DataReference::Number(num) => self.push_token(ClacToken::Number(num)),
+                DataReference::Number(num) => self.push_token(ClacToken::Number(num))?,
                 DataReference::Static(ident) => {
-                    self.push_token(ClacToken::Call(DefinitionIdent::Static(ident)));
+                    self.push_token(ClacToken::Call(DefinitionIdent::Static(ident)))?;
                 }
                 DataReference::Local(ident) => {
                     let (var_type, data_ref) =
                         self.lookup_local(ident).expect("Bring up valid local");
 
-                    self.bring_up_references(&[data_ref], var_type.width());
+                    self.bring_up_references(&[data_ref], var_type.width())?;
                 }
                 DataReference::Tempoary(ident) => {
                     let (var_type, offset) = self
@@ -216,21 +238,28 @@ impl<'a> CodegenCtx<'a> {
 
                     let rel_offset = self.cursor - offset.0;
                     for _ in 0..var_type.width() {
-                        self.push_token(ClacToken::Number(rel_offset));
-                        self.push_token(ClacToken::Pick);
+                        self.push_token(ClacToken::Number(rel_offset))?;
+                        self.push_token(ClacToken::Pick)?;
                     }
                 }
             }
         }
-        assert_eq!(self.cursor - starting_cursor, expected_width as i32)
+        assert_eq!(self.cursor - starting_cursor, expected_width as i32);
+
+        Ok(())
     }
 
-    pub fn push_token(&mut self, token: ClacToken<'a>) {
+    #[must_use]
+    pub fn push_token(&mut self, token: ClacToken<'a>) -> Result<()> {
+        token.check(self)?;
+
         self.cursor = self.cursor + token.stack_delta(&self);
         self.tokens.push(token);
 
         // Sanity check
         assert!(self.cursor >= self.top_scope_frame().frame_start);
+
+        Ok(())
     }
 
     pub fn lookup_definition(
@@ -238,12 +267,26 @@ impl<'a> CodegenCtx<'a> {
         ident: DefinitionIdent,
     ) -> Option<(&MangledIdent, &FunctionSignature<'a>)> {
         for frame in self.scope_stack.iter().rev() {
-            if let Some((mangled, def)) = frame.definitions.get(&ident) {
-                return Some((mangled, def));
+            if let Some((mangled, sig)) = frame.definitions.get(&ident) {
+                return Some((mangled, sig));
             }
         }
 
         None
+    }
+
+    pub fn lookup_definition_for_code_gen(
+        &self,
+        ident: DefinitionIdent,
+    ) -> Option<(&MangledIdent, &FunctionSignature<'a>)> {
+        if let Some((mangled, sig)) = self.lookup_definition(ident) {
+            assert!(!self.definitions_for_codegen.contains_key(&ident));
+            return Some((mangled, sig));
+        }
+
+        self.definitions_for_codegen
+            .get(&ident)
+            .map(|(mangled, sig)| (mangled, sig))
     }
 
     pub fn lookup_local(&self, ident: IdentRef) -> Option<(Type, DataReference<'a>)> {
@@ -403,117 +446,117 @@ pub enum ClacOp<'a> {
 }
 
 impl<'a> ClacOp<'a> {
-    pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Option<TempoaryIdent> {
+    pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<Option<TempoaryIdent>> {
         let mut result = None;
 
         match self {
             ClacOp::Print { value } => {
-                ctx.bring_up_references(&[*value], 1);
-                ctx.push_token(ClacToken::Print);
+                ctx.bring_up_references(&[*value], 1)?;
+                ctx.push_token(ClacToken::Print)?;
             }
             ClacOp::Quit => {
-                ctx.push_token(ClacToken::Quit);
+                ctx.push_token(ClacToken::Quit)?;
             }
             ClacOp::Add { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Add);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Add)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::Sub { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Sub);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Sub)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::Mul { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Mul);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Mul)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::Div { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Div);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Div)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::Mod { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
-                ctx.push_token(ClacToken::Mod);
+                ctx.push_token(ClacToken::Mod)?;
             }
             ClacOp::Pow { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Pow);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Pow)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::Lt { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Lt);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Lt)?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             ClacOp::Gt { lhs, rhs } => {
                 // lhs and rhs reversed to save an instruction
-                ctx.bring_up_references(&[*rhs, *lhs], 2);
-                // ctx.push_token(ClacToken::Swap);
-                ctx.push_token(ClacToken::Lt);
+                ctx.bring_up_references(&[*rhs, *lhs], 2)?;
+                // ctx.push_token(ClacToken::Swap)?;
+                ctx.push_token(ClacToken::Lt)?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             ClacOp::Le { lhs, rhs } => {
-                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Number(1))?;
                 // lhs and rhs reversed to save an instruction
-                ctx.bring_up_references(&[*rhs, *lhs], 2);
-                // ctx.push_token(ClacToken::Swap);
-                ctx.push_token(ClacToken::Lt);
-                ctx.push_token(ClacToken::Sub);
+                ctx.bring_up_references(&[*rhs, *lhs], 2)?;
+                // ctx.push_token(ClacToken::Swap)?;
+                ctx.push_token(ClacToken::Lt)?;
+                ctx.push_token(ClacToken::Sub)?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             ClacOp::Ge { lhs, rhs } => {
-                ctx.push_token(ClacToken::Number(1));
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Lt);
-                ctx.push_token(ClacToken::Sub);
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Lt)?;
+                ctx.push_token(ClacToken::Sub)?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             ClacOp::Eq { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Sub);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Sub)?;
 
                 let cursor_pos = ctx.cursor;
 
-                ctx.push_token(ClacToken::If);
-                ctx.push_token(ClacToken::Number(0));
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Skip);
-                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::If)?;
+                ctx.push_token(ClacToken::Number(0))?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Skip)?;
+                ctx.push_token(ClacToken::Number(1))?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
 
                 // This avoids double counting the stack delta,
                 ctx.cursor = cursor_pos;
             }
             ClacOp::Ne { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2);
-                ctx.push_token(ClacToken::Sub);
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Sub)?;
 
                 let cursor_pos = ctx.cursor;
 
-                ctx.push_token(ClacToken::If);
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Skip);
-                ctx.push_token(ClacToken::Number(0));
+                ctx.push_token(ClacToken::If)?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Skip)?;
+                ctx.push_token(ClacToken::Number(0))?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
 
                 // This avoids double counting the stack delta,
                 ctx.cursor = cursor_pos;
             }
             ClacOp::Neg { value } => {
-                ctx.push_token(ClacToken::Number(0));
-                ctx.bring_up_references(&[*value], 1);
-                ctx.push_token(ClacToken::Sub);
+                ctx.push_token(ClacToken::Number(0))?;
+                ctx.bring_up_references(&[*value], 1)?;
+                ctx.push_token(ClacToken::Sub)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::Not { value } => {
-                ctx.push_token(ClacToken::Number(1));
-                ctx.bring_up_references(&[*value], 1);
-                ctx.push_token(ClacToken::Sub);
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.bring_up_references(&[*value], 1)?;
+                ctx.push_token(ClacToken::Sub)?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             // TODO: theres got to be a better way
@@ -521,21 +564,21 @@ impl<'a> ClacOp<'a> {
             ClacOp::LAnd { lhs, rhs } => {
                 let cursor_pos = ctx.cursor;
 
-                ctx.bring_up_references(&[*lhs], 1);
-                ctx.push_token(ClacToken::If);
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Skip);
-                ctx.push_token(ClacToken::Number(0));
+                ctx.bring_up_references(&[*lhs], 1)?;
+                ctx.push_token(ClacToken::If)?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Skip)?;
+                ctx.push_token(ClacToken::Number(0))?;
 
-                ctx.bring_up_references(&[*rhs], 1);
-                ctx.push_token(ClacToken::If);
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Skip);
-                ctx.push_token(ClacToken::Number(0));
+                ctx.bring_up_references(&[*rhs], 1)?;
+                ctx.push_token(ClacToken::If)?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Skip)?;
+                ctx.push_token(ClacToken::Number(0))?;
 
-                ctx.push_token(ClacToken::Mul);
+                ctx.push_token(ClacToken::Mul)?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
 
                 // This avoids double counting the stack delta,
@@ -544,26 +587,26 @@ impl<'a> ClacOp<'a> {
             // TODO: theres got to be a better way
             // also need to double check
             ClacOp::LOr { lhs, rhs } => {
-                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Number(1))?;
 
                 let cursor_pos = ctx.cursor;
 
-                ctx.bring_up_references(&[*lhs], 1);
-                ctx.push_token(ClacToken::If);
-                ctx.push_token(ClacToken::Number(0));
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Skip);
-                ctx.push_token(ClacToken::Number(1));
+                ctx.bring_up_references(&[*lhs], 1)?;
+                ctx.push_token(ClacToken::If)?;
+                ctx.push_token(ClacToken::Number(0))?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Skip)?;
+                ctx.push_token(ClacToken::Number(1))?;
 
-                ctx.bring_up_references(&[*rhs], 1);
-                ctx.push_token(ClacToken::If);
-                ctx.push_token(ClacToken::Number(0));
-                ctx.push_token(ClacToken::Number(1));
-                ctx.push_token(ClacToken::Skip);
-                ctx.push_token(ClacToken::Number(1));
+                ctx.bring_up_references(&[*rhs], 1)?;
+                ctx.push_token(ClacToken::If)?;
+                ctx.push_token(ClacToken::Number(0))?;
+                ctx.push_token(ClacToken::Number(1))?;
+                ctx.push_token(ClacToken::Skip)?;
+                ctx.push_token(ClacToken::Number(1))?;
 
-                ctx.push_token(ClacToken::Mul);
-                ctx.push_token(ClacToken::Sub);
+                ctx.push_token(ClacToken::Mul)?;
+                ctx.push_token(ClacToken::Sub)?;
                 result = Some(ctx.allocate_tempoary(Type::Int));
 
                 // This avoids double counting the stack delta,
@@ -576,24 +619,25 @@ impl<'a> ClacOp<'a> {
             } => {
                 let (_mangled, def_true) = ctx
                     .lookup_definition(*on_true)
-                    .expect("If valid true definition");
+                    .wrap_err_with(|| format!("Unknown if on_true definition, '{on_true:?}'"))?;
 
                 if let Some(on_false) = on_false {
-                    let (_mangled, def_false) = ctx
-                        .lookup_definition(*on_false)
-                        .expect("If valid false definition");
+                    let (_mangled, def_false) =
+                        ctx.lookup_definition(*on_false).wrap_err_with(|| {
+                            format!("Unknown if false_true definition, '{on_true:?}'")
+                        })?;
 
                     assert_eq!(def_true, def_false);
 
-                    ctx.bring_up_references(&[*condition], 1);
-                    ctx.push_token(ClacToken::If);
-                    ctx.push_token(ClacToken::Call(*on_true));
+                    ctx.bring_up_references(&[*condition], 1)?;
+                    ctx.push_token(ClacToken::If)?;
+                    ctx.push_token(ClacToken::Call(*on_true))?;
 
                     let cursor_pos = ctx.cursor;
 
-                    ctx.push_token(ClacToken::Number(1));
-                    ctx.push_token(ClacToken::Skip);
-                    ctx.push_token(ClacToken::Call(*on_false));
+                    ctx.push_token(ClacToken::Number(1))?;
+                    ctx.push_token(ClacToken::Skip)?;
+                    ctx.push_token(ClacToken::Call(*on_false))?;
 
                     // This avoids double counting the stack delta,
                     // We will either hit on true or on false, never both
@@ -601,25 +645,25 @@ impl<'a> ClacOp<'a> {
                 } else {
                     assert_eq!(def_true.stack_delta(), 0);
 
-                    ctx.bring_up_references(&[*condition], 1);
-                    ctx.push_token(ClacToken::If);
-                    ctx.push_token(ClacToken::Call(*on_true));
-                    ctx.push_token(ClacToken::Number(0));
-                    ctx.push_token(ClacToken::Skip);
+                    ctx.bring_up_references(&[*condition], 1)?;
+                    ctx.push_token(ClacToken::If)?;
+                    ctx.push_token(ClacToken::Call(*on_true))?;
+                    ctx.push_token(ClacToken::Number(0))?;
+                    ctx.push_token(ClacToken::Skip)?;
                 }
             }
             ClacOp::Call { name, parameters } => {
                 let (_mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
                 let return_type = def.return_type;
 
-                ctx.bring_up_references(&parameters, def.paramater_width());
-                ctx.push_token(ClacToken::Call(*name));
+                ctx.bring_up_references(&parameters, def.paramater_width())?;
+                ctx.push_token(ClacToken::Call(*name))?;
 
                 result = Some(ctx.allocate_tempoary(return_type));
             }
         }
 
-        return result;
+        return Ok(result);
     }
 }
 
@@ -678,6 +722,22 @@ impl ClacToken<'_> {
         }
     }
 
+    pub fn check(&self, ctx: &CodegenCtx) -> Result<()> {
+        match self {
+            ClacToken::StartDef(ident) => {
+                ctx.lookup_definition(*ident)
+                    .wrap_err_with(|| format!("Check start definition ident '{ident:?}'"))?;
+            }
+            ClacToken::Call(ident) => {
+                ctx.lookup_definition(*ident)
+                    .wrap_err_with(|| format!("Check call definition ident '{ident:?}'"))?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     pub fn write(&self, ctx: &CodegenCtx, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ClacToken::Number(num) => write!(f, "{num} "),
@@ -698,7 +758,7 @@ impl ClacToken<'_> {
             ClacToken::Skip => write!(f, "skip "),
             ClacToken::StartDef(ident) => {
                 let (mangled, _) = ctx
-                    .lookup_definition(*ident)
+                    .lookup_definition_for_code_gen(*ident)
                     .expect("Token with invalid definition ident");
 
                 write!(f, ": {} ", mangled.0)
@@ -706,7 +766,7 @@ impl ClacToken<'_> {
             ClacToken::EndDef => write!(f, "; "),
             ClacToken::Call(ident) => {
                 let (mangled, _) = ctx
-                    .lookup_definition(*ident)
+                    .lookup_definition_for_code_gen(*ident)
                     .expect("Token with invalid definition ident");
 
                 write!(f, "{} ", mangled.0)
@@ -716,7 +776,7 @@ impl ClacToken<'_> {
 }
 
 // Work arround for a lifetime issue
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StoredDefinitionIdent<'a>(pub DefinitionIdent<'a>);
 
 impl<'a: 'b, 'b> std::borrow::Borrow<DefinitionIdent<'b>> for StoredDefinitionIdent<'a> {
