@@ -7,6 +7,7 @@ use clap::Parser;
 
 pub mod ast;
 pub mod codegen;
+pub mod middleware;
 pub mod parser;
 
 #[derive(Parser)]

@@ -1,7 +1,7 @@
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Value {
     Int(i32),
     Bool(bool),
@@ -65,10 +65,11 @@ pub enum BinaryOp {
     LOr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Type {
     Int,
     Bool,
+    #[default]
     Void,
 }
 
@@ -113,35 +114,42 @@ impl FunctionDef {
 }
 
 #[derive(Debug, Clone)]
-pub enum Statement {
-    FunctionCall(FunctionCall),
-    FunctionDef(FunctionDef),
-    Static {
-        name: Ident,
-        var_type: Type,
-        value: Value,
-    },
-    Local {
-        name: Ident,
-        var_type: Type,
-        expr: Expr,
-    },
-    Return {
-        value: Expr,
-    },
-    If {
-        cases: Vec<IfCase>,
-        otherwise: Option<Block>,
-    },
+pub struct StaticDef {
+    pub name: Ident,
+    pub var_type: Type,
+    pub value: Value,
 }
 
 #[derive(Debug, Clone)]
-pub struct Block {
-    pub statements: Vec<Statement>,
+pub struct LocalDef {
+    pub name: Ident,
+    pub var_type: Type,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone)]
 pub struct IfCase {
     pub condition: Expr,
     pub contents: Block,
+}
+
+#[derive(Debug, Clone)]
+pub struct IfStatement {
+    pub cases: Vec<IfCase>,
+    pub otherwise: Option<Block>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Statement {
+    FunctionCall(FunctionCall),
+    FunctionDef(FunctionDef),
+    Static(StaticDef),
+    Local(LocalDef),
+    Return(Expr),
+    If(IfStatement),
+}
+
+#[derive(Debug, Clone)]
+pub struct Block {
+    pub statements: Vec<Statement>,
 }

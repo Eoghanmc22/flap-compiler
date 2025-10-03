@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt::{self, Display},
+    fmt,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -31,7 +31,7 @@ pub struct Offset(pub u32);
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
     frame_start: u32,
-    pub locals: HashMap<IdentRef<'a>, (Type, Offset)>,
+    pub locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
     pub temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
     pub definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
 }
@@ -81,26 +81,23 @@ impl<'a> CodegenCtx<'a> {
         ident
     }
 
-    pub fn promote_tempoary_to_local(
+    pub fn promote_to_local(
         &mut self,
-        tempoary: TempoaryIdent,
+        data_ref: DataReference<'a>,
         ident: IdentRef<'a>,
-    ) -> bool {
-        let Some(tempoary) = self.lookup_temporary(&tempoary) else {
-            return false;
-        };
-
-        self.top_scope_frame().locals.insert(ident, tempoary);
-
-        return true;
+        var_type: Type,
+    ) {
+        self.top_scope_frame()
+            .locals
+            .insert(ident, (var_type, data_ref));
     }
 
-    pub fn define_function<F: FnOnce(&mut Self)>(
+    pub fn define_function<F: FnOnce(&mut Self) -> anyhow::Result<()>>(
         &mut self,
         ident: IdentRef<'a>,
         signature: FunctionSignature<'a>,
         scope: F,
-    ) -> DefinitionIdent<'a> {
+    ) -> anyhow::Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Function(ident);
         let num = FUNCTION_COUNTER.fetch_add(1, Ordering::Relaxed);
 
@@ -109,17 +106,21 @@ impl<'a> CodegenCtx<'a> {
         {
             let frame = self.push_scope_frame();
             frame.frame_start -= signature.paramater_width();
+
             let mut offset = 0;
-            frame
-                .locals
-                .extend(signature.arguements.iter().map(|(var_type, ident)| {
-                    let cur_offset = offset;
-                    offset += var_type.width();
+            for (var_type, ident) in &signature.arguements {
+                let cur_offset = Offset(frame.frame_start + offset);
+                offset += var_type.width();
 
-                    (*ident, (*var_type, Offset(frame.frame_start + cur_offset)))
-                }));
+                // Name arg as a tempoary
+                let tempoary = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
+                frame.temporaries.insert(tempoary, (*var_type, cur_offset));
+                frame
+                    .locals
+                    .insert(ident, (*var_type, DataReference::Tempoary(tempoary)));
+            }
 
-            (scope)(self);
+            (scope)(self)?;
 
             let frame = self.pop_scope_frame().unwrap();
             let needs_dropping =
@@ -146,10 +147,10 @@ impl<'a> CodegenCtx<'a> {
             (MangledIdent(format!("func-{}-{}", ident, num)), signature),
         );
 
-        def_ident
+        Ok(def_ident)
     }
 
-    pub fn define_static<F: FnOnce(&mut Self)>(
+    pub fn define_static(
         &mut self,
         ident: IdentRef<'a>,
         var_type: Type,
@@ -188,20 +189,16 @@ impl<'a> CodegenCtx<'a> {
         // TODO: Optimize
         let starting_cursor = self.cursor;
         for reference in references {
-            match reference {
-                DataReference::Number(num) => self.push_token(ClacToken::Number(*num)),
+            match *reference {
+                DataReference::Number(num) => self.push_token(ClacToken::Number(num)),
                 DataReference::Static(ident) => {
                     self.push_token(ClacToken::Call(DefinitionIdent::Static(ident)));
                 }
                 DataReference::Local(ident) => {
-                    let (var_type, offset) =
+                    let (var_type, data_ref) =
                         self.lookup_local(ident).expect("Bring up valid local");
 
-                    let rel_offset = self.cursor - offset.0;
-                    for _ in 0..var_type.width() {
-                        self.push_token(ClacToken::Number(rel_offset as i32));
-                        self.push_token(ClacToken::Pick);
-                    }
+                    self.bring_up_references(&[data_ref], var_type.width());
                 }
                 DataReference::Tempoary(ident) => {
                     let (var_type, offset) = self
@@ -240,9 +237,19 @@ impl<'a> CodegenCtx<'a> {
         None
     }
 
-    pub fn lookup_local(&self, ident: &IdentRef) -> Option<(Type, Offset)> {
+    pub fn lookup_local(&self, ident: IdentRef) -> Option<(Type, DataReference<'a>)> {
         for frame in self.scope_stack.iter().rev() {
-            if let Some((var_type, offset)) = frame.locals.get(ident) {
+            if let Some((var_type, data_ref)) = frame.locals.get(ident) {
+                return Some((*var_type, *data_ref));
+            }
+        }
+
+        None
+    }
+
+    pub fn lookup_temporary(&self, ident: TempoaryIdent) -> Option<(Type, Offset)> {
+        for frame in self.scope_stack.iter().rev() {
+            if let Some((var_type, offset)) = frame.temporaries.get(&ident) {
                 return Some((*var_type, *offset));
             }
         }
@@ -250,11 +257,15 @@ impl<'a> CodegenCtx<'a> {
         None
     }
 
-    pub fn lookup_temporary(&self, ident: &TempoaryIdent) -> Option<(Type, Offset)> {
+    pub fn lookup_ident_data_ref(&self, ident: IdentRef<'a>) -> Option<DataReference<'a>> {
         for frame in self.scope_stack.iter().rev() {
-            if let Some((var_type, offset)) = frame.temporaries.get(ident) {
-                return Some((*var_type, *offset));
+            if let Some(_) = frame.locals.get(ident) {
+                return Some(DataReference::Local(ident));
             }
+            if let Some(_) = frame.definitions.get(&DefinitionIdent::Static(ident)) {
+                return Some(DataReference::Static(ident));
+            }
+            // TODO: Is there anything else to check?
         }
 
         None
@@ -263,13 +274,14 @@ impl<'a> CodegenCtx<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum DataReference<'a> {
+    // TODO: Do we need another type here for bool?
     Number(i32),
     Local(IdentRef<'a>),
     Static(IdentRef<'a>),
     Tempoary(TempoaryIdent),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FunctionSignature<'a> {
     pub arguements: Vec<(Type, IdentRef<'a>)>,
     pub return_type: Type,

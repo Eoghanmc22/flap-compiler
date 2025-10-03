@@ -1,7 +1,6 @@
 // TODO: Make if statements expresion position, and make expressions statements
 
 use anyhow::{Context, bail};
-use itertools::Itertools;
 use pest::{
     Parser,
     iterators::{Pair, Pairs},
@@ -10,8 +9,8 @@ use pest::{
 use pest_derive::Parser;
 
 use crate::ast::{
-    BinaryOp, Block, Expr, FunctionCall, FunctionDef, Ident, IfCase, Statement, Type, UnaryOp,
-    Value,
+    BinaryOp, Block, Expr, FunctionCall, FunctionDef, Ident, IfCase, IfStatement, LocalDef,
+    Statement, StaticDef, Type, UnaryOp, Value,
 };
 
 lazy_static::lazy_static! {
@@ -109,11 +108,11 @@ fn parse_statement(pair: Pair<Rule>) -> anyhow::Result<Statement> {
             let name = parse_ident(inner.next().unwrap())?;
             let value = parse_value(inner.next().unwrap())?;
 
-            Ok(Statement::Static {
+            Ok(Statement::Static(StaticDef {
                 name,
                 var_type,
                 value,
-            })
+            }))
         }
         Rule::local_var => {
             let mut inner = target.into_inner();
@@ -121,17 +120,17 @@ fn parse_statement(pair: Pair<Rule>) -> anyhow::Result<Statement> {
             let name = parse_ident(inner.next().unwrap())?;
             let expr = parse_expr(inner.next().unwrap().into_inner())?;
 
-            Ok(Statement::Local {
+            Ok(Statement::Local(LocalDef {
                 name,
                 var_type,
                 expr,
-            })
+            }))
         }
         Rule::return_statement => {
             let mut inner = target.into_inner();
             let value = parse_expr(inner.next().unwrap().into_inner())?;
 
-            Ok(Statement::Return { value })
+            Ok(Statement::Return(value))
         }
         Rule::if_statement => {
             let mut inner = target.into_inner();
@@ -150,7 +149,7 @@ fn parse_statement(pair: Pair<Rule>) -> anyhow::Result<Statement> {
                 }
             }
 
-            Ok(Statement::If { cases, otherwise })
+            Ok(Statement::If(IfStatement { cases, otherwise }))
         }
         _ => bail!("Unsupported statement type: {:?}", target.as_rule()),
     }
