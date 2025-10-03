@@ -1,6 +1,6 @@
 // TODO: Make if statements expresion position, and make expressions statements
 
-use anyhow::{Context, bail};
+use color_eyre::eyre::{Context, Result, bail};
 use pest::{
     Parser,
     iterators::{Pair, Pairs},
@@ -36,14 +36,14 @@ lazy_static::lazy_static! {
 #[grammar = "flap.pest"]
 struct FlapParser;
 
-pub fn parse_program(input: &str) -> anyhow::Result<Block> {
-    let mut pairs = FlapParser::parse(Rule::program, input).context("Autogen parser")?;
+pub fn parse_program(input: &str) -> Result<Block> {
+    let mut pairs = FlapParser::parse(Rule::program, input).wrap_err("Autogen parser")?;
     let program_pair = pairs.next().unwrap();
 
     parse_statements(program_pair.into_inner())
 }
 
-fn parse_statements(pairs: Pairs<Rule>) -> anyhow::Result<Block> {
+fn parse_statements(pairs: Pairs<Rule>) -> Result<Block> {
     let mut statements = Vec::new();
     for statement_pair in pairs {
         match statement_pair.as_rule() {
@@ -58,7 +58,7 @@ fn parse_statements(pairs: Pairs<Rule>) -> anyhow::Result<Block> {
     Ok(Block { statements })
 }
 
-fn parse_statement(pair: Pair<Rule>) -> anyhow::Result<Statement> {
+fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
     let target = pair.into_inner().next().unwrap();
 
     match target.as_rule() {
@@ -155,7 +155,7 @@ fn parse_statement(pair: Pair<Rule>) -> anyhow::Result<Statement> {
     }
 }
 
-fn parse_if_block(pair: Pair<Rule>) -> anyhow::Result<IfCase> {
+fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     let mut inner = pair.into_inner();
     let condition = parse_expr(inner.next().unwrap().into_inner())?;
     let contents = parse_statements(inner)?;
@@ -166,7 +166,7 @@ fn parse_if_block(pair: Pair<Rule>) -> anyhow::Result<IfCase> {
     })
 }
 
-fn parse_type(pair: Pair<Rule>) -> anyhow::Result<Type> {
+fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     let target = pair.into_inner().next().unwrap();
 
     match target.as_rule() {
@@ -176,7 +176,7 @@ fn parse_type(pair: Pair<Rule>) -> anyhow::Result<Type> {
     }
 }
 
-fn parse_ident(pair: Pair<Rule>) -> anyhow::Result<Ident> {
+fn parse_ident(pair: Pair<Rule>) -> Result<Ident> {
     if !matches!(pair.as_rule(), Rule::ident) {
         bail!("Got {:?}, expected ident", pair);
     }
@@ -184,7 +184,7 @@ fn parse_ident(pair: Pair<Rule>) -> anyhow::Result<Ident> {
     Ok(pair.as_str().to_string())
 }
 
-fn parse_expr(pairs: Pairs<Rule>) -> anyhow::Result<Expr> {
+fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
     PRATT_PARSER
         .map_primary(|primary| {
             // Handle primary expressions (atoms)
@@ -239,7 +239,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> anyhow::Result<Expr> {
         .parse(pairs)
 }
 
-fn parse_function_call(pair: Pair<Rule>) -> anyhow::Result<FunctionCall> {
+fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
     let mut inner = pair.into_inner();
     let function = parse_ident(inner.next().unwrap())?;
 
@@ -248,11 +248,11 @@ fn parse_function_call(pair: Pair<Rule>) -> anyhow::Result<FunctionCall> {
         paramaters: inner
             .map(|it| it.into_inner())
             .map(parse_expr)
-            .collect::<anyhow::Result<_>>()?,
+            .collect::<Result<_>>()?,
     })
 }
 
-fn parse_value(pair: Pair<Rule>) -> anyhow::Result<Value> {
+fn parse_value(pair: Pair<Rule>) -> Result<Value> {
     let target = pair.into_inner().next().unwrap();
 
     match target.as_rule() {

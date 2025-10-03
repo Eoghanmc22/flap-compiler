@@ -7,8 +7,8 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::Context;
 use clap::Parser;
+use color_eyre::eyre::{Context, Result};
 
 use crate::codegen::CodegenCtx;
 
@@ -29,7 +29,7 @@ enum Commands {
     Compile { files: Vec<PathBuf> },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     println!("Hello, world!");
@@ -45,17 +45,17 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn compile(file: PathBuf) -> anyhow::Result<()> {
-    let contents = fs::read_to_string(&file).context("Read file")?;
+fn compile(file: PathBuf) -> Result<()> {
+    let contents = fs::read_to_string(&file).wrap_err("Read file")?;
 
-    let program = parser::parse_program(&contents).context("Parse program")?;
+    let program = parser::parse_program(&contents).wrap_err("Parse program")?;
     println!("Parsed AST: {program:#?}");
 
     let mut ctx = CodegenCtx::default();
-    middleware::walk_block(&mut ctx, &program).context("Ast to Clac")?;
+    middleware::walk_block(&mut ctx, &program).wrap_err("Ast to Clac")?;
 
     let output_dir = PathBuf::from("out/");
-    fs::create_dir_all(&output_dir).context("Create out dir")?;
+    fs::create_dir_all(&output_dir).wrap_err("Create out dir")?;
     let out_file = output_dir.join(
         file.with_extension("clac")
             .file_name()
@@ -67,8 +67,8 @@ fn compile(file: PathBuf) -> anyhow::Result<()> {
         .truncate(true)
         .write(true)
         .open(out_file)
-        .context("Open output file")?;
-    write!(&mut file, "{ctx}").context("Write code")?;
+        .wrap_err("Open output file")?;
+    write!(&mut file, "{ctx}").wrap_err("Write code")?;
 
     Ok(())
 }

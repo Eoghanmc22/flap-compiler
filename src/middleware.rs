@@ -1,4 +1,4 @@
-use anyhow::Context;
+use color_eyre::eyre::{ContextCompat, Result};
 
 use crate::{
     ast::{
@@ -8,7 +8,7 @@ use crate::{
     codegen::{ClacOp, CodegenCtx, DataReference, FunctionSignature},
 };
 
-pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block) -> anyhow::Result<()> {
+pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block) -> Result<()> {
     for statement in &block.statements {
         match statement {
             Statement::Static(static_def) => walk_static_def(ctx, static_def)?,
@@ -28,12 +28,12 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block) -> anyhow::Res
 fn walk_function_call<'a>(
     ctx: &mut CodegenCtx<'a>,
     func_call: &'a FunctionCall,
-) -> anyhow::Result<DataReference<'a>> {
+) -> Result<DataReference<'a>> {
     let parameters = func_call
         .paramaters
         .iter()
         .map(|it| walk_expr(ctx, it))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()?;
 
     let clac_op = ClacOp::Call {
         name: crate::codegen::DefinitionIdent::Function(&func_call.function),
@@ -44,10 +44,7 @@ fn walk_function_call<'a>(
     Ok(DataReference::Tempoary(tempoary))
 }
 
-fn walk_function_def<'a>(
-    ctx: &mut CodegenCtx<'a>,
-    func_def: &'a FunctionDef,
-) -> anyhow::Result<()> {
+fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) -> Result<()> {
     ctx.define_function(
         &func_def.function,
         FunctionSignature {
@@ -64,7 +61,7 @@ fn walk_function_def<'a>(
     Ok(())
 }
 
-fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> anyhow::Result<()> {
+fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> Result<()> {
     let StaticDef {
         name,
         var_type,
@@ -76,14 +73,14 @@ fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> a
     Ok(())
 }
 
-fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> anyhow::Result<()> {
+fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Result<()> {
     let data_ref = walk_expr(ctx, &local_def.expr)?;
     ctx.promote_to_local(data_ref, &local_def.name, local_def.var_type);
 
     Ok(())
 }
 
-fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> anyhow::Result<()> {
+fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<()> {
     let data_ref = walk_expr(ctx, expr)?;
     // TODO: handle types that arent 1 sized
     ctx.bring_up_references(&[data_ref], 1);
@@ -95,10 +92,7 @@ fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> anyhow::Result<(
 }
 
 // TODO: Support expresion position if statements
-fn walk_if_statement<'a>(
-    ctx: &mut CodegenCtx<'a>,
-    if_statement: &'a IfStatement,
-) -> anyhow::Result<()> {
+fn walk_if_statement<'a>(ctx: &mut CodegenCtx<'a>, if_statement: &'a IfStatement) -> Result<()> {
     walk_if_statement_inner(ctx, &if_statement.cases, if_statement.otherwise.as_ref())
 }
 
@@ -106,7 +100,7 @@ fn walk_if_statement_inner<'a>(
     ctx: &mut CodegenCtx<'a>,
     if_cases: &'a [IfCase],
     otherwise: Option<&'a Block>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     if let Some((next_case, remaining)) = if_cases.split_first() {
         let condition =
             walk_expr(ctx, &next_case.condition).expect("If cond should return something");
@@ -140,11 +134,11 @@ fn walk_if_statement_inner<'a>(
     }
 }
 
-fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> anyhow::Result<DataReference<'a>> {
+fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReference<'a>> {
     match expr {
         // TODO: Do we need to handle bools seperatly?
         Expr::Value(value) => Ok(DataReference::Number(value.as_repr())),
-        Expr::Ident(ident) => ctx.lookup_ident_data_ref(ident).context("Got bad ident"),
+        Expr::Ident(ident) => ctx.lookup_ident_data_ref(ident).wrap_err("Got bad ident"),
         Expr::BinaryOp { op, left, right } => {
             let lhs = walk_expr(ctx, left)?;
             let rhs = walk_expr(ctx, right)?;

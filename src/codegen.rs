@@ -1,3 +1,5 @@
+use color_eyre::eyre::Result;
+
 use std::{
     collections::HashMap,
     fmt::{self, Display},
@@ -92,12 +94,12 @@ impl<'a> CodegenCtx<'a> {
             .insert(ident, (var_type, data_ref));
     }
 
-    pub fn define_function<F: FnOnce(&mut Self) -> anyhow::Result<()>>(
+    pub fn define_function<F: FnOnce(&mut Self) -> Result<()>>(
         &mut self,
         ident: IdentRef<'a>,
         signature: FunctionSignature<'a>,
         scope: F,
-    ) -> anyhow::Result<DefinitionIdent<'a>> {
+    ) -> Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Function(ident);
         let num = FUNCTION_COUNTER.fetch_add(1, Ordering::Relaxed);
 
