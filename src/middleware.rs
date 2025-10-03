@@ -5,18 +5,20 @@ use crate::{
         BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfStatement, LocalDef, Statement,
         StaticDef,
     },
-    codegen::{ClacOp, CodegenCtx, DataReference, FunctionSignature, TempoaryIdent},
+    codegen::{ClacOp, CodegenCtx, DataReference, FunctionSignature},
 };
 
 pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block) -> anyhow::Result<()> {
     for statement in &block.statements {
         match statement {
-            Statement::FunctionCall(function_call) => walk_function_call(ctx, function_call)?,
-            Statement::FunctionDef(function_def) => walk_function_def(ctx, function_def)?,
             Statement::Static(static_def) => walk_static_def(ctx, static_def)?,
             Statement::Local(local_def) => walk_local_def(ctx, local_def)?,
             Statement::Return(expr) => walk_return(ctx, expr)?,
             Statement::If(if_statement) => walk_if_statement(ctx, if_statement)?,
+            Statement::FunctionDef(function_def) => walk_function_def(ctx, function_def)?,
+            Statement::FunctionCall(function_call) => {
+                walk_function_call(ctx, function_call)?;
+            }
         }
     }
 
@@ -26,15 +28,40 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block) -> anyhow::Res
 fn walk_function_call<'a>(
     ctx: &mut CodegenCtx<'a>,
     func_call: &'a FunctionCall,
-) -> anyhow::Result<()> {
-    todo!()
+) -> anyhow::Result<DataReference<'a>> {
+    let parameters = func_call
+        .paramaters
+        .iter()
+        .map(|it| walk_expr(ctx, it))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let clac_op = ClacOp::Call {
+        name: crate::codegen::DefinitionIdent::Function(&func_call.function),
+        parameters,
+    };
+
+    let tempoary = clac_op.append_into(ctx).unwrap();
+    Ok(DataReference::Tempoary(tempoary))
 }
 
 fn walk_function_def<'a>(
     ctx: &mut CodegenCtx<'a>,
     func_def: &'a FunctionDef,
 ) -> anyhow::Result<()> {
-    todo!()
+    ctx.define_function(
+        &func_def.function,
+        FunctionSignature {
+            arguements: func_def
+                .arguements
+                .iter()
+                .map(|(var_type, ident)| (*var_type, ident.as_str()))
+                .collect(),
+            return_type: func_def.return_type,
+        },
+        |ctx| walk_block(ctx, &func_def.contents),
+    )?;
+
+    Ok(())
 }
 
 fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> anyhow::Result<()> {
@@ -59,7 +86,10 @@ fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> anyh
 fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> anyhow::Result<()> {
     let data_ref = walk_expr(ctx, expr)?;
 
-    todo!("We dont actualy have infra to return yet")
+    // FIXME: This only works for return in ending position
+    // todo!("We dont actualy have infra to return yet")
+
+    Ok(())
 }
 
 // TODO: Support expresion position if statements
@@ -148,20 +178,6 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> anyhow::Result<Dat
             let tempoary = clac_op.append_into(ctx).unwrap();
             Ok(DataReference::Tempoary(tempoary))
         }
-        Expr::FunctionCall(function_call) => {
-            let parameters = function_call
-                .paramaters
-                .iter()
-                .map(|it| walk_expr(ctx, it))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-
-            let clac_op = ClacOp::Call {
-                name: crate::codegen::DefinitionIdent::Function(&function_call.function),
-                parameters,
-            };
-
-            let tempoary = clac_op.append_into(ctx).unwrap();
-            Ok(DataReference::Tempoary(tempoary))
-        }
+        Expr::FunctionCall(func_call) => walk_function_call(ctx, func_call),
     }
 }
