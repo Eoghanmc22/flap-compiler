@@ -364,6 +364,14 @@ pub enum ClacOp<'a> {
     Not {
         value: DataReference<'a>,
     },
+    LAnd {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    LOr {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
     If {
         condition: DataReference<'a>,
         on_true: DefinitionIdent<'a>,
@@ -448,22 +456,34 @@ impl<'a> ClacOp<'a> {
             ClacOp::Eq { lhs, rhs } => {
                 ctx.bring_up_references(&[*lhs, *rhs], 2);
                 ctx.push_token(ClacToken::Sub);
+
+                let cursor_pos = ctx.cursor;
+
                 ctx.push_token(ClacToken::If);
                 ctx.push_token(ClacToken::Number(0));
                 ctx.push_token(ClacToken::Number(1));
                 ctx.push_token(ClacToken::Skip);
                 ctx.push_token(ClacToken::Number(1));
                 result = Some(ctx.allocate_tempoary(Type::Bool));
+
+                // This avoids double counting the stack delta,
+                ctx.cursor = cursor_pos;
             }
             ClacOp::Ne { lhs, rhs } => {
                 ctx.bring_up_references(&[*lhs, *rhs], 2);
                 ctx.push_token(ClacToken::Sub);
+
+                let cursor_pos = ctx.cursor;
+
                 ctx.push_token(ClacToken::If);
                 ctx.push_token(ClacToken::Number(1));
                 ctx.push_token(ClacToken::Number(1));
                 ctx.push_token(ClacToken::Skip);
                 ctx.push_token(ClacToken::Number(0));
                 result = Some(ctx.allocate_tempoary(Type::Bool));
+
+                // This avoids double counting the stack delta,
+                ctx.cursor = cursor_pos;
             }
             ClacOp::Neg { value } => {
                 ctx.push_token(ClacToken::Number(0));
@@ -476,6 +496,59 @@ impl<'a> ClacOp<'a> {
                 ctx.bring_up_references(&[*value], 1);
                 ctx.push_token(ClacToken::Sub);
                 result = Some(ctx.allocate_tempoary(Type::Bool));
+            }
+            // TODO: theres got to be a better way
+            // also need to double check
+            ClacOp::LAnd { lhs, rhs } => {
+                let cursor_pos = ctx.cursor;
+
+                ctx.bring_up_references(&[*lhs], 1);
+                ctx.push_token(ClacToken::If);
+                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Skip);
+                ctx.push_token(ClacToken::Number(0));
+
+                ctx.bring_up_references(&[*rhs], 1);
+                ctx.push_token(ClacToken::If);
+                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Skip);
+                ctx.push_token(ClacToken::Number(0));
+
+                ctx.push_token(ClacToken::Mul);
+                result = Some(ctx.allocate_tempoary(Type::Bool));
+
+                // This avoids double counting the stack delta,
+                ctx.cursor = cursor_pos + 1;
+            }
+            // TODO: theres got to be a better way
+            // also need to double check
+            ClacOp::LOr { lhs, rhs } => {
+                ctx.push_token(ClacToken::Number(1));
+
+                let cursor_pos = ctx.cursor;
+
+                ctx.bring_up_references(&[*lhs], 1);
+                ctx.push_token(ClacToken::If);
+                ctx.push_token(ClacToken::Number(0));
+                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Skip);
+                ctx.push_token(ClacToken::Number(1));
+
+                ctx.bring_up_references(&[*rhs], 1);
+                ctx.push_token(ClacToken::If);
+                ctx.push_token(ClacToken::Number(0));
+                ctx.push_token(ClacToken::Number(1));
+                ctx.push_token(ClacToken::Skip);
+                ctx.push_token(ClacToken::Number(1));
+
+                ctx.push_token(ClacToken::Mul);
+                ctx.push_token(ClacToken::Sub);
+                result = Some(ctx.allocate_tempoary(Type::Int));
+
+                // This avoids double counting the stack delta,
+                ctx.cursor = cursor_pos;
             }
             ClacOp::If {
                 condition,

@@ -130,17 +130,8 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> anyhow::Result<Dat
                 BinaryOp::Ge => ClacOp::Ge { lhs, rhs },
                 BinaryOp::Lt => ClacOp::Lt { lhs, rhs },
                 BinaryOp::Gt => ClacOp::Gt { lhs, rhs },
-
-                // TODO: ====================
-                // TODO: ====================
-                // TODO: ====================
-                // TODO: ====================
-                // TODO: ====================
-                // TODO: ====================
-                // TODO: ====================
-                // TODO: ====================
-                BinaryOp::LAnd => todo!(),
-                BinaryOp::LOr => todo!(),
+                BinaryOp::LAnd => ClacOp::LAnd { lhs, rhs },
+                BinaryOp::LOr => ClacOp::LOr { lhs, rhs },
             };
 
             let tempoary = clac_op.append_into(ctx).unwrap();
