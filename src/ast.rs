@@ -1,4 +1,5 @@
 pub type Ident = String;
+pub type IdentRef<'a> = &'a str;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -64,10 +65,20 @@ pub enum BinaryOp {
     LOr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Int,
     Bool,
+    Void,
+}
+
+impl Type {
+    pub fn width(&self) -> u32 {
+        match self {
+            Type::Int | Type::Bool => 1,
+            Type::Void => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -77,14 +88,34 @@ pub struct FunctionCall {
 }
 
 #[derive(Debug, Clone)]
+pub struct FunctionDef {
+    pub function: Ident,
+    pub arguements: Vec<(Type, Ident)>,
+    pub contents: Block,
+    pub return_type: Type,
+}
+
+impl FunctionDef {
+    pub fn paramater_width(&self) -> u32 {
+        self.arguements
+            .iter()
+            .map(|(var_type, _)| var_type.width())
+            .sum::<u32>()
+    }
+
+    pub fn return_width(&self) -> u32 {
+        self.return_type.width()
+    }
+
+    pub fn stack_delta(&self) -> i32 {
+        self.return_width() as i32 - self.paramater_width() as i32
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     FunctionCall(FunctionCall),
-    FunctionDef {
-        function: Ident,
-        arguements: Vec<(Type, Ident)>,
-        contents: Block,
-        return_type: Type,
-    },
+    FunctionDef(FunctionDef),
     Static {
         name: Ident,
         var_type: Type,

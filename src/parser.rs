@@ -1,14 +1,17 @@
-use anyhow::{bail, Context};
+// TODO: Make if statements expresion position, and make expressions statements
+
+use anyhow::{Context, bail};
 use itertools::Itertools;
 use pest::{
+    Parser,
     iterators::{Pair, Pairs},
     pratt_parser::{Assoc, Op, PrattParser},
-    Parser,
 };
 use pest_derive::Parser;
 
 use crate::ast::{
-    BinaryOp, Block, Expr, FunctionCall, Ident, IfCase, Statement, Type, UnaryOp, Value,
+    BinaryOp, Block, Expr, FunctionCall, FunctionDef, Ident, IfCase, Statement, Type, UnaryOp,
+    Value,
 };
 
 lazy_static::lazy_static! {
@@ -93,12 +96,12 @@ fn parse_statement(pair: Pair<Rule>) -> anyhow::Result<Statement> {
                 }
             }
 
-            Ok(Statement::FunctionDef {
+            Ok(Statement::FunctionDef(FunctionDef {
                 function,
                 arguements,
                 contents: Block { statements },
                 return_type,
-            })
+            }))
         }
         Rule::static_var => {
             let mut inner = target.into_inner();

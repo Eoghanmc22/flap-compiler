@@ -1,9 +1,12 @@
+#![feature(push_mut)]
+
 use std::{fs, path::PathBuf};
 
 use anyhow::Context;
 use clap::Parser;
 
 pub mod ast;
+pub mod codegen;
 pub mod parser;
 
 #[derive(Parser)]
