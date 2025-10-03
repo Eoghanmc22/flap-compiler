@@ -1,12 +1,12 @@
 use color_eyre::eyre::{ContextCompat, Result};
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use crate::ast::{Ident, IdentRef, Type, Value};
+use crate::ast::{FunctionAttribute, Ident, IdentRef, Type, Value};
 
 static TEMPOARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 static FUNCTION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -115,15 +115,22 @@ impl<'a> CodegenCtx<'a> {
         &mut self,
         ident: IdentRef<'a>,
         signature: FunctionSignature<'a>,
+        attributes: &HashSet<FunctionAttribute>,
         scope: F,
     ) -> Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Function(ident);
         let num = FUNCTION_COUNTER.fetch_add(1, Ordering::Relaxed);
 
+        let mangled = if attributes.contains(&FunctionAttribute::NoMangle) {
+            ident.to_string()
+        } else {
+            format!("func-{}-{}", ident, num)
+        };
+
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
             (
-                MangledIdent(format!("func-{}-{}", ident, num)),
+                MangledIdent(mangled),
                 // TODO: Remove clone
                 signature.clone(),
             ),

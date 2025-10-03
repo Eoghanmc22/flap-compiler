@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use pest::Span;
 
 pub type Ident = String;
@@ -95,11 +97,17 @@ pub struct FunctionCall<'a> {
 
 #[derive(Debug, Clone)]
 pub struct FunctionDef<'a> {
+    pub attributes: HashSet<FunctionAttribute>,
     pub function: IdentRef<'a>,
     pub arguements: Vec<(Type, IdentRef<'a>)>,
     pub contents: Block<'a>,
     pub return_type: Type,
     pub span: Span<'a>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum FunctionAttribute {
+    NoMangle,
 }
 
 impl FunctionDef<'_> {

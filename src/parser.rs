@@ -1,5 +1,7 @@
 // TODO: Make if statements expresion position, and make expressions statements
 
+use std::collections::HashSet;
+
 use color_eyre::eyre::{Context, Result, bail};
 use pest::{
     Parser,
@@ -9,8 +11,8 @@ use pest::{
 use pest_derive::Parser;
 
 use crate::ast::{
-    BinaryOp, Block, Expr, FunctionCall, FunctionDef, IdentRef, IfCase, IfStatement, LocalDef,
-    Statement, StaticDef, Type, UnaryOp, Value,
+    BinaryOp, Block, Expr, FunctionAttribute, FunctionCall, FunctionDef, IdentRef, IfCase,
+    IfStatement, LocalDef, Statement, StaticDef, Type, UnaryOp, Value,
 };
 
 lazy_static::lazy_static! {
@@ -66,6 +68,20 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
         Rule::function_call => Ok(Statement::FunctionCall(parse_function_call(target)?)),
         Rule::function_def => {
             let mut inner = target.into_inner();
+
+            let mut attributes = HashSet::new();
+            while let Some(Rule::function_attr) = inner.peek().map(|it| it.as_rule()) {
+                let attrubute = inner.next().unwrap();
+                for pair in attrubute.into_inner() {
+                    match pair.as_rule() {
+                        Rule::no_mangle => {
+                            attributes.insert(FunctionAttribute::NoMangle);
+                        }
+                        _ => bail!("Unsupported function attr token: {:?}", pair.as_rule()),
+                    }
+                }
+            }
+
             let return_type = parse_type(inner.next().unwrap())?;
             let function = parse_ident(inner.next().unwrap())?;
 
@@ -97,6 +113,7 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement> {
             }
 
             Ok(Statement::FunctionDef(FunctionDef {
+                attributes,
                 function,
                 arguements,
                 contents: Block { statements },

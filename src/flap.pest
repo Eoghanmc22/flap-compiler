@@ -63,8 +63,11 @@ if_statement = { if_block ~ if_else_block* ~ else_block? }
 
 statement = { ((function_call | static_var | local_var | return_statement) ~ ";") | if_statement | function_def }
 
+no_mangle = { "no_mangle" }
+function_attr = { no_mangle }
+function_attrs = _{ ("#" ~ "[" ~ function_attr ~ "]")* }
 function_parameters_def = _{ ( var_type ~ ident ~ ("," ~ var_type ~ ident)* )? }
-function_def = { var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
+function_def = { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
 
 block = _{ "{" ~ statement* ~ "}" | statement }
 

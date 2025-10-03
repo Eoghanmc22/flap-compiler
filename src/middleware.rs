@@ -64,6 +64,7 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
                 .collect(),
             return_type: func_def.return_type,
         },
+        &func_def.attributes,
         |ctx| walk_block(ctx, &func_def.contents),
     )?;
 
@@ -78,7 +79,7 @@ fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> R
         ..
     } = static_def;
 
-    ctx.define_static(name, *var_type, *value);
+    ctx.define_static(name, *var_type, *value)?;
 
     Ok(())
 }
@@ -93,7 +94,7 @@ fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Resu
 fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<()> {
     let data_ref = walk_expr(ctx, expr)?;
     // TODO: handle types that arent 1 sized
-    ctx.bring_up_references(&[data_ref], 1);
+    ctx.bring_up_references(&[data_ref], 1)?;
 
     // FIXME: This only works for return in ending position
     // todo!("We dont actualy have infra to return yet")
@@ -116,16 +117,20 @@ fn walk_if_statement_inner<'a>(
             .wrap_err("If cond should return something")
             .with_section(|| generate_span_error_section(next_case.span))?;
 
-        let on_true = ctx.define_function("on_true", FunctionSignature::default(), |ctx| {
-            walk_block(ctx, &next_case.contents)
-        })?;
+        let on_true = ctx.define_function(
+            "on_true",
+            FunctionSignature::default(),
+            &Default::default(),
+            |ctx| walk_block(ctx, &next_case.contents),
+        )?;
 
         let on_false = if !remaining.is_empty() || otherwise.is_some() {
-            Some(
-                ctx.define_function("on_false", FunctionSignature::default(), |ctx| {
-                    walk_if_statement_inner(ctx, remaining, otherwise)
-                })?,
-            )
+            Some(ctx.define_function(
+                "on_false",
+                FunctionSignature::default(),
+                &Default::default(),
+                |ctx| walk_if_statement_inner(ctx, remaining, otherwise),
+            )?)
         } else {
             None
         };
@@ -135,7 +140,7 @@ fn walk_if_statement_inner<'a>(
             on_true,
             on_false,
         };
-        clac_op.append_into(ctx);
+        clac_op.append_into(ctx)?;
 
         Ok(())
     } else if let Some(otherwise) = otherwise {
@@ -148,7 +153,7 @@ fn walk_if_statement_inner<'a>(
 fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReference<'a>> {
     match expr {
         // TODO: Do we need to handle bools seperatly?
-        Expr::Value(value, span) => Ok(DataReference::Number(value.as_repr())),
+        Expr::Value(value, _span) => Ok(DataReference::Number(value.as_repr())),
         Expr::Ident(ident, span) => ctx
             .lookup_ident_data_ref(ident)
             .wrap_err_with(|| format!("Could not find identifier: {ident}"))

@@ -2,7 +2,7 @@
 
 use std::{
     ffi::OsStr,
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::Write,
     path::PathBuf,
 };
