@@ -1,0 +1,6 @@
+int test() {
+  int i = 42;
+  int j = i + 37;
+  return j ** 5;
+}
+return test();

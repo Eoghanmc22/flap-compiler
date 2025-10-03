@@ -26,11 +26,11 @@ pub struct BranchIdent(pub u64);
 
 /// Repersents an offset from bottom of the stack / start of the program
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Offset(pub u32);
+pub struct Offset(pub i32);
 
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
-    frame_start: u32,
+    frame_start: i32,
     pub locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
     pub temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
     pub definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
@@ -42,7 +42,7 @@ pub struct CodegenCtx<'a> {
     pub scope_stack: Vec<ScopeFrame<'a>>,
     // Index of one past the top of the stack
     // Aka the length of the stack
-    cursor: u32,
+    cursor: i32,
 }
 
 // FIXME: Many of these functions should be private
@@ -72,7 +72,7 @@ impl<'a> CodegenCtx<'a> {
         let ident = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
 
         let offset = Offset(self.cursor);
-        self.cursor += var_type.width();
+        self.cursor += var_type.width() as i32;
 
         self.top_scope_frame()
             .temporaries
@@ -114,12 +114,12 @@ impl<'a> CodegenCtx<'a> {
 
         {
             let frame = self.push_scope_frame();
-            frame.frame_start -= signature.paramater_width();
+            frame.frame_start -= signature.paramater_width() as i32;
 
             let mut offset = 0;
             for (var_type, ident) in &signature.arguements {
                 let cur_offset = Offset(frame.frame_start + offset);
-                offset += var_type.width();
+                offset += var_type.width() as i32;
 
                 // Name arg as a tempoary
                 let tempoary = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
@@ -146,7 +146,10 @@ impl<'a> CodegenCtx<'a> {
                 self.push_token(ClacToken::Drop);
             }
 
-            assert_eq!(self.cursor - frame.frame_start, signature.return_width());
+            assert_eq!(
+                self.cursor - frame.frame_start,
+                signature.return_width() as i32
+            );
         }
 
         self.push_token(ClacToken::EndDef);
@@ -211,17 +214,17 @@ impl<'a> CodegenCtx<'a> {
 
                     let rel_offset = self.cursor - offset.0;
                     for _ in 0..var_type.width() {
-                        self.push_token(ClacToken::Number(rel_offset as i32));
+                        self.push_token(ClacToken::Number(rel_offset));
                         self.push_token(ClacToken::Pick);
                     }
                 }
             }
         }
-        assert_eq!(self.cursor - starting_cursor, expected_width)
+        assert_eq!(self.cursor - starting_cursor, expected_width as i32)
     }
 
     pub fn push_token(&mut self, token: ClacToken<'a>) {
-        self.cursor = (self.cursor as i32 + token.stack_delta(&self)) as u32;
+        self.cursor = self.cursor + token.stack_delta(&self);
         self.tokens.push(token);
 
         // Sanity check
