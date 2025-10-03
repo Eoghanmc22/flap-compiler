@@ -1,4 +1,7 @@
-use color_eyre::eyre::{ContextCompat, Result};
+use color_eyre::{
+    Section,
+    eyre::{Context, ContextCompat, Result},
+};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -15,6 +18,7 @@ static STATIC_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DefinitionIdent<'a> {
     Function(IdentRef<'a>),
+    Builtin(IdentRef<'a>),
     Static(IdentRef<'a>),
 }
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -38,7 +42,7 @@ pub struct ScopeFrame<'a> {
     pub definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CodegenCtx<'a> {
     pub tokens: Vec<ClacToken<'a>>,
     pub scope_stack: Vec<ScopeFrame<'a>>,
@@ -46,11 +50,45 @@ pub struct CodegenCtx<'a> {
     // Aka the length of the stack
     cursor: i32,
 
+    pub builtins: HashMap<Ident, (Vec<ClacToken<'a>>, FunctionSignature<'a>)>,
+
     // A function defined inside another function goes out of the scope stack when the outer
     // function goes out of scope, this means its not avaible for code gen. To prevent this we
     // store a copy of every definition ever made here.
     pub definitions_for_codegen:
         HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
+}
+
+impl Default for CodegenCtx<'_> {
+    fn default() -> Self {
+        let mut ctx = Self {
+            tokens: Default::default(),
+            scope_stack: Default::default(),
+            cursor: Default::default(),
+            definitions_for_codegen: Default::default(),
+            builtins: Default::default(),
+        };
+
+        ctx.define_builtin(
+            "print",
+            FunctionSignature {
+                arguements: vec![(Type::Int, "value")],
+                return_type: Type::Void,
+            },
+            vec![ClacToken::Print],
+        );
+
+        ctx.define_builtin(
+            "quit",
+            FunctionSignature {
+                arguements: vec![],
+                return_type: Type::Void,
+            },
+            vec![ClacToken::Quit],
+        );
+
+        ctx
+    }
 }
 
 // FIXME: Many of these functions should be private
@@ -216,6 +254,15 @@ impl<'a> CodegenCtx<'a> {
         Ok(def_ident)
     }
 
+    pub fn define_builtin(
+        &mut self,
+        ident: IdentRef<'a>,
+        sig: FunctionSignature<'a>,
+        code: Vec<ClacToken<'a>>,
+    ) {
+        self.builtins.insert(ident.to_string(), (code, sig));
+    }
+
     /// Copies the data pointed to by the references to the top of the stack
     /// Stack after call: S, r_1, ..., r_n
     #[must_use]
@@ -267,6 +314,31 @@ impl<'a> CodegenCtx<'a> {
         assert!(self.cursor >= self.top_scope_frame().frame_start);
 
         Ok(())
+    }
+
+    pub fn call_function_like(
+        &mut self,
+        ident: IdentRef<'a>,
+        parameters: Vec<DataReference<'a>>,
+    ) -> Result<DataReference<'a>> {
+        // TODO: Try to get rid of clone
+        let tempoary = if let Some((inline_code, sig)) = self.builtins.get_mut(ident).cloned() {
+            self.bring_up_references(&parameters, sig.paramater_width())?;
+
+            for clac_token in inline_code {
+                self.push_token(clac_token)?;
+            }
+            self.allocate_tempoary(sig.return_type)
+        } else {
+            let clac_op = ClacOp::Call {
+                name: crate::codegen::DefinitionIdent::Function(ident),
+                parameters,
+            };
+
+            clac_op.append_into(self)?.unwrap()
+        };
+
+        Ok(DataReference::Tempoary(tempoary))
     }
 
     pub fn lookup_definition(

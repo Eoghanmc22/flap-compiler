@@ -40,17 +40,9 @@ fn walk_function_call<'a>(
         .map(|it| walk_expr(ctx, it))
         .collect::<Result<Vec<_>>>()?;
 
-    let clac_op = ClacOp::Call {
-        name: crate::codegen::DefinitionIdent::Function(&func_call.function),
-        parameters,
-    };
-
-    let tempoary = clac_op
-        .append_into(ctx)
+    ctx.call_function_like(func_call.function, parameters)
         .wrap_err_with(|| format!("Walk function '{:?}' failed", func_call.function))
-        .with_section(|| generate_span_error_section(func_call.span))?
-        .unwrap();
-    Ok(DataReference::Tempoary(tempoary))
+        .with_section(|| generate_span_error_section(func_call.span))
 }
 
 fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) -> Result<()> {
@@ -97,7 +89,7 @@ fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<()> {
     ctx.bring_up_references(&[data_ref], 1)?;
 
     // FIXME: This only works for return in ending position
-    // todo!("We dont actualy have infra to return yet")
+    // todo!("We dont actualy have infra to early return yet")
 
     Ok(())
 }
