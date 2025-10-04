@@ -130,10 +130,8 @@ impl<'a> CodegenCtx<'a> {
     pub fn allocate_tempoary(&mut self, var_type: Type) -> TempoaryIdent {
         let ident = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-        // TODO: Is this -1 correct?
-        assert!(self.cursor > 0);
+        assert!(var_type == Type::Void || self.cursor > 0);
         let offset = Offset(self.cursor - 1);
-        // self.cursor += var_type.width() as i32;
 
         self.top_scope_frame()
             .temporaries
@@ -153,7 +151,7 @@ impl<'a> CodegenCtx<'a> {
             .insert(ident, (var_type, data_ref));
     }
 
-    pub fn define_function<F: FnOnce(&mut Self) -> Result<()>>(
+    pub fn define_function<F: FnOnce(&mut Self) -> Result<DataReference<'a>>>(
         &mut self,
         ident: IdentRef<'a>,
         signature: FunctionSignature<'a>,
@@ -202,7 +200,9 @@ impl<'a> CodegenCtx<'a> {
             }
             println!("New Frame 1 '{ident}': {frame:#?}");
 
-            (scope)(self)?;
+            let return_data_ref = (scope)(self)?;
+
+            self.bring_up_references(&[return_data_ref], signature.return_width())?;
 
             let frame = self.pop_scope_frame().unwrap();
             let needs_dropping =
@@ -301,6 +301,10 @@ impl<'a> CodegenCtx<'a> {
                         .lookup_temporary(ident)
                         .expect("Bring up valid temporary");
 
+                    if var_type == Type::Void {
+                        continue;
+                    }
+
                     let rel_offset = self.cursor - offset.0;
                     println!(
                         "bring up reference '{reference:?}', cursor: {}, offset: {}, rel_offset: {}",
@@ -316,7 +320,13 @@ impl<'a> CodegenCtx<'a> {
                 }
             }
         }
-        assert_eq!(self.cursor - starting_cursor, expected_width as i32);
+
+        if self.cursor - starting_cursor != expected_width as i32 {
+            bail!(
+                "Type error?: expected to load width {expected_width}, actually loaded: {}, references: {references:#?}",
+                self.cursor - starting_cursor
+            )
+        }
 
         Ok(())
     }
@@ -357,6 +367,18 @@ impl<'a> CodegenCtx<'a> {
         };
 
         Ok(DataReference::Tempoary(tempoary))
+    }
+
+    pub fn lookup_function_like_signature(
+        &self,
+        ident: IdentRef<'a>,
+    ) -> Option<&FunctionSignature<'a>> {
+        if let Some((_inline_code, sig)) = self.builtins.get(ident) {
+            Some(sig)
+        } else {
+            self.lookup_definition(DefinitionIdent::Function(ident))
+                .map(|(_mangled, sig)| sig)
+        }
     }
 
     pub fn lookup_definition(
@@ -406,13 +428,13 @@ impl<'a> CodegenCtx<'a> {
         None
     }
 
-    pub fn lookup_ident_data_ref(&self, ident: IdentRef<'a>) -> Option<DataReference<'a>> {
+    pub fn lookup_ident_data_ref(&self, ident: IdentRef<'a>) -> Option<(DataReference<'a>, Type)> {
         for frame in self.scope_stack.iter().rev() {
-            if let Some(_) = frame.locals.get(ident) {
-                return Some(DataReference::Local(ident));
+            if let Some((var_type, _)) = frame.locals.get(ident) {
+                return Some((DataReference::Local(ident), *var_type));
             }
-            if let Some(_) = frame.definitions.get(&DefinitionIdent::Static(ident)) {
-                return Some(DataReference::Static(ident));
+            if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Static(ident)) {
+                return Some((DataReference::Static(ident), sig.return_type));
             }
             // TODO: Is there anything else to check?
         }

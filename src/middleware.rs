@@ -7,27 +7,39 @@ use std::fmt::Write;
 
 use crate::{
     ast::{
-        BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfStatement, LocalDef, Statement,
-        StaticDef,
+        BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef, Statement,
+        StaticDef, Type,
     },
     codegen::{ClacOp, CodegenCtx, DataReference, FunctionSignature},
+    type_check::TypeCheck,
 };
 
-pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<()> {
+pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<DataReference<'a>> {
+    let mut last_return_val = None;
+
     for statement in &block.statements {
-        match statement {
-            Statement::Static(static_def) => walk_static_def(ctx, static_def)?,
-            Statement::Local(local_def) => walk_local_def(ctx, local_def)?,
-            Statement::Return(expr) => walk_return(ctx, expr)?,
-            Statement::If(if_statement) => walk_if_statement(ctx, if_statement)?,
-            Statement::FunctionDef(function_def) => walk_function_def(ctx, function_def)?,
-            Statement::FunctionCall(function_call) => {
-                walk_function_call(ctx, function_call)?;
+        last_return_val = match statement {
+            Statement::Static(static_def) => {
+                walk_static_def(ctx, static_def)?;
+                None
             }
+            Statement::Local(local_def) => {
+                walk_local_def(ctx, local_def)?;
+                None
+            }
+            Statement::FunctionDef(function_def) => {
+                walk_function_def(ctx, function_def)?;
+                None
+            }
+            Statement::Expr(expr) => Some(walk_expr(ctx, expr)?),
         }
     }
 
-    Ok(())
+    if let Some(last_return_val) = last_return_val {
+        Ok(last_return_val)
+    } else {
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)))
+    }
 }
 
 fn walk_function_call<'a>(
@@ -41,7 +53,7 @@ fn walk_function_call<'a>(
         .collect::<Result<Vec<_>>>()?;
 
     ctx.call_function_like(func_call.function, parameters)
-        .wrap_err_with(|| format!("Walk function '{:?}' failed", func_call.function))
+        .wrap_err_with(|| format!("Walk function call '{:?}' failed", func_call.function))
         .with_section(|| generate_span_error_section(func_call.span))
 }
 
@@ -58,7 +70,9 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
         },
         &func_def.attributes,
         |ctx| walk_block(ctx, &func_def.contents),
-    )?;
+    )
+    .wrap_err_with(|| format!("Walk function def '{:?}' failed", func_def.function))
+    .with_section(|| generate_span_error_section(func_def.span))?;
 
     Ok(())
 }
@@ -83,27 +97,22 @@ fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Resu
     Ok(())
 }
 
-fn walk_return<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<()> {
-    let data_ref = walk_expr(ctx, expr)?;
-    // TODO: handle types that arent 1 sized
-    ctx.bring_up_references(&[data_ref], 1)?;
-
-    // FIXME: This only works for return in ending position
-    // todo!("We dont actualy have infra to early return yet")
-
-    Ok(())
-}
-
 // TODO: Support expresion position if statements
-fn walk_if_statement<'a>(ctx: &mut CodegenCtx<'a>, if_statement: &'a IfStatement) -> Result<()> {
-    walk_if_statement_inner(ctx, &if_statement.cases, if_statement.otherwise.as_ref())
+fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<DataReference<'a>> {
+    walk_if_statement_inner(
+        ctx,
+        &if_expr.cases,
+        if_expr.otherwise.as_ref(),
+        if_expr.return_type,
+    )
 }
 
 fn walk_if_statement_inner<'a>(
     ctx: &mut CodegenCtx<'a>,
     if_cases: &'a [IfCase],
     otherwise: Option<&'a Block>,
-) -> Result<()> {
+    return_type: Type,
+) -> Result<DataReference<'a>> {
     if let Some((next_case, remaining)) = if_cases.split_first() {
         let condition = walk_expr(ctx, &next_case.condition)
             .wrap_err("If cond should return something")
@@ -111,7 +120,10 @@ fn walk_if_statement_inner<'a>(
 
         let on_true = ctx.define_function(
             "on_true",
-            FunctionSignature::default(),
+            FunctionSignature {
+                arguements: vec![],
+                return_type,
+            },
             &Default::default(),
             |ctx| walk_block(ctx, &next_case.contents),
         )?;
@@ -119,9 +131,12 @@ fn walk_if_statement_inner<'a>(
         let on_false = if !remaining.is_empty() || otherwise.is_some() {
             Some(ctx.define_function(
                 "on_false",
-                FunctionSignature::default(),
+                FunctionSignature {
+                    arguements: vec![],
+                    return_type,
+                },
                 &Default::default(),
-                |ctx| walk_if_statement_inner(ctx, remaining, otherwise),
+                |ctx| walk_if_statement_inner(ctx, remaining, otherwise, return_type),
             )?)
         } else {
             None
@@ -134,20 +149,20 @@ fn walk_if_statement_inner<'a>(
         };
         clac_op.append_into(ctx)?;
 
-        Ok(())
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(return_type)))
     } else if let Some(otherwise) = otherwise {
         walk_block(ctx, &otherwise)
     } else {
-        Ok(())
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)))
     }
 }
 
 fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReference<'a>> {
     match expr {
-        // TODO: Do we need to handle bools seperatly?
         Expr::Value(value, _span) => Ok(DataReference::Number(value.as_repr())),
         Expr::Ident(ident, span) => ctx
             .lookup_ident_data_ref(ident)
+            .map(|it| it.0)
             .wrap_err_with(|| format!("Could not find identifier: {ident}"))
             .with_section(|| generate_span_error_section(*span)),
         Expr::BinaryOp {
@@ -199,14 +214,38 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReferen
             Ok(DataReference::Tempoary(tempoary))
         }
         Expr::FunctionCall(func_call) => walk_function_call(ctx, func_call),
+        Expr::If(if_expr) => walk_if_expr(ctx, if_expr),
     }
 }
 
-fn generate_span_error_section(span: Span) -> String {
+pub fn generate_span_error_section(span: Span) -> String {
+    generate_span_error_section_with_annotations(span, &[])
+}
+
+pub fn generate_span_error_section_with_annotations(
+    span: Span,
+    annotations: &[(Span, &str)],
+) -> String {
     let mut string = String::new();
     for line_span in span.lines_span() {
         let (line, _col) = line_span.start_pos().line_col();
         write!(&mut string, "{line:4} | {}", line_span.as_str()).unwrap();
+
+        for (anno_span, annotation) in annotations {
+            for anno_line_span in anno_span.lines_span() {
+                let (anno_line, anno_col_start) = anno_line_span.start_pos().line_col();
+                let (_anno_line, anno_col_end) = anno_line_span.end_pos().line_col();
+
+                if anno_line == line {
+                    let mut marker = String::new();
+
+                    marker.push_str(&" ".repeat(anno_col_start));
+                    marker.push_str(&"^".repeat(anno_col_end - anno_col_start));
+
+                    writeln!(&mut string, "{marker} - {annotation}").unwrap();
+                }
+            }
+        }
     }
     string
 }

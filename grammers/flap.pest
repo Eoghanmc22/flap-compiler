@@ -43,7 +43,7 @@ logical_not = { "!" }
 
 binary_op = _{ add | subtract | power | multiply | divide | modulo | eq | ne | le | ge | lt | gt | logical_and | logical_or }
 unary_op = _{ negate | logical_not }
-atom = _{ function_call | ident | value | ( "(" ~ expression ~ ")") }
+atom = _{ if_statement | function_call | value | ident | ( "(" ~ expression ~ ")") }
 expression = { unary_op? ~ atom ~ (binary_op ~ unary_op? ~atom)* }
 
 // A static_var can only take on the value of a literal
@@ -54,14 +54,13 @@ local_var = { var_type ~ ident ~ "=" ~ expression }
 function_parameters = _{ ( expression ~ ("," ~ expression)* )? }
 function_call = { ident ~ "(" ~ function_parameters ~ ")"  }
 
-return_statement = { "return" ~ expression }
-
 if_block = { "if" ~ "(" ~ expression ~ ")" ~ block }
 if_else_block = _{ "else" ~ if_block }
 else_block = { "else" ~ block }
 if_statement = { if_block ~ if_else_block* ~ else_block? }
 
-statement = { (( return_statement | function_call | static_var | local_var ) ~ ";") | if_statement | function_def }
+semicolon = { ";" }
+statement = _{ (static_var | local_var | expression) ~ semicolon | function_def }
 
 no_mangle = { "no_mangle" }
 function_attr = { no_mangle }
@@ -69,6 +68,8 @@ function_attrs = _{ ("#" ~ "[" ~ function_attr ~ "]")* }
 function_parameters_def = _{ ( var_type ~ ident ~ ("," ~ var_type ~ ident)* )? }
 function_def = { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
 
-block = _{ "{" ~ statement* ~ "}" | statement }
+block = { "{" ~ code ~ "}" | statement | expression }
+code = _{ statement* ~ expression? }
 
-program = { SOI ~ block* ~ EOI }
+program_contents = { code }
+program = { SOI ~ program_contents ~ EOI }

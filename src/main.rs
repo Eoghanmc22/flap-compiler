@@ -1,3 +1,6 @@
+// TODO: figure out where to run the good type checking
+// TODO: type inference for local vars
+// TODO: Need to add back semicolons so that we know when an implicit return is desired
 #![feature(push_mut)]
 
 use std::{
@@ -16,6 +19,7 @@ pub mod ast;
 pub mod codegen;
 pub mod middleware;
 pub mod parser;
+pub mod type_check;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

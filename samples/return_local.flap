@@ -1,2 +1,2 @@
 int i = 37;
-return i;
+i
