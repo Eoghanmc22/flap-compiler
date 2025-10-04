@@ -1,6 +1,6 @@
 use color_eyre::{
     Section,
-    eyre::{Context, ContextCompat, Result},
+    eyre::{Context, ContextCompat, Result, bail},
 };
 
 use std::{
@@ -106,6 +106,8 @@ impl<'a> CodegenCtx<'a> {
         let old_frame = self.scope_stack.pop();
 
         if let Some(ref old_frame) = old_frame {
+            println!("Old Frame: {old_frame:#?}");
+
             self.definitions_for_codegen.extend(
                 old_frame
                     .definitions
@@ -128,8 +130,10 @@ impl<'a> CodegenCtx<'a> {
     pub fn allocate_tempoary(&mut self, var_type: Type) -> TempoaryIdent {
         let ident = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-        let offset = Offset(self.cursor);
-        self.cursor += var_type.width() as i32;
+        // TODO: Is this -1 correct?
+        assert!(self.cursor > 0);
+        let offset = Offset(self.cursor - 1);
+        // self.cursor += var_type.width() as i32;
 
         self.top_scope_frame()
             .temporaries
@@ -174,11 +178,15 @@ impl<'a> CodegenCtx<'a> {
             ),
         );
 
+        let original_cursor = self.cursor;
         self.push_token(ClacToken::StartDef(def_ident)).unwrap();
 
         {
-            let frame = self.push_scope_frame();
-            frame.frame_start -= signature.paramater_width() as i32;
+            self.push_scope_frame();
+            self.cursor += signature.paramater_width() as i32;
+
+            let frame = self.top_scope_frame();
+            println!("New Frame 1 '{ident}': {frame:#?}");
 
             let mut offset = 0;
             for (var_type, ident) in &signature.arguements {
@@ -192,6 +200,7 @@ impl<'a> CodegenCtx<'a> {
                     .locals
                     .insert(ident, (*var_type, DataReference::Tempoary(tempoary)));
             }
+            println!("New Frame 1 '{ident}': {frame:#?}");
 
             (scope)(self)?;
 
@@ -217,6 +226,7 @@ impl<'a> CodegenCtx<'a> {
         }
 
         self.push_token(ClacToken::EndDef)?;
+        self.cursor = original_cursor;
 
         Ok(def_ident)
     }
@@ -283,6 +293,7 @@ impl<'a> CodegenCtx<'a> {
                     let (var_type, data_ref) =
                         self.lookup_local(ident).expect("Bring up valid local");
 
+                    println!("recursing to bring up local reference '{ident}'",);
                     self.bring_up_references(&[data_ref], var_type.width())?;
                 }
                 DataReference::Tempoary(ident) => {
@@ -291,7 +302,14 @@ impl<'a> CodegenCtx<'a> {
                         .expect("Bring up valid temporary");
 
                     let rel_offset = self.cursor - offset.0;
+                    println!(
+                        "bring up reference '{reference:?}', cursor: {}, offset: {}, rel_offset: {}",
+                        self.cursor, offset.0, rel_offset
+                    );
                     for _ in 0..var_type.width() {
+                        if rel_offset <= 0 {
+                            bail!("Got rel_offset {rel_offset} < 0");
+                        }
                         self.push_token(ClacToken::Number(rel_offset))?;
                         self.push_token(ClacToken::Pick)?;
                     }
@@ -605,10 +623,12 @@ impl<'a> ClacOp<'a> {
                 ctx.push_token(ClacToken::Number(1))?;
                 ctx.push_token(ClacToken::Skip)?;
                 ctx.push_token(ClacToken::Number(1))?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
 
                 // This avoids double counting the stack delta,
+                // -1 from `if`, +1 from value load
                 ctx.cursor = cursor_pos;
+
+                result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             ClacOp::Ne { lhs, rhs } => {
                 ctx.bring_up_references(&[*lhs, *rhs], 2)?;
@@ -621,10 +641,12 @@ impl<'a> ClacOp<'a> {
                 ctx.push_token(ClacToken::Number(1))?;
                 ctx.push_token(ClacToken::Skip)?;
                 ctx.push_token(ClacToken::Number(0))?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
 
                 // This avoids double counting the stack delta,
+                // -1 from `if`, +1 from value load
                 ctx.cursor = cursor_pos;
+
+                result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             ClacOp::Neg { value } => {
                 ctx.push_token(ClacToken::Number(0))?;
@@ -658,10 +680,12 @@ impl<'a> ClacOp<'a> {
                 ctx.push_token(ClacToken::Number(0))?;
 
                 ctx.push_token(ClacToken::Mul)?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
 
                 // This avoids double counting the stack delta,
+                // +1 from first `if`, +1 from second if, -1 from `mul`
                 ctx.cursor = cursor_pos + 1;
+
+                result = Some(ctx.allocate_tempoary(Type::Bool));
             }
             // TODO: theres got to be a better way
             // also need to double check
@@ -686,10 +710,12 @@ impl<'a> ClacOp<'a> {
 
                 ctx.push_token(ClacToken::Mul)?;
                 ctx.push_token(ClacToken::Sub)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
 
                 // This avoids double counting the stack delta,
+                // +1 from first `if`, +1 from second if, -1 from `mul`, -1 from `sub`
                 ctx.cursor = cursor_pos;
+
+                result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::If {
                 condition,
@@ -720,6 +746,7 @@ impl<'a> ClacOp<'a> {
 
                     // This avoids double counting the stack delta,
                     // We will either hit on true or on false, never both
+                    // This sets the counter back to the its value after the first call
                     ctx.cursor = cursor_pos;
                 } else {
                     assert_eq!(def_true.stack_delta(), 0);

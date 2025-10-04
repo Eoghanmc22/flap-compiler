@@ -1,1 +1,1 @@
-: func-test-0 42 37 + 1 pick 5 ** 1 pick swap drop swap drop swap drop swap drop ; func-test-0 1 pick 
+: func-test-0 42 37 + 1 pick 5 ** 1 pick swap drop swap drop ; func-test-0 1 pick 

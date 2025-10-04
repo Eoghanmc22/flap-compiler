@@ -61,7 +61,7 @@ if_else_block = _{ "else" ~ if_block }
 else_block = { "else" ~ block }
 if_statement = { if_block ~ if_else_block* ~ else_block? }
 
-statement = { ((function_call | static_var | local_var | return_statement) ~ ";") | if_statement | function_def }
+statement = { (( return_statement | function_call | static_var | local_var ) ~ ";") | if_statement | function_def }
 
 no_mangle = { "no_mangle" }
 function_attr = { no_mangle }
