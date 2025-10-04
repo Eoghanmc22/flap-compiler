@@ -70,9 +70,7 @@ impl<'a> TypeChecker<'a> {
             "Attempted to pop builtins frame of type checker"
         );
 
-        let old_frame = self.scope_stack.pop();
-
-        old_frame
+        self.scope_stack.pop()
     }
 
     fn top_scope_frame(&mut self) -> &mut TypeCheckerFrame<'a> {
@@ -151,7 +149,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
         match self {
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)
-                .wrap_err_with(|| format!("Could not type check expr value"))
+                .wrap_err("Could not type check expr value")
                 .with_section(|| generate_span_error_section(*span)),
             Expr::Ident(ident, span) => {
                 let var_type = ctx

@@ -205,8 +205,7 @@ impl<'a> CodegenCtx<'a> {
             self.bring_up_references(&[return_data_ref], signature.return_width())?;
 
             let frame = self.pop_scope_frame().unwrap();
-            let needs_dropping =
-                self.cursor as i32 - frame.frame_start as i32 - signature.return_width() as i32;
+            let needs_dropping = self.cursor - frame.frame_start - signature.return_width() as i32;
 
             assert!(needs_dropping >= 0);
 
@@ -282,7 +281,6 @@ impl<'a> CodegenCtx<'a> {
     /// Copies the data pointed to by the references to the top of the stack
     /// Stack after call: S, r_1, ..., r_n
     // TODO: Check types instead of widths
-    #[must_use]
     pub fn bring_up_references(
         &mut self,
         references: &[DataReference<'a>],
@@ -345,9 +343,8 @@ impl<'a> CodegenCtx<'a> {
         Ok(())
     }
 
-    #[must_use]
     pub fn push_token(&mut self, token: ClacToken) -> Result<()> {
-        self.cursor = self.cursor + token.stack_delta();
+        self.cursor += token.stack_delta();
         self.tokens.push(token);
 
         // Sanity check
@@ -798,7 +795,7 @@ impl<'a> ClacOp<'a> {
                 let (mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
                 let return_type = def.return_type;
 
-                ctx.bring_up_references(&parameters, def.paramater_width())?;
+                ctx.bring_up_references(parameters, def.paramater_width())?;
                 ctx.push_token(ClacToken::Call {
                     mangled_ident: mangled,
                     stack_delta: def.stack_delta(),
@@ -808,7 +805,7 @@ impl<'a> ClacOp<'a> {
             }
         }
 
-        return Ok(result);
+        Ok(result)
     }
 }
 

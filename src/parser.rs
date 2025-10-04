@@ -1,4 +1,4 @@
-use std::{collections::HashSet, os::linux::raw::stat};
+use std::collections::HashSet;
 
 use color_eyre::eyre::{Context, Result, bail};
 use pest::{

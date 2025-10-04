@@ -1,21 +1,13 @@
 use std::collections::HashSet;
 
-use color_eyre::{
-    Section,
-    eyre::{Context, ContextCompat, Result, eyre},
-};
 use pest::Span;
 
-use crate::{
-    codegen::CodegenCtx,
-    middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
-};
 
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
 pub trait AsSpan {
-    fn as_span(&self) -> Span;
+    fn as_span(&self) -> Span<'_>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +49,7 @@ pub enum Expr<'a> {
 }
 
 impl AsSpan for Expr<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         match self {
             Expr::Value(_, span)
             | Expr::Ident(_, span)
@@ -140,7 +132,7 @@ pub struct FunctionCall<'a> {
 }
 
 impl AsSpan for FunctionCall<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         self.span
     }
 }
@@ -161,7 +153,7 @@ pub struct FunctionDef<'a> {
 }
 
 impl AsSpan for FunctionDef<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         self.span
     }
 }
@@ -193,7 +185,7 @@ pub struct StaticDef<'a> {
 }
 
 impl AsSpan for StaticDef<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         self.span
     }
 }
@@ -207,7 +199,7 @@ pub struct LocalDef<'a> {
 }
 
 impl AsSpan for LocalDef<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         self.span
     }
 }
@@ -220,7 +212,7 @@ pub struct IfCase<'a> {
 }
 
 impl AsSpan for IfCase<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         self.span
     }
 }
@@ -234,7 +226,7 @@ pub struct IfExpr<'a> {
 }
 
 impl AsSpan for IfExpr<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         self.span
     }
 }
@@ -254,7 +246,7 @@ pub enum Statement<'a> {
 }
 
 impl AsSpan for Statement<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         match self {
             Statement::Expr(expr, _) => expr.as_span(),
             Statement::FunctionDef(function_def) => function_def.as_span(),
@@ -272,7 +264,7 @@ pub struct Block<'a> {
 }
 
 impl AsSpan for Block<'_> {
-    fn as_span(&self) -> Span {
+    fn as_span(&self) -> Span<'_> {
         self.span
     }
 }

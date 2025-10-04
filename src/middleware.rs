@@ -62,7 +62,7 @@ fn walk_function_call<'a>(
 
 fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) -> Result<()> {
     ctx.define_function(
-        &func_def.function,
+        func_def.function,
         FunctionSignature {
             arguements: func_def
                 .arguements
@@ -95,7 +95,7 @@ fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> R
 
 fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Result<()> {
     let data_ref = walk_expr(ctx, &local_def.expr)?;
-    ctx.promote_to_local(data_ref, &local_def.name, local_def.var_type);
+    ctx.promote_to_local(data_ref, local_def.name, local_def.var_type);
 
     Ok(())
 }
@@ -153,7 +153,7 @@ fn walk_if_statement_inner<'a>(
 
         Ok(DataReference::Tempoary(ctx.allocate_tempoary(return_type)))
     } else if let Some(otherwise) = otherwise {
-        walk_block(ctx, &otherwise)
+        walk_block(ctx, otherwise)
     } else {
         Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)))
     }
