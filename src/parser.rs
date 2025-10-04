@@ -35,7 +35,7 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Parser)]
-#[grammar = "flap.pest"]
+#[grammar = "../grammers/flap.pest"]
 struct FlapParser;
 
 pub fn parse_program<'a>(input: &'a str) -> Result<Block<'a>> {
