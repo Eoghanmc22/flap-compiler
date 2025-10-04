@@ -7,11 +7,10 @@ use std::fmt::Write;
 
 use crate::{
     ast::{
-        BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef, Statement,
-        StaticDef, Type,
+        BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef, Punctuation,
+        Statement, StaticDef, Type,
     },
     codegen::{ClacOp, CodegenCtx, DataReference, FunctionSignature},
-    type_check::TypeCheck,
 };
 
 pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<DataReference<'a>> {
@@ -31,7 +30,11 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<
                 walk_function_def(ctx, function_def)?;
                 None
             }
-            Statement::Expr(expr) => Some(walk_expr(ctx, expr)?),
+            Statement::Expr(expr, Punctuation::Unpunctuated) => Some(walk_expr(ctx, expr)?),
+            Statement::Expr(expr, Punctuation::Punctuated) => {
+                walk_expr(ctx, expr)?;
+                None
+            }
         }
     }
 
@@ -47,7 +50,7 @@ fn walk_function_call<'a>(
     func_call: &'a FunctionCall<'a>,
 ) -> Result<DataReference<'a>> {
     let parameters = func_call
-        .paramaters
+        .parameters
         .iter()
         .map(|it| walk_expr(ctx, it))
         .collect::<Result<Vec<_>>>()?;
@@ -69,7 +72,7 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
             return_type: func_def.return_type,
         },
         &func_def.attributes,
-        |ctx| walk_block(ctx, &func_def.contents),
+        move |ctx| walk_block(ctx, &func_def.contents),
     )
     .wrap_err_with(|| format!("Walk function def '{:?}' failed", func_def.function))
     .with_section(|| generate_span_error_section(func_def.span))?;
@@ -97,13 +100,12 @@ fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Resu
     Ok(())
 }
 
-// TODO: Support expresion position if statements
 fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<DataReference<'a>> {
     walk_if_statement_inner(
         ctx,
         &if_expr.cases,
         if_expr.otherwise.as_ref(),
-        if_expr.return_type,
+        Option::from(if_expr.return_type).unwrap(),
     )
 }
 

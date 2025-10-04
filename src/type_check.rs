@@ -1,49 +1,159 @@
+// TODO: Make type check use a different context than code gen context, and try to get rid of guess_type
+// The context should be able to store the signatures of variables and functions ad it traversed
+// the ast during type checking
+
+use std::collections::HashMap;
+
 use color_eyre::{
     Section,
-    eyre::{Context, ContextCompat, Result, bail, eyre},
+    eyre::{Context, ContextCompat, Result, eyre},
 };
 
 use crate::{
     ast::{
-        AsSpan, BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef,
-        Statement, StaticDef, Type, UnaryOp, Value,
+        AsSpan, BinaryOp, Block, DeferedType, Expr, FunctionCall, FunctionDef, IdentRef, IfCase,
+        IfExpr, LocalDef, Punctuation, Statement, StaticDef, Type, UnaryOp, Value,
     },
-    codegen::CodegenCtx,
+    codegen::{CodegenCtx, FunctionSignature},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
 };
 
-pub trait TypeCheck {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type>;
-
-    fn guess_type(&self) -> Option<Type>;
+#[derive(Debug, Clone)]
+pub struct TypeCheckerFrame<'a> {
+    pub variables: HashMap<IdentRef<'a>, Type>,
+    pub functions: HashMap<IdentRef<'a>, FunctionSignature<'a>>,
 }
 
-impl TypeCheck for Value {
-    fn check_and_resolve_types(&self, _ctx: &CodegenCtx) -> Result<Type> {
+#[derive(Debug, Clone)]
+pub struct TypeChecker<'a> {
+    pub scope_stack: Vec<TypeCheckerFrame<'a>>,
+}
+
+impl Default for TypeChecker<'_> {
+    fn default() -> Self {
+        let codegen = CodegenCtx::default();
+
+        let mut type_checker = Self {
+            scope_stack: vec![TypeCheckerFrame {
+                variables: Default::default(),
+                functions: codegen
+                    .builtins
+                    .into_iter()
+                    .map(|(key, (_, value))| {
+                        (
+                            // TODO: can we get this to work without leaking the string?
+                            &*key.leak(),
+                            value,
+                        )
+                    })
+                    .collect(),
+            }],
+        };
+
+        type_checker.push_scope_frame();
+
+        type_checker
+    }
+}
+
+impl<'a> TypeChecker<'a> {
+    fn push_scope_frame(&mut self) -> &mut TypeCheckerFrame<'a> {
+        self.scope_stack.push_mut(TypeCheckerFrame {
+            variables: Default::default(),
+            functions: Default::default(),
+        })
+    }
+
+    fn pop_scope_frame(&mut self) -> Option<TypeCheckerFrame<'a>> {
+        assert!(
+            self.scope_stack.len() >= 2,
+            "Attempted to pop builtins frame of type checker"
+        );
+
+        let old_frame = self.scope_stack.pop();
+
+        old_frame
+    }
+
+    fn top_scope_frame(&mut self) -> &mut TypeCheckerFrame<'a> {
+        if self.scope_stack.is_empty() {
+            self.push_scope_frame()
+        } else {
+            self.scope_stack.last_mut().unwrap()
+        }
+    }
+    pub fn define_function<T, F: FnOnce(&mut Self) -> T>(
+        &mut self,
+        ident: IdentRef<'a>,
+        signature: FunctionSignature<'a>,
+        scope: F,
+    ) -> T {
+        self.top_scope_frame()
+            .functions
+            .insert(ident, signature.clone());
+
+        {
+            self.push_scope_frame();
+            for (var_type, ident) in signature.arguements {
+                self.define_variable(ident, var_type);
+            }
+
+            let ret = (scope)(self);
+
+            self.pop_scope_frame().unwrap();
+
+            ret
+        }
+    }
+
+    pub fn define_variable(&mut self, ident: IdentRef<'a>, var_type: Type) {
+        self.top_scope_frame().variables.insert(ident, var_type);
+    }
+
+    pub fn lookup_function(&self, ident: IdentRef<'a>) -> Option<&FunctionSignature<'a>> {
+        for frame in self.scope_stack.iter().rev() {
+            if let Some(sig) = frame.functions.get(&ident) {
+                return Some(sig);
+            }
+        }
+
+        None
+    }
+
+    pub fn lookup_variable(&self, ident: IdentRef<'a>) -> Option<Type> {
+        for frame in self.scope_stack.iter().rev() {
+            if let Some(var_type) = frame.variables.get(ident) {
+                return Some(*var_type);
+            }
+        }
+
+        None
+    }
+}
+
+pub trait TypeCheck<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type>;
+}
+
+impl TypeCheck<'_> for Value {
+    fn check_and_resolve_types(&mut self, _ctx: &mut TypeChecker) -> Result<Type> {
         match self {
             Value::Int(_) => Ok(Type::Int),
             Value::Bool(_) => Ok(Type::Bool),
         }
     }
-
-    fn guess_type(&self) -> Option<Type> {
-        match self {
-            Value::Int(_) => Some(Type::Int),
-            Value::Bool(_) => Some(Type::Bool),
-        }
-    }
 }
 
-impl TypeCheck for Expr<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
+impl<'a> TypeCheck<'a> for Expr<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         match self {
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)
                 .wrap_err_with(|| format!("Could not type check expr value"))
                 .with_section(|| generate_span_error_section(*span)),
             Expr::Ident(ident, span) => {
-                let (_data_ref, var_type) = ctx
-                    .lookup_ident_data_ref(ident)
+                let var_type = ctx
+                    .lookup_variable(ident)
                     .wrap_err_with(|| format!("Could not find identifier: `{ident}`"))
                     .with_section(|| generate_span_error_section(*span))?;
 
@@ -103,7 +213,25 @@ impl TypeCheck for Expr<'_> {
                         }));
                 }
 
-                Ok(left_type)
+                let output_type = match op {
+                    BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Mod
+                    | BinaryOp::Pow => Type::Int,
+
+                    BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Le
+                    | BinaryOp::Ge
+                    | BinaryOp::Lt
+                    | BinaryOp::Gt
+                    | BinaryOp::LAnd
+                    | BinaryOp::LOr => Type::Bool,
+                };
+
+                Ok(output_type)
             }
             Expr::UnaryOp { op, operand, span } => {
                 let operand_type = operand.check_and_resolve_types(ctx)?;
@@ -131,37 +259,20 @@ impl TypeCheck for Expr<'_> {
             Expr::If(if_expr) => if_expr.check_and_resolve_types(ctx),
         }
     }
-
-    fn guess_type(&self) -> Option<Type> {
-        match self {
-            Expr::Value(value, _) => value.guess_type(),
-            Expr::Ident(_, _) => None,
-            Expr::BinaryOp { left, right, .. } => {
-                let left_type = left.guess_type();
-                let right_type = right.guess_type();
-
-                match (left_type, right_type) {
-                    // TODO: Is there a better stratagy thsn just choosing one?
-                    (Some(left_type), Some(_right_type)) => Some(left_type),
-                    (Some(var_type), None) | (None, Some(var_type)) => Some(var_type),
-                    (None, None) => None,
-                }
-            }
-            Expr::UnaryOp { operand, .. } => operand.guess_type(),
-            Expr::FunctionCall(function_call) => function_call.guess_type(),
-            Expr::If(if_expr) => if_expr.guess_type(),
-        }
-    }
 }
 
-impl TypeCheck for FunctionCall<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
+impl<'a> TypeCheck<'a> for FunctionCall<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         let sig = ctx
-            .lookup_function_like_signature(self.function)
+            .lookup_function(self.function)
             .wrap_err_with(|| format!("Could not find function: {}", self.function))
-            .with_section(|| generate_span_error_section(self.span))?;
+            .with_section(|| generate_span_error_section(self.span))?
+            // TODO: Avoid clone
+            .clone();
 
-        for (parm_expr, (arg_type, arg_name)) in self.paramaters.iter().zip(sig.arguements.iter()) {
+        for (parm_expr, (arg_type, arg_name)) in
+            self.parameters.iter_mut().zip(sig.arguements.iter())
+        {
             let parm_type = parm_expr.check_and_resolve_types(ctx)?;
             if parm_type != *arg_type {
                 return Err(eyre!("Function called with a paramater of the incorrect type")
@@ -169,7 +280,7 @@ impl TypeCheck for FunctionCall<'_> {
                                 generate_span_error_section_with_annotations(
                                     self.span,
                                     &[
-                                        (parm_expr.as_span(), &format!("has the type `{parm_expr:?}`, but the arguemment `{arg_name}` to the function `{}` expected the type `{arg_type:?}`", self.function)),
+                                        (parm_expr.as_span(), &format!("has the type `{parm_type:?}`, but the arguemment `{arg_name}` to the function `{}` expected the type `{arg_type:?}`", self.function)),
                                     ],
                                 )
                             }));
@@ -178,19 +289,22 @@ impl TypeCheck for FunctionCall<'_> {
 
         Ok(sig.return_type)
     }
-
-    fn guess_type(&self) -> Option<Type> {
-        // We just dont know...
-        None
-    }
 }
 
-impl TypeCheck for FunctionDef<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
-        let actual_return_type = self.contents.check_and_resolve_types(ctx)?;
+impl<'a> TypeCheck<'a> for FunctionDef<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+        let actual_return_type = ctx.define_function(
+            self.function,
+            FunctionSignature {
+                arguements: self.arguements.clone(),
+                return_type: self.return_type,
+            },
+            |ctx| self.contents.check_and_resolve_types(ctx),
+        )?;
+
         if actual_return_type != self.return_type {
-            return Err(
-                eyre!("Function definition returns the incorrect type").with_section(|| {
+            return Err(eyre!("Function definition returns the incorrect type")
+                .with_section(|| {
                     generate_span_error_section_with_annotations(
                         self.span,
                         &[(
@@ -198,6 +312,9 @@ impl TypeCheck for FunctionDef<'_> {
                                 .statements
                                 .last()
                                 .map(|it| it.as_span())
+                                .unwrap_or_else(|| self.contents.as_span())
+                                .lines_span()
+                                .last()
                                 .unwrap_or_else(|| self.contents.as_span()),
                             &format!(
                                 "has the type `{actual_return_type:?}`, but a `{:?}` is required",
@@ -205,21 +322,19 @@ impl TypeCheck for FunctionDef<'_> {
                             ),
                         )],
                     )
-                }),
-            );
+                })
+                .with_section(|| {
+                    format!("Last statement: {:#?}", self.contents.statements.last())
+                }));
         }
 
         // The Function Definition it self should not have a rrtuen type
         Ok(Type::Void)
     }
-
-    fn guess_type(&self) -> Option<Type> {
-        Some(Type::Void)
-    }
 }
 
-impl TypeCheck for StaticDef<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
+impl<'a> TypeCheck<'a> for StaticDef<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         let actual_type = self.value.check_and_resolve_types(ctx)?;
         if actual_type != self.var_type {
             return Err(
@@ -238,17 +353,17 @@ impl TypeCheck for StaticDef<'_> {
             );
         }
 
+        // Variable needs to be defined after we type check its expression so it cant be
+        // recursively defined. (We arent trying to impl nix lol)
+        ctx.define_variable(self.name, self.var_type);
+
         // The Static Definition it self should not have a rrtuen type
         Ok(Type::Void)
     }
-
-    fn guess_type(&self) -> Option<Type> {
-        Some(Type::Void)
-    }
 }
 
-impl TypeCheck for LocalDef<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
+impl<'a> TypeCheck<'a> for LocalDef<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?;
         if actual_type != self.var_type {
             return Err(
@@ -267,17 +382,17 @@ impl TypeCheck for LocalDef<'_> {
             );
         }
 
+        // Variable needs to be defined after we type check its expression so it cant be
+        // recursively defined. (We arent trying to impl nix lol)
+        ctx.define_variable(self.name, self.var_type);
+
         // The Local Definition it self should not have a rrtuen type
         Ok(Type::Void)
     }
-
-    fn guess_type(&self) -> Option<Type> {
-        Some(Type::Void)
-    }
 }
 
-impl TypeCheck for IfCase<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
+impl<'a> TypeCheck<'a> for IfCase<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         let case_type = self.condition.check_and_resolve_types(ctx)?;
         if case_type != Type::Bool {
             return Err(
@@ -300,17 +415,19 @@ impl TypeCheck for IfCase<'_> {
 
         self.contents.check_and_resolve_types(ctx)
     }
-
-    fn guess_type(&self) -> Option<Type> {
-        Some(self.contents.return_type)
-    }
 }
 
-impl TypeCheck for IfExpr<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
-        for case in &self.cases {
+impl<'a> TypeCheck<'a> for IfExpr<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+        let expected_type = self
+            .cases
+            .first_mut()
+            .unwrap()
+            .check_and_resolve_types(ctx)?;
+
+        for case in &mut self.cases {
             let case_return_type = case.check_and_resolve_types(ctx)?;
-            if case_return_type != self.return_type {
+            if case_return_type != expected_type {
                 return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
                         generate_span_error_section_with_annotations(
@@ -330,16 +447,11 @@ impl TypeCheck for IfExpr<'_> {
                     }),
                 );
             }
-
-            if case_return_type != case.contents.return_type {
-                // TODO: Better error message? Does this error even matter?
-                bail!("Type checking failed")
-            }
         }
 
-        if let Some(otherwise) = &self.otherwise {
+        if let Some(otherwise) = &mut self.otherwise {
             let case_return_type = otherwise.check_and_resolve_types(ctx)?;
-            if case_return_type != self.return_type {
+            if case_return_type != expected_type {
                 return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
                         generate_span_error_section_with_annotations(
@@ -361,51 +473,35 @@ impl TypeCheck for IfExpr<'_> {
             }
         }
 
-        Ok(self.return_type)
-    }
+        self.return_type = DeferedType::ResolvedType(expected_type);
 
-    fn guess_type(&self) -> Option<Type> {
-        Some(self.return_type)
+        Ok(expected_type)
     }
 }
 
-impl TypeCheck for Statement<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
+impl<'a> TypeCheck<'a> for Statement<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         match self {
-            Statement::Expr(expr) => expr.check_and_resolve_types(ctx),
             Statement::FunctionDef(function_def) => function_def.check_and_resolve_types(ctx),
             Statement::Static(static_def) => static_def.check_and_resolve_types(ctx),
             Statement::Local(local_def) => local_def.check_and_resolve_types(ctx),
-        }
-    }
-
-    fn guess_type(&self) -> Option<Type> {
-        match self {
-            Statement::Expr(expr) => expr.guess_type(),
-            Statement::FunctionDef(function_def) => function_def.guess_type(),
-            Statement::Static(static_def) => static_def.guess_type(),
-            Statement::Local(local_def) => local_def.guess_type(),
+            Statement::Expr(expr, Punctuation::Unpunctuated) => expr.check_and_resolve_types(ctx),
+            Statement::Expr(expr, Punctuation::Punctuated) => {
+                expr.check_and_resolve_types(ctx)?;
+                Ok(Type::Void)
+            }
         }
     }
 }
 
-impl TypeCheck for Block<'_> {
-    fn check_and_resolve_types(&self, ctx: &CodegenCtx) -> Result<Type> {
+impl<'a> TypeCheck<'a> for Block<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         let mut actual_return_type = Type::Void;
 
-        for statement in &self.statements {
+        for statement in &mut self.statements {
             actual_return_type = statement.check_and_resolve_types(ctx)?;
         }
 
-        if actual_return_type != self.return_type {
-            // TODO: Better error message? Does this error even matter?
-            bail!("Type checking failed")
-        }
-
         Ok(actual_return_type)
-    }
-
-    fn guess_type(&self) -> Option<Type> {
-        Some(self.return_type)
     }
 }

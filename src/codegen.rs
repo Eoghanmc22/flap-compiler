@@ -79,6 +79,15 @@ impl Default for CodegenCtx<'_> {
         );
 
         ctx.define_builtin(
+            "print_bool",
+            FunctionSignature {
+                arguements: vec![(Type::Bool, "value")],
+                return_type: Type::Void,
+            },
+            vec![ClacToken::Print],
+        );
+
+        ctx.define_builtin(
             "quit",
             FunctionSignature {
                 arguements: vec![],

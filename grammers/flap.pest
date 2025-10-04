@@ -71,5 +71,5 @@ function_def = { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_d
 block = { "{" ~ code ~ "}" | statement | expression }
 code = _{ statement* ~ expression? }
 
-program_contents = { code }
-program = { SOI ~ program_contents ~ EOI }
+// program_contents = { code }
+program = { SOI ~ code ~ EOI }

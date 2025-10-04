@@ -1,6 +1,9 @@
-// TODO: figure out where to run the good type checking
-// TODO: type inference for local vars
-// TODO: Need to add back semicolons so that we know when an implicit return is desired
+// TODO:
+// - Make sure we are parsing semicolonds for implicit return correctly
+// - Add a type checking pass
+// - rename statics to constants
+// - add a post processing step to remove nested functions
+// - bit shifts
 #![feature(push_mut)]
 
 use std::{
@@ -13,7 +16,10 @@ use std::{
 use clap::Parser;
 use color_eyre::eyre::{Context, Result};
 
-use crate::codegen::CodegenCtx;
+use crate::{
+    codegen::CodegenCtx,
+    type_check::{TypeCheck, TypeChecker},
+};
 
 pub mod ast;
 pub mod codegen;
@@ -54,8 +60,14 @@ fn main() -> Result<()> {
 fn compile(file: PathBuf) -> Result<()> {
     let contents = fs::read_to_string(&file).wrap_err("Read file")?;
 
-    let program = parser::parse_program(&contents).wrap_err("Parse program")?;
+    let mut program = parser::parse_program(&contents).wrap_err("Parse program")?;
     println!("Parsed AST: {program:#?}");
+
+    // TODO: Is there anything we can use the program return type for?
+    let mut type_checker = TypeChecker::default();
+    let _return_type = program
+        .check_and_resolve_types(&mut type_checker)
+        .wrap_err("Type Check Program")?;
 
     let mut ctx = CodegenCtx::default();
     middleware::walk_block(&mut ctx, &program).wrap_err("Ast to Clac")?;

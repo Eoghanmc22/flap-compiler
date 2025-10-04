@@ -106,6 +106,23 @@ pub enum Type {
     Void,
 }
 
+// TODO: This is a kinda hacky solution
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeferedType {
+    ResolvedType(Type),
+    #[default]
+    UnresolvedType,
+}
+
+impl From<DeferedType> for Option<Type> {
+    fn from(value: DeferedType) -> Self {
+        match value {
+            DeferedType::ResolvedType(var_type) => Some(var_type),
+            DeferedType::UnresolvedType => None,
+        }
+    }
+}
+
 impl Type {
     pub fn width(&self) -> u32 {
         match self {
@@ -118,7 +135,7 @@ impl Type {
 #[derive(Debug, Clone)]
 pub struct FunctionCall<'a> {
     pub function: IdentRef<'a>,
-    pub paramaters: Vec<Expr<'a>>,
+    pub parameters: Vec<Expr<'a>>,
     pub span: Span<'a>,
 }
 
@@ -212,7 +229,7 @@ impl AsSpan for IfCase<'_> {
 pub struct IfExpr<'a> {
     pub cases: Vec<IfCase<'a>>,
     pub otherwise: Option<Block<'a>>,
-    pub return_type: Type,
+    pub return_type: DeferedType,
     pub span: Span<'a>,
 }
 
@@ -222,9 +239,15 @@ impl AsSpan for IfExpr<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Punctuation {
+    Punctuated,
+    Unpunctuated,
+}
+
 #[derive(Debug, Clone)]
 pub enum Statement<'a> {
-    Expr(Expr<'a>),
+    Expr(Expr<'a>, Punctuation),
     FunctionDef(FunctionDef<'a>),
     Static(StaticDef<'a>),
     Local(LocalDef<'a>),
@@ -233,7 +256,7 @@ pub enum Statement<'a> {
 impl AsSpan for Statement<'_> {
     fn as_span(&self) -> Span {
         match self {
-            Statement::Expr(expr) => expr.as_span(),
+            Statement::Expr(expr, _) => expr.as_span(),
             Statement::FunctionDef(function_def) => function_def.as_span(),
             Statement::Static(static_def) => static_def.as_span(),
             Statement::Local(local_def) => local_def.as_span(),
@@ -244,7 +267,7 @@ impl AsSpan for Statement<'_> {
 #[derive(Debug, Clone)]
 pub struct Block<'a> {
     pub statements: Vec<Statement<'a>>,
-    pub return_type: Type,
+    // pub return_type: Type,
     pub span: Span<'a>,
 }
 
