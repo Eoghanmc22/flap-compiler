@@ -10,7 +10,10 @@ use crate::{
         BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef, Punctuation,
         Statement, StaticDef, Type,
     },
-    codegen::{ClacOp, CodegenCtx, DataReference, FunctionSignature},
+    codegen::{
+        CodegenCtx,
+        ir::{ClacOp, DataReference, FunctionSignature},
+    },
 };
 
 pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<DataReference<'a>> {

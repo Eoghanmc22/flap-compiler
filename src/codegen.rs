@@ -1,15 +1,25 @@
+pub mod builtins;
+pub mod clac;
+pub mod ir;
+
 use color_eyre::eyre::{ContextCompat, Result, bail};
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::{self, Display},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
 };
 
-use crate::ast::{FunctionAttribute, Ident, IdentRef, Type, Value};
+use crate::{
+    ast::{FunctionAttribute, Ident, IdentRef, Type, Value},
+    codegen::{
+        builtins::clac_builtins,
+        clac::{ClacProgram, ClacToken, MangledIdent},
+        ir::{ClacOp, DataReference, FunctionSignature},
+    },
+};
 
 static TEMPOARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 static FUNCTION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -21,8 +31,6 @@ pub enum DefinitionIdent<'a> {
     Builtin(IdentRef<'a>),
     Static(IdentRef<'a>),
 }
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct MangledIdent(pub Arc<Ident>);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct TempoaryIdent(pub u64);
@@ -37,21 +45,21 @@ pub struct Offset(pub i32);
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
     frame_start: i32,
-    pub locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
-    pub temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
-    pub definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, Arc<FunctionSignature<'a>>)>,
+    locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
+    temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
+    definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, Arc<FunctionSignature<'a>>)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CodegenCtx<'a> {
-    pub tokens: Vec<ClacToken>,
-    pub scope_stack: Vec<ScopeFrame<'a>>,
+    tokens: Vec<ClacToken>,
+    scope_stack: Vec<ScopeFrame<'a>>,
     // Index of one past the top of the stack
     // Aka the length of the stack
     cursor: i32,
 
     // TODO: I dont like builtins being this special
-    pub builtins: HashMap<Ident, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
+    builtins: HashMap<Ident, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
 }
 
 impl Default for CodegenCtx<'_> {
@@ -63,32 +71,9 @@ impl Default for CodegenCtx<'_> {
             builtins: Default::default(),
         };
 
-        ctx.define_builtin(
-            "print",
-            FunctionSignature {
-                arguements: vec![(Type::Int, "value")],
-                return_type: Type::Void,
-            },
-            vec![ClacToken::Print],
-        );
-
-        ctx.define_builtin(
-            "print_bool",
-            FunctionSignature {
-                arguements: vec![(Type::Bool, "value")],
-                return_type: Type::Void,
-            },
-            vec![ClacToken::Print],
-        );
-
-        ctx.define_builtin(
-            "quit",
-            FunctionSignature {
-                arguements: vec![],
-                return_type: Type::Void,
-            },
-            vec![ClacToken::Quit],
-        );
+        for (ident, (code, sig)) in clac_builtins() {
+            ctx.define_builtin(&ident, sig, code);
+        }
 
         ctx
     }
@@ -100,7 +85,7 @@ impl<'a> CodegenCtx<'a> {
         ClacProgram(self.tokens)
     }
 
-    pub fn push_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
+    fn push_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
         self.scope_stack.push_mut(ScopeFrame {
             frame_start: self.cursor,
             locals: Default::default(),
@@ -109,11 +94,11 @@ impl<'a> CodegenCtx<'a> {
         })
     }
 
-    pub fn pop_scope_frame(&mut self) -> Option<ScopeFrame<'a>> {
+    fn pop_scope_frame(&mut self) -> Option<ScopeFrame<'a>> {
         self.scope_stack.pop()
     }
 
-    pub fn top_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
+    fn top_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
         if self.scope_stack.is_empty() {
             self.push_scope_frame()
         } else {
@@ -435,463 +420,6 @@ impl<'a> CodegenCtx<'a> {
         }
 
         None
-    }
-}
-
-pub struct ClacProgram(pub Vec<ClacToken>);
-
-impl Display for ClacProgram {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut iter = self.0.iter().peekable();
-        while let Some(token) = iter.next() {
-            if iter.peek().is_some() {
-                write!(f, "{token} ")?;
-            } else {
-                write!(f, "{token}")?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DataReference<'a> {
-    // TODO: Do we need another type here for bool?
-    Number(i32),
-    Local(IdentRef<'a>),
-    Static(IdentRef<'a>),
-    Tempoary(TempoaryIdent),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct FunctionSignature<'a> {
-    pub arguements: Vec<(Type, IdentRef<'a>)>,
-    pub return_type: Type,
-}
-
-impl FunctionSignature<'_> {
-    pub fn paramater_width(&self) -> u32 {
-        self.arguements
-            .iter()
-            .map(|(var_type, _)| var_type.width())
-            .sum::<u32>()
-    }
-
-    pub fn return_width(&self) -> u32 {
-        self.return_type.width()
-    }
-
-    pub fn stack_delta(&self) -> i32 {
-        self.return_width() as i32 - self.paramater_width() as i32
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ClacOp<'a> {
-    Print {
-        value: DataReference<'a>,
-    },
-    Quit,
-    Add {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Sub {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Mul {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Div {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Mod {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Pow {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Lt {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Gt {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Le {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Ge {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Eq {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Ne {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    Neg {
-        value: DataReference<'a>,
-    },
-    Not {
-        value: DataReference<'a>,
-    },
-    LAnd {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    LOr {
-        lhs: DataReference<'a>,
-        rhs: DataReference<'a>,
-    },
-    If {
-        condition: DataReference<'a>,
-        on_true: DefinitionIdent<'a>,
-        on_false: Option<DefinitionIdent<'a>>,
-    },
-    Call {
-        name: DefinitionIdent<'a>,
-        parameters: Vec<DataReference<'a>>,
-    },
-}
-
-impl<'a> ClacOp<'a> {
-    pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<Option<TempoaryIdent>> {
-        let mut result = None;
-
-        match self {
-            ClacOp::Print { value } => {
-                ctx.bring_up_references(&[*value], 1)?;
-                ctx.push_token(ClacToken::Print)?;
-            }
-            ClacOp::Quit => {
-                ctx.push_token(ClacToken::Quit)?;
-            }
-            ClacOp::Add { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Add)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
-            }
-            ClacOp::Sub { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Sub)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
-            }
-            ClacOp::Mul { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Mul)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
-            }
-            ClacOp::Div { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Div)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
-            }
-            ClacOp::Mod { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
-                ctx.push_token(ClacToken::Mod)?;
-            }
-            ClacOp::Pow { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Pow)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
-            }
-            ClacOp::Lt { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Lt)?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            ClacOp::Gt { lhs, rhs } => {
-                // lhs and rhs reversed to save an instruction
-                ctx.bring_up_references(&[*rhs, *lhs], 2)?;
-                // ctx.push_token(ClacToken::Swap)?;
-                ctx.push_token(ClacToken::Lt)?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            ClacOp::Le { lhs, rhs } => {
-                ctx.push_token(ClacToken::Number(1))?;
-                // lhs and rhs reversed to save an instruction
-                ctx.bring_up_references(&[*rhs, *lhs], 2)?;
-                // ctx.push_token(ClacToken::Swap)?;
-                ctx.push_token(ClacToken::Lt)?;
-                ctx.push_token(ClacToken::Sub)?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            ClacOp::Ge { lhs, rhs } => {
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Lt)?;
-                ctx.push_token(ClacToken::Sub)?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            ClacOp::Eq { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Sub)?;
-
-                let cursor_pos = ctx.cursor;
-
-                ctx.push_token(ClacToken::If)?;
-                ctx.push_token(ClacToken::Number(0))?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Skip)?;
-                ctx.push_token(ClacToken::Number(1))?;
-
-                // This avoids double counting the stack delta,
-                // -1 from `if`, +1 from value load
-                ctx.cursor = cursor_pos;
-
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            ClacOp::Ne { lhs, rhs } => {
-                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                ctx.push_token(ClacToken::Sub)?;
-
-                let cursor_pos = ctx.cursor;
-
-                ctx.push_token(ClacToken::If)?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Skip)?;
-                ctx.push_token(ClacToken::Number(0))?;
-
-                // This avoids double counting the stack delta,
-                // -1 from `if`, +1 from value load
-                ctx.cursor = cursor_pos;
-
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            ClacOp::Neg { value } => {
-                ctx.push_token(ClacToken::Number(0))?;
-                ctx.bring_up_references(&[*value], 1)?;
-                ctx.push_token(ClacToken::Sub)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
-            }
-            ClacOp::Not { value } => {
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.bring_up_references(&[*value], 1)?;
-                ctx.push_token(ClacToken::Sub)?;
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            // TODO: theres got to be a better way
-            // also need to double check
-            ClacOp::LAnd { lhs, rhs } => {
-                let cursor_pos = ctx.cursor;
-
-                ctx.bring_up_references(&[*lhs], 1)?;
-                ctx.push_token(ClacToken::If)?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Skip)?;
-                ctx.push_token(ClacToken::Number(0))?;
-
-                ctx.bring_up_references(&[*rhs], 1)?;
-                ctx.push_token(ClacToken::If)?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Skip)?;
-                ctx.push_token(ClacToken::Number(0))?;
-
-                ctx.push_token(ClacToken::Mul)?;
-
-                // This avoids double counting the stack delta,
-                // +1 from first `if`, +1 from second if, -1 from `mul`
-                ctx.cursor = cursor_pos + 1;
-
-                result = Some(ctx.allocate_tempoary(Type::Bool));
-            }
-            // TODO: theres got to be a better way
-            // also need to double check
-            ClacOp::LOr { lhs, rhs } => {
-                ctx.push_token(ClacToken::Number(1))?;
-
-                let cursor_pos = ctx.cursor;
-
-                ctx.bring_up_references(&[*lhs], 1)?;
-                ctx.push_token(ClacToken::If)?;
-                ctx.push_token(ClacToken::Number(0))?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Skip)?;
-                ctx.push_token(ClacToken::Number(1))?;
-
-                ctx.bring_up_references(&[*rhs], 1)?;
-                ctx.push_token(ClacToken::If)?;
-                ctx.push_token(ClacToken::Number(0))?;
-                ctx.push_token(ClacToken::Number(1))?;
-                ctx.push_token(ClacToken::Skip)?;
-                ctx.push_token(ClacToken::Number(1))?;
-
-                ctx.push_token(ClacToken::Mul)?;
-                ctx.push_token(ClacToken::Sub)?;
-
-                // This avoids double counting the stack delta,
-                // +1 from first `if`, +1 from second if, -1 from `mul`, -1 from `sub`
-                ctx.cursor = cursor_pos;
-
-                result = Some(ctx.allocate_tempoary(Type::Int));
-            }
-            ClacOp::If {
-                condition,
-                on_true,
-                on_false,
-            } => {
-                let (on_true_mangled, def_true) = ctx
-                    .lookup_definition(*on_true)
-                    .wrap_err_with(|| format!("Unknown if on_true definition, '{on_true:?}'"))?;
-
-                if let Some(on_false) = on_false {
-                    let (on_false_mangled, def_false) =
-                        ctx.lookup_definition(*on_false).wrap_err_with(|| {
-                            format!("Unknown if false_true definition, '{on_true:?}'")
-                        })?;
-
-                    assert_eq!(def_true, def_false);
-
-                    ctx.bring_up_references(&[*condition], 1)?;
-                    ctx.push_token(ClacToken::If)?;
-                    ctx.push_token(ClacToken::Call {
-                        mangled_ident: on_true_mangled,
-                        stack_delta: def_true.stack_delta(),
-                    })?;
-
-                    let cursor_pos = ctx.cursor;
-
-                    ctx.push_token(ClacToken::Number(1))?;
-                    ctx.push_token(ClacToken::Skip)?;
-                    ctx.push_token(ClacToken::Call {
-                        mangled_ident: on_false_mangled,
-                        stack_delta: def_false.stack_delta(),
-                    })?;
-
-                    // This avoids double counting the stack delta,
-                    // We will either hit on true or on false, never both
-                    // This sets the counter back to the its value after the first call
-                    ctx.cursor = cursor_pos;
-                } else {
-                    assert_eq!(def_true.stack_delta(), 0);
-
-                    ctx.bring_up_references(&[*condition], 1)?;
-                    ctx.push_token(ClacToken::If)?;
-                    ctx.push_token(ClacToken::Call {
-                        mangled_ident: on_true_mangled,
-                        stack_delta: def_true.stack_delta(),
-                    })?;
-                    ctx.push_token(ClacToken::Number(0))?;
-                    ctx.push_token(ClacToken::Skip)?;
-                }
-            }
-            ClacOp::Call { name, parameters } => {
-                let (mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
-                let return_type = def.return_type;
-
-                ctx.bring_up_references(parameters, def.paramater_width())?;
-                ctx.push_token(ClacToken::Call {
-                    mangled_ident: mangled,
-                    stack_delta: def.stack_delta(),
-                })?;
-
-                result = Some(ctx.allocate_tempoary(return_type));
-            }
-        }
-
-        Ok(result)
-    }
-}
-
-/// A Clac Source Code Token
-#[derive(Debug, Clone)]
-pub enum ClacToken {
-    Number(i32),
-    Print,
-    Quit,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Pow,
-    Lt,
-    Drop,
-    Swap,
-    Rot,
-    If,
-    Pick,
-    Skip,
-    StartDef {
-        mangled_ident: MangledIdent,
-    },
-    EndDef,
-    Call {
-        mangled_ident: MangledIdent,
-        stack_delta: i32,
-    },
-}
-
-impl ClacToken {
-    pub fn stack_delta(&self) -> i32 {
-        match self {
-            ClacToken::Number(_) => 1,
-            ClacToken::Print => -1,
-            ClacToken::Quit => 0,
-            ClacToken::Add => -1,
-            ClacToken::Sub => -1,
-            ClacToken::Mul => -1,
-            ClacToken::Div => -1,
-            ClacToken::Mod => -1,
-            ClacToken::Pow => -1,
-            ClacToken::Lt => -1,
-            ClacToken::Drop => -1,
-            ClacToken::Swap => 0,
-            ClacToken::Rot => 0,
-            ClacToken::If => -1,
-            ClacToken::Pick => 0,
-            ClacToken::Skip => -1,
-            ClacToken::StartDef { .. } => 0,
-            ClacToken::EndDef => 0,
-            ClacToken::Call { stack_delta, .. } => *stack_delta,
-        }
-    }
-}
-
-impl Display for ClacToken {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ClacToken::Number(num) => write!(f, "{num}"),
-            ClacToken::Print => write!(f, "print"),
-            ClacToken::Quit => write!(f, "quit"),
-            ClacToken::Add => write!(f, "+"),
-            ClacToken::Sub => write!(f, "-"),
-            ClacToken::Mul => write!(f, "*"),
-            ClacToken::Div => write!(f, "/"),
-            ClacToken::Mod => write!(f, "%"),
-            ClacToken::Pow => write!(f, "**"),
-            ClacToken::Lt => write!(f, "<"),
-            ClacToken::Drop => write!(f, "drop"),
-            ClacToken::Swap => write!(f, "swap"),
-            ClacToken::Rot => write!(f, "rot"),
-            ClacToken::If => write!(f, "if"),
-            ClacToken::Pick => write!(f, "pick"),
-            ClacToken::Skip => write!(f, "skip"),
-            ClacToken::StartDef {
-                mangled_ident: ident,
-            } => write!(f, ": {}", ident.0),
-            ClacToken::EndDef => write!(f, ";"),
-            ClacToken::Call {
-                mangled_ident: ident,
-                ..
-            } => write!(f, "{}", ident.0),
-        }
     }
 }
 

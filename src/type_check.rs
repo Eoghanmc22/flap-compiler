@@ -14,7 +14,7 @@ use crate::{
         AsSpan, BinaryOp, Block, DeferedType, Expr, FunctionCall, FunctionDef, IdentRef, IfCase,
         IfExpr, LocalDef, Punctuation, Statement, StaticDef, Type, UnaryOp, Value,
     },
-    codegen::{CodegenCtx, FunctionSignature},
+    codegen::{builtins::clac_builtins, ir::FunctionSignature},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
 };
 
@@ -31,24 +31,13 @@ pub struct TypeChecker<'a> {
 
 impl Default for TypeChecker<'_> {
     fn default() -> Self {
-        let codegen = CodegenCtx::default();
-
         let mut type_checker = Self {
-            scope_stack: vec![TypeCheckerFrame {
-                variables: Default::default(),
-                functions: codegen
-                    .builtins
-                    .into_iter()
-                    .map(|(key, (_, value))| {
-                        (
-                            // TODO: can we get this to work without leaking the string?
-                            &*key.leak(),
-                            value.clone(),
-                        )
-                    })
-                    .collect(),
-            }],
+            scope_stack: vec![],
         };
+
+        for (ident, (_code, sig)) in clac_builtins() {
+            type_checker.define_function(ident, sig, |_| {})
+        }
 
         type_checker.push_scope_frame();
 
