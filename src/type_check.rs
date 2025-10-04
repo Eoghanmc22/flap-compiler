@@ -2,13 +2,12 @@
 // The context should be able to store the signatures of variables and functions ad it traversed
 // the ast during type checking
 
-use std::{collections::HashMap, os::linux::raw::stat};
+use std::{collections::HashMap, sync::Arc};
 
 use color_eyre::{
     Section,
     eyre::{Context, ContextCompat, Result, eyre},
 };
-use pest::Span;
 
 use crate::{
     ast::{
@@ -22,7 +21,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct TypeCheckerFrame<'a> {
     pub variables: HashMap<IdentRef<'a>, Type>,
-    pub functions: HashMap<IdentRef<'a>, FunctionSignature<'a>>,
+    pub functions: HashMap<IdentRef<'a>, Arc<FunctionSignature<'a>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +43,7 @@ impl Default for TypeChecker<'_> {
                         (
                             // TODO: can we get this to work without leaking the string?
                             &*key.leak(),
-                            value,
+                            value.clone(),
                         )
                     })
                     .collect(),
@@ -89,14 +88,16 @@ impl<'a> TypeChecker<'a> {
         signature: FunctionSignature<'a>,
         scope: F,
     ) -> T {
+        let signature = Arc::new(signature);
+
         self.top_scope_frame()
             .functions
             .insert(ident, signature.clone());
 
         {
             self.push_scope_frame();
-            for (var_type, ident) in signature.arguements {
-                self.define_variable(ident, var_type);
+            for (var_type, ident) in &signature.arguements {
+                self.define_variable(ident, *var_type);
             }
 
             let ret = (scope)(self);

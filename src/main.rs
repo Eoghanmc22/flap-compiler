@@ -69,8 +69,10 @@ fn compile(file: PathBuf) -> Result<()> {
         .check_and_resolve_types(&mut type_checker)
         .wrap_err("Type Check Program")?;
 
-    let mut ctx = CodegenCtx::default();
-    middleware::walk_block(&mut ctx, &program).wrap_err("Ast to Clac")?;
+    let mut codegen = CodegenCtx::default();
+    middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
+
+    let program = codegen.into_tokens();
 
     let output_dir = PathBuf::from("out/");
     fs::create_dir_all(&output_dir).wrap_err("Create out dir")?;
@@ -86,7 +88,7 @@ fn compile(file: PathBuf) -> Result<()> {
         .write(true)
         .open(out_file)
         .wrap_err("Open output file")?;
-    write!(&mut file, "{ctx}").wrap_err("Write code")?;
+    write!(&mut file, "{program}").wrap_err("Write code")?;
 
     Ok(())
 }

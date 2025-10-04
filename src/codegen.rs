@@ -1,12 +1,12 @@
-use color_eyre::{
-    Section,
-    eyre::{Context, ContextCompat, Result, bail},
-};
+use color_eyre::eyre::{ContextCompat, Result, bail};
 
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use crate::ast::{FunctionAttribute, Ident, IdentRef, Type, Value};
@@ -22,7 +22,7 @@ pub enum DefinitionIdent<'a> {
     Static(IdentRef<'a>),
 }
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct MangledIdent(pub Ident);
+pub struct MangledIdent(pub Arc<Ident>);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct TempoaryIdent(pub u64);
@@ -39,24 +39,19 @@ pub struct ScopeFrame<'a> {
     frame_start: i32,
     pub locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
     pub temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
-    pub definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
+    pub definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, Arc<FunctionSignature<'a>>)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CodegenCtx<'a> {
-    pub tokens: Vec<ClacToken<'a>>,
+    pub tokens: Vec<ClacToken>,
     pub scope_stack: Vec<ScopeFrame<'a>>,
     // Index of one past the top of the stack
     // Aka the length of the stack
     cursor: i32,
 
-    pub builtins: HashMap<Ident, (Vec<ClacToken<'a>>, FunctionSignature<'a>)>,
-
-    // A function defined inside another function goes out of the scope stack when the outer
-    // function goes out of scope, this means its not avaible for code gen. To prevent this we
-    // store a copy of every definition ever made here.
-    pub definitions_for_codegen:
-        HashMap<StoredDefinitionIdent<'a>, (MangledIdent, FunctionSignature<'a>)>,
+    // TODO: I dont like builtins being this special
+    pub builtins: HashMap<Ident, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
 }
 
 impl Default for CodegenCtx<'_> {
@@ -65,7 +60,6 @@ impl Default for CodegenCtx<'_> {
             tokens: Default::default(),
             scope_stack: Default::default(),
             cursor: Default::default(),
-            definitions_for_codegen: Default::default(),
             builtins: Default::default(),
         };
 
@@ -102,8 +96,8 @@ impl Default for CodegenCtx<'_> {
 
 // FIXME: Many of these functions should be private
 impl<'a> CodegenCtx<'a> {
-    pub fn into_tokens(self) -> Vec<ClacToken<'a>> {
-        self.tokens
+    pub fn into_tokens(self) -> ClacProgram {
+        ClacProgram(self.tokens)
     }
 
     pub fn push_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
@@ -116,20 +110,7 @@ impl<'a> CodegenCtx<'a> {
     }
 
     pub fn pop_scope_frame(&mut self) -> Option<ScopeFrame<'a>> {
-        let old_frame = self.scope_stack.pop();
-
-        if let Some(ref old_frame) = old_frame {
-            println!("Old Frame: {old_frame:#?}");
-
-            self.definitions_for_codegen.extend(
-                old_frame
-                    .definitions
-                    .iter()
-                    .map(|(key, value)| (*key, value.clone())),
-            );
-        }
-
-        old_frame
+        self.scope_stack.pop()
     }
 
     pub fn top_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
@@ -179,18 +160,24 @@ impl<'a> CodegenCtx<'a> {
         } else {
             format!("func-{}-{}", ident, num)
         };
+        let mangled = MangledIdent(Arc::new(mangled));
+
+        let signature = Arc::new(signature);
 
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
             (
-                MangledIdent(mangled),
+                mangled.clone(),
                 // TODO: Remove clone
                 signature.clone(),
             ),
         );
 
         let original_cursor = self.cursor;
-        self.push_token(ClacToken::StartDef(def_ident)).unwrap();
+        self.push_token(ClacToken::StartDef {
+            mangled_ident: mangled,
+        })
+        .unwrap();
 
         {
             self.push_scope_frame();
@@ -253,18 +240,23 @@ impl<'a> CodegenCtx<'a> {
         let def_ident = DefinitionIdent::Static(ident);
         let num = STATIC_COUNTER.fetch_add(1, Ordering::Relaxed);
 
+        let mangled = format!("static-{}-{}", ident, num);
+        let mangled = MangledIdent(Arc::new(mangled));
+
+        let signature = Arc::new(FunctionSignature {
+            arguements: vec![],
+            return_type: var_type,
+        });
+
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
-            (
-                MangledIdent(format!("static-{}-{}", ident, num)),
-                FunctionSignature {
-                    arguements: vec![],
-                    return_type: var_type,
-                },
-            ),
+            (mangled.clone(), signature),
         );
 
-        self.push_token(ClacToken::StartDef(def_ident)).unwrap();
+        self.push_token(ClacToken::StartDef {
+            mangled_ident: mangled,
+        })
+        .unwrap();
 
         {
             self.push_scope_frame();
@@ -281,13 +273,15 @@ impl<'a> CodegenCtx<'a> {
         &mut self,
         ident: IdentRef<'a>,
         sig: FunctionSignature<'a>,
-        code: Vec<ClacToken<'a>>,
+        code: Vec<ClacToken>,
     ) {
-        self.builtins.insert(ident.to_string(), (code, sig));
+        self.builtins
+            .insert(ident.to_string(), (code, Arc::new(sig)));
     }
 
     /// Copies the data pointed to by the references to the top of the stack
     /// Stack after call: S, r_1, ..., r_n
+    // TODO: Check types instead of widths
     #[must_use]
     pub fn bring_up_references(
         &mut self,
@@ -300,11 +294,18 @@ impl<'a> CodegenCtx<'a> {
             match *reference {
                 DataReference::Number(num) => self.push_token(ClacToken::Number(num))?,
                 DataReference::Static(ident) => {
-                    self.push_token(ClacToken::Call(DefinitionIdent::Static(ident)))?;
+                    let (mangled, sig) = self
+                        .lookup_definition(DefinitionIdent::Static(ident))
+                        .wrap_err("Bring up valid static")?;
+
+                    self.push_token(ClacToken::Call {
+                        mangled_ident: mangled.clone(),
+                        stack_delta: sig.stack_delta(),
+                    })?;
                 }
                 DataReference::Local(ident) => {
                     let (var_type, data_ref) =
-                        self.lookup_local(ident).expect("Bring up valid local");
+                        self.lookup_local(ident).wrap_err("Bring up valid local")?;
 
                     println!("recursing to bring up local reference '{ident}'",);
                     self.bring_up_references(&[data_ref], var_type.width())?;
@@ -345,10 +346,8 @@ impl<'a> CodegenCtx<'a> {
     }
 
     #[must_use]
-    pub fn push_token(&mut self, token: ClacToken<'a>) -> Result<()> {
-        token.check(self)?;
-
-        self.cursor = self.cursor + token.stack_delta(&self);
+    pub fn push_token(&mut self, token: ClacToken) -> Result<()> {
+        self.cursor = self.cursor + token.stack_delta();
         self.tokens.push(token);
 
         // Sanity check
@@ -385,9 +384,9 @@ impl<'a> CodegenCtx<'a> {
     pub fn lookup_function_like_signature(
         &self,
         ident: IdentRef<'a>,
-    ) -> Option<&FunctionSignature<'a>> {
+    ) -> Option<Arc<FunctionSignature<'a>>> {
         if let Some((_inline_code, sig)) = self.builtins.get(ident) {
-            Some(sig)
+            Some(sig.clone())
         } else {
             self.lookup_definition(DefinitionIdent::Function(ident))
                 .map(|(_mangled, sig)| sig)
@@ -397,28 +396,14 @@ impl<'a> CodegenCtx<'a> {
     pub fn lookup_definition(
         &self,
         ident: DefinitionIdent,
-    ) -> Option<(&MangledIdent, &FunctionSignature<'a>)> {
+    ) -> Option<(MangledIdent, Arc<FunctionSignature<'a>>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((mangled, sig)) = frame.definitions.get(&ident) {
-                return Some((mangled, sig));
+                return Some((mangled.clone(), sig.clone()));
             }
         }
 
         None
-    }
-
-    pub fn lookup_definition_for_code_gen(
-        &self,
-        ident: DefinitionIdent,
-    ) -> Option<(&MangledIdent, &FunctionSignature<'a>)> {
-        if let Some((mangled, sig)) = self.lookup_definition(ident) {
-            assert!(!self.definitions_for_codegen.contains_key(&ident));
-            return Some((mangled, sig));
-        }
-
-        self.definitions_for_codegen
-            .get(&ident)
-            .map(|(mangled, sig)| (mangled, sig))
     }
 
     pub fn lookup_local(&self, ident: IdentRef) -> Option<(Type, DataReference<'a>)> {
@@ -456,10 +441,17 @@ impl<'a> CodegenCtx<'a> {
     }
 }
 
-impl Display for CodegenCtx<'_> {
+pub struct ClacProgram(pub Vec<ClacToken>);
+
+impl Display for ClacProgram {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for token in &self.tokens {
-            token.write(self, f)?;
+        let mut iter = self.0.iter().peekable();
+        while let Some(token) = iter.next() {
+            if iter.peek().is_some() {
+                write!(f, "{token} ")?;
+            } else {
+                write!(f, "{token}")?;
+            }
         }
 
         Ok(())
@@ -757,12 +749,12 @@ impl<'a> ClacOp<'a> {
                 on_true,
                 on_false,
             } => {
-                let (_mangled, def_true) = ctx
+                let (on_true_mangled, def_true) = ctx
                     .lookup_definition(*on_true)
                     .wrap_err_with(|| format!("Unknown if on_true definition, '{on_true:?}'"))?;
 
                 if let Some(on_false) = on_false {
-                    let (_mangled, def_false) =
+                    let (on_false_mangled, def_false) =
                         ctx.lookup_definition(*on_false).wrap_err_with(|| {
                             format!("Unknown if false_true definition, '{on_true:?}'")
                         })?;
@@ -771,13 +763,19 @@ impl<'a> ClacOp<'a> {
 
                     ctx.bring_up_references(&[*condition], 1)?;
                     ctx.push_token(ClacToken::If)?;
-                    ctx.push_token(ClacToken::Call(*on_true))?;
+                    ctx.push_token(ClacToken::Call {
+                        mangled_ident: on_true_mangled,
+                        stack_delta: def_true.stack_delta(),
+                    })?;
 
                     let cursor_pos = ctx.cursor;
 
                     ctx.push_token(ClacToken::Number(1))?;
                     ctx.push_token(ClacToken::Skip)?;
-                    ctx.push_token(ClacToken::Call(*on_false))?;
+                    ctx.push_token(ClacToken::Call {
+                        mangled_ident: on_false_mangled,
+                        stack_delta: def_false.stack_delta(),
+                    })?;
 
                     // This avoids double counting the stack delta,
                     // We will either hit on true or on false, never both
@@ -788,17 +786,23 @@ impl<'a> ClacOp<'a> {
 
                     ctx.bring_up_references(&[*condition], 1)?;
                     ctx.push_token(ClacToken::If)?;
-                    ctx.push_token(ClacToken::Call(*on_true))?;
+                    ctx.push_token(ClacToken::Call {
+                        mangled_ident: on_true_mangled,
+                        stack_delta: def_true.stack_delta(),
+                    })?;
                     ctx.push_token(ClacToken::Number(0))?;
                     ctx.push_token(ClacToken::Skip)?;
                 }
             }
             ClacOp::Call { name, parameters } => {
-                let (_mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
+                let (mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
                 let return_type = def.return_type;
 
                 ctx.bring_up_references(&parameters, def.paramater_width())?;
-                ctx.push_token(ClacToken::Call(*name))?;
+                ctx.push_token(ClacToken::Call {
+                    mangled_ident: mangled,
+                    stack_delta: def.stack_delta(),
+                })?;
 
                 result = Some(ctx.allocate_tempoary(return_type));
             }
@@ -810,7 +814,7 @@ impl<'a> ClacOp<'a> {
 
 /// A Clac Source Code Token
 #[derive(Debug, Clone)]
-pub enum ClacToken<'a> {
+pub enum ClacToken {
     Number(i32),
     Print,
     Quit,
@@ -827,13 +831,18 @@ pub enum ClacToken<'a> {
     If,
     Pick,
     Skip,
-    StartDef(DefinitionIdent<'a>),
+    StartDef {
+        mangled_ident: MangledIdent,
+    },
     EndDef,
-    Call(DefinitionIdent<'a>),
+    Call {
+        mangled_ident: MangledIdent,
+        stack_delta: i32,
+    },
 }
 
-impl ClacToken<'_> {
-    pub fn stack_delta(&self, ctx: &CodegenCtx) -> i32 {
+impl ClacToken {
+    pub fn stack_delta(&self) -> i32 {
         match self {
             ClacToken::Number(_) => 1,
             ClacToken::Print => -1,
@@ -851,67 +860,40 @@ impl ClacToken<'_> {
             ClacToken::If => -1,
             ClacToken::Pick => 0,
             ClacToken::Skip => -1,
-            ClacToken::StartDef(_) => 0,
+            ClacToken::StartDef { .. } => 0,
             ClacToken::EndDef => 0,
-            ClacToken::Call(ident) => {
-                let (_, def) = ctx
-                    .lookup_definition(*ident)
-                    .expect("Token with invalid definition ident");
-
-                def.stack_delta()
-            }
+            ClacToken::Call { stack_delta, .. } => *stack_delta,
         }
     }
+}
 
-    pub fn check(&self, ctx: &CodegenCtx) -> Result<()> {
+impl Display for ClacToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClacToken::StartDef(ident) => {
-                ctx.lookup_definition(*ident)
-                    .wrap_err_with(|| format!("Check start definition ident '{ident:?}'"))?;
-            }
-            ClacToken::Call(ident) => {
-                ctx.lookup_definition(*ident)
-                    .wrap_err_with(|| format!("Check call definition ident '{ident:?}'"))?;
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
-    pub fn write(&self, ctx: &CodegenCtx, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ClacToken::Number(num) => write!(f, "{num} "),
-            ClacToken::Print => write!(f, "print "),
-            ClacToken::Quit => write!(f, "quit "),
-            ClacToken::Add => write!(f, "+ "),
-            ClacToken::Sub => write!(f, "- "),
-            ClacToken::Mul => write!(f, "* "),
-            ClacToken::Div => write!(f, "/ "),
-            ClacToken::Mod => write!(f, "% "),
-            ClacToken::Pow => write!(f, "** "),
-            ClacToken::Lt => write!(f, "< "),
-            ClacToken::Drop => write!(f, "drop "),
-            ClacToken::Swap => write!(f, "swap "),
-            ClacToken::Rot => write!(f, "rot "),
-            ClacToken::If => write!(f, "if "),
-            ClacToken::Pick => write!(f, "pick "),
-            ClacToken::Skip => write!(f, "skip "),
-            ClacToken::StartDef(ident) => {
-                let (mangled, _) = ctx
-                    .lookup_definition_for_code_gen(*ident)
-                    .expect("Token with invalid definition ident");
-
-                write!(f, ": {} ", mangled.0)
-            }
-            ClacToken::EndDef => write!(f, "; "),
-            ClacToken::Call(ident) => {
-                let (mangled, _) = ctx
-                    .lookup_definition_for_code_gen(*ident)
-                    .expect("Token with invalid definition ident");
-
-                write!(f, "{} ", mangled.0)
-            }
+            ClacToken::Number(num) => write!(f, "{num}"),
+            ClacToken::Print => write!(f, "print"),
+            ClacToken::Quit => write!(f, "quit"),
+            ClacToken::Add => write!(f, "+"),
+            ClacToken::Sub => write!(f, "-"),
+            ClacToken::Mul => write!(f, "*"),
+            ClacToken::Div => write!(f, "/"),
+            ClacToken::Mod => write!(f, "%"),
+            ClacToken::Pow => write!(f, "**"),
+            ClacToken::Lt => write!(f, "<"),
+            ClacToken::Drop => write!(f, "drop"),
+            ClacToken::Swap => write!(f, "swap"),
+            ClacToken::Rot => write!(f, "rot"),
+            ClacToken::If => write!(f, "if"),
+            ClacToken::Pick => write!(f, "pick"),
+            ClacToken::Skip => write!(f, "skip"),
+            ClacToken::StartDef {
+                mangled_ident: ident,
+            } => write!(f, ": {}", ident.0),
+            ClacToken::EndDef => write!(f, ";"),
+            ClacToken::Call {
+                mangled_ident: ident,
+                ..
+            } => write!(f, "{}", ident.0),
         }
     }
 }
