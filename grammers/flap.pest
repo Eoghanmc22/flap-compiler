@@ -60,7 +60,7 @@ else_block = { "else" ~ block }
 if_statement = { if_block ~ if_else_block* ~ else_block? }
 
 semicolon = { ";" }
-statement = _{ (static_var | local_var | expression) ~ semicolon | function_def }
+statement = _{ (static_var | local_var | expression) ~ semicolon }
 
 no_mangle = { "no_mangle" }
 function_attr = { no_mangle }
@@ -71,5 +71,7 @@ function_def = { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_d
 block = { "{" ~ code ~ "}" | statement | expression }
 code = _{ statement* ~ expression? }
 
-// program_contents = { code }
-program = { SOI ~ code ~ EOI }
+item = _{ statement | function_def }
+items = _{ item* ~ expression? }
+
+program = { SOI ~ items ~ EOI }

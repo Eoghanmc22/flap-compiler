@@ -236,15 +236,17 @@ pub fn generate_span_error_section_with_annotations(
         for (anno_span, annotation) in annotations {
             for anno_line_span in anno_span.lines_span() {
                 let (anno_line, anno_col_start) = anno_line_span.start_pos().line_col();
-                let (_anno_line, anno_col_end) = anno_line_span.end_pos().line_col();
+                let width = anno_line_span.end_pos().pos() - anno_line_span.start_pos().pos();
 
                 if anno_line == line {
                     let mut marker = String::new();
 
-                    marker.push_str(&" ".repeat(anno_col_start));
-                    marker.push_str(&"^".repeat(anno_col_end - anno_col_start));
+                    marker.push_str(&" ".repeat(anno_col_start + 5));
+                    marker.push_str(&"^".repeat(width));
 
-                    writeln!(&mut string, "{marker} - {annotation}").unwrap();
+                    for line in annotation.lines() {
+                        writeln!(&mut string, "{marker} - {line}").unwrap();
+                    }
                 }
             }
         }

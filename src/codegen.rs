@@ -102,6 +102,10 @@ impl Default for CodegenCtx<'_> {
 
 // FIXME: Many of these functions should be private
 impl<'a> CodegenCtx<'a> {
+    pub fn into_tokens(self) -> Vec<ClacToken<'a>> {
+        self.tokens
+    }
+
     pub fn push_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
         self.scope_stack.push_mut(ScopeFrame {
             frame_start: self.cursor,

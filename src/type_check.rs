@@ -2,12 +2,13 @@
 // The context should be able to store the signatures of variables and functions ad it traversed
 // the ast during type checking
 
-use std::collections::HashMap;
+use std::{collections::HashMap, os::linux::raw::stat};
 
 use color_eyre::{
     Section,
     eyre::{Context, ContextCompat, Result, eyre},
 };
+use pest::Span;
 
 use crate::{
     ast::{
@@ -269,6 +270,18 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             .with_section(|| generate_span_error_section(self.span))?
             // TODO: Avoid clone
             .clone();
+
+        if self.parameters.len() != sig.arguements.len() {
+            return Err(eyre!("Function called with the incorrect number of arguements")
+                        .with_section(|| {
+                            generate_span_error_section_with_annotations(
+                                self.span,
+                                &[
+                                    (self.span, &format!("The function `{}` was called with {} parameters but it was defined to have {} arguements.\nThe function was defined with the signature: {sig:?}", self.function, self.parameters.len(), sig.arguements.len())),
+                                ],
+                            )
+                        }));
+        }
 
         for (parm_expr, (arg_type, arg_name)) in
             self.parameters.iter_mut().zip(sig.arguements.iter())
