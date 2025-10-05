@@ -90,7 +90,8 @@ int compute_next_data_high(int last_data_high, int last_data_low, int next_data_
 
 int make_decimal_row(int data_high, int data_low, int x, int y, int row) {
   if (x < DIMENSION) {
-    int row = row + (7 * get_cell_state(data_high, data_low, x, y) + 1) * (10 ** x);
+    // int row = row + (1 + 7 * get_cell_state(data_high, data_low, x, y)) * (10 ** x);
+    int row = row + (8 - 7 * get_cell_state(data_high, data_low, x, y)) * (10 ** x);
   
     make_decimal_row(data_high, data_low, x + 1, y, row)
   } else {
@@ -109,10 +110,6 @@ void print_game(int data_high, int data_low, int y) {
 }
 
 void game_loop(int data_high, int data_low) {
-  print(999999999);
-  print(data_high);
-  print(data_low);
-
   print_game(data_high, data_low, 0);
 
   // Emulate new lines

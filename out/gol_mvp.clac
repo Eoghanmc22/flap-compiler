@@ -27,12 +27,12 @@
 : func-on_true-26 3 pick 30 + 1 pick func-idx_to_x-13 5 pick 30 + 1 pick func-idx_to_y-14 10 pick 10 pick 5 pick 4 pick func-update_cell-15 1 pick 9 pick 2 swap ** * 10 pick 2 pick + 10 pick 1 + 14 pick 14 pick 4 pick 4 pick func-compute_next_data_high-25 1 pick swap drop swap drop swap drop swap drop swap drop swap drop swap drop swap drop swap drop ;
 : func-on_false-27 4 pick ;
 : func-compute_next_data_high-25 1 pick 30 + 1 pick const-LEN-1 < 1 pick if func-on_true-26 1 skip func-on_false-27 1 pick swap drop swap drop swap drop swap drop swap drop swap drop swap drop ;
-: func-on_true-29 6 pick 6 pick 6 pick 6 pick func-get_cell_state-7 7 2 pick * 1 pick 1 + 10 8 pick ** 2 pick 2 pick * 7 pick 2 pick + 10 pick 1 + 13 pick 13 pick 3 pick 13 pick 6 pick func-make_decimal_row-28 1 pick swap drop swap drop swap drop swap drop swap drop swap drop swap drop swap drop ;
+: func-on_true-29 6 pick 6 pick 6 pick 6 pick func-get_cell_state-7 7 2 pick * 8 2 pick - 10 8 pick ** 2 pick 2 pick * 7 pick 2 pick + 10 pick 1 + 13 pick 13 pick 3 pick 13 pick 6 pick func-make_decimal_row-28 1 pick swap drop swap drop swap drop swap drop swap drop swap drop swap drop swap drop ;
 : func-on_false-30 2 pick ;
 : func-make_decimal_row-28 3 pick const-DIMENSION-0 < 1 pick if func-on_true-29 1 skip func-on_false-30 1 pick swap drop swap drop swap drop swap drop swap drop swap drop swap drop ;
 : func-on_true-32 4 pick 4 pick 0 5 pick 0 func-make_decimal_row-28 1 pick print 3 pick 1 + 6 pick 6 pick 3 pick func-print_game-31 drop drop ;
 : func-print_game-31 1 pick const-DIMENSION-0 < 1 pick if func-on_true-32 0 skip drop drop drop drop ;
-: func-game_loop-33 999999999 print 2 pick print 1 pick print 2 pick 2 pick 0 func-print_game-31 0 print 0 print 0 print 2 pick 2 pick 0 0 func-compute_next_data_low-22 3 pick 3 pick 0 0 func-compute_next_data_high-25 1 pick 3 pick func-game_loop-33 drop drop drop drop ;
+: func-game_loop-33 2 pick 2 pick 0 func-print_game-31 0 print 0 print 0 print 2 pick 2 pick 0 0 func-compute_next_data_low-22 3 pick 3 pick 0 0 func-compute_next_data_high-25 1 pick 3 pick func-game_loop-33 drop drop drop drop ;
 
 : comment Start Main ;
 const-SEED_HIGH-2 const-SEED_LOW-3 func-game_loop-33
