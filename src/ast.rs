@@ -145,6 +145,8 @@ impl AsSpan for FunctionCall<'_> {
 pub enum FunctionAttribute {
     NoMangle,
     AllowCaptures,
+    AllowUnderflow,
+    Naked,
 }
 
 #[derive(Debug, Clone)]
