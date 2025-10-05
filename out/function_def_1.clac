@@ -1,7 +1,7 @@
 : comment Compiled using Eoghan's flap to clac compiler ;
 
 : comment Start Definitions ;
-: func-test-1 42 37 + 1 pick 5 ** 1 pick swap drop swap drop ; 
+: func-test-5 42 37 + 1 pick 5 ** 1 pick swap drop swap drop ; 
 
 : comment Start Main ;
-func-test-1
+func-test-5

@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use color_eyre::eyre::{Context, Result, bail};
+use color_eyre::{
+    Section,
+    eyre::{Context, Result, eyre},
+};
 use pest::{
     Parser,
     iterators::{Pair, Pairs},
@@ -8,9 +11,12 @@ use pest::{
 };
 use pest_derive::Parser;
 
-use crate::ast::{
-    BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionAttribute, FunctionCall, FunctionDef,
-    IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement, Type, UnaryOp, Value,
+use crate::{
+    ast::{
+        BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionAttribute, FunctionCall, FunctionDef,
+        IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement, Type, UnaryOp, Value,
+    },
+    middleware::generate_span_error_section,
 };
 
 lazy_static::lazy_static! {
@@ -27,6 +33,8 @@ lazy_static::lazy_static! {
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))             // + -
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))  // * / %
             .op(Op::infix(power, Right))               // ^ ** (right-associative)
+            .op(Op::infix(shl, Left) | Op::infix(shr, Left))
+            .op(Op::infix(bit_and, Left))
             // Highest precedence
             .op(Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
     };
@@ -86,7 +94,13 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
                             Rule::no_mangle => {
                                 attributes.insert(FunctionAttribute::NoMangle);
                             }
-                            _ => bail!("Unsupported function attr token: {:?}", pair.as_rule()),
+                            _ => {
+                                return Err(eyre!(
+                                    "Unsupported function attr token: {:?}",
+                                    pair.as_rule()
+                                )
+                                .with_section(|| generate_span_error_section(pair.as_span())));
+                            }
                         }
                     }
                 }
@@ -105,7 +119,11 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
                         }
                         Rule::ident => {
                             let Some(last_arg_type) = last_arg_type.take() else {
-                                bail!("Got var name before var type: {:?}", pair.as_rule())
+                                return Err(eyre!(
+                                    "Got var name before var type: {:?}",
+                                    pair.as_rule()
+                                )
+                                .with_section(|| generate_span_error_section(pair.as_span())));
                             };
 
                             let ident = parse_ident(pair)?;
@@ -115,10 +133,13 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
                             statements = parse_statements(pair.into_inner())?;
                             break;
                         }
-                        _ => bail!(
-                            "Unsupported function paramaters token: {:?}",
-                            pair.as_rule()
-                        ),
+                        _ => {
+                            return Err(eyre!(
+                                "Unsupported function paramaters token: {:?}",
+                                pair.as_rule()
+                            )
+                            .with_section(|| generate_span_error_section(pair.as_span())));
+                        }
                     }
                 }
 
@@ -163,7 +184,10 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
             }
             Rule::semicolon => continue,
             Rule::EOI => continue,
-            _ => bail!("Unsupported statement type: {:?}", target.as_rule()),
+            _ => {
+                return Err(eyre!("Unsupported statement type: {:?}", target.as_rule())
+                    .with_section(|| generate_span_error_section(target.as_span())));
+            }
         };
 
         statements.push(statement);
@@ -186,7 +210,10 @@ fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
             Rule::else_block => {
                 otherwise = Some(parse_block_like(pair.into_inner().next().unwrap())?);
             }
-            _ => bail!("Unsupported if_block type: {:?}", pair.as_rule()),
+            _ => {
+                return Err(eyre!("Unsupported if_block type: {:?}", pair.as_rule())
+                    .with_section(|| generate_span_error_section(pair.as_span())));
+            }
         }
     }
 
@@ -217,13 +244,18 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     match target.as_rule() {
         Rule::int_type => Ok(Type::Int),
         Rule::bool_type => Ok(Type::Bool),
-        _ => bail!("Unexpected type: {:?}", target),
+        Rule::void_type => Ok(Type::Void),
+        _ => {
+            return Err(eyre!("Unknown type: {:?}", target)
+                .with_section(|| generate_span_error_section(target.as_span())));
+        }
     }
 }
 
 fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     if !matches!(pair.as_rule(), Rule::ident) {
-        bail!("Got {:?}, expected ident", pair);
+        return Err(eyre!("Got {:?}, expected ident", pair)
+            .with_section(|| generate_span_error_section(pair.as_span())));
     }
 
     Ok(pair.as_str())
@@ -244,7 +276,10 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 }
                 Rule::function_call => Ok(Expr::FunctionCall(parse_function_call(primary)?)),
                 Rule::if_statement => Ok(Expr::If(parse_if_expr(primary)?)),
-                _ => bail!("Unexpected primary: {:?}", primary),
+                _ => {
+                    return Err(eyre!("Unexpected primary: {:?}", primary)
+                        .with_section(|| generate_span_error_section(span)));
+                }
             }
         })
         .map_infix(|lhs, op, rhs| {
@@ -264,7 +299,13 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 Rule::gt => BinaryOp::Gt,
                 Rule::logical_and => BinaryOp::LAnd,
                 Rule::logical_or => BinaryOp::LOr,
-                _ => bail!("Unexpected infix op: {:?}", op),
+                Rule::shr => BinaryOp::BShr,
+                Rule::shl => BinaryOp::BShl,
+                Rule::bit_and => BinaryOp::BAnd,
+                _ => {
+                    return Err(eyre!("Unexpected infix op: {:?}", op)
+                        .with_section(|| generate_span_error_section(op.as_span())));
+                }
             };
             Ok(Expr::BinaryOp {
                 op: bin_op,
@@ -276,9 +317,12 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         .map_prefix(|op, rhs| {
             // Handle unary operations
             let un_op = match op.as_rule() {
-                Rule::subtract => UnaryOp::Negate,
+                Rule::negate => UnaryOp::Negate,
                 Rule::logical_not => UnaryOp::LNot,
-                _ => bail!("Unexpected prefix op: {:?}", op),
+                _ => {
+                    return Err(eyre!("Unexpected prefix op: {:?}", op)
+                        .with_section(|| generate_span_error_section(op.as_span())));
+                }
             };
             Ok(Expr::UnaryOp {
                 op: un_op,
@@ -308,8 +352,14 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
     let target = pair.into_inner().next().unwrap();
 
     match target.as_rule() {
-        Rule::number => Ok(Value::Int(target.as_str().parse()?)),
+        Rule::number => Ok(Value::Int(
+            parse_int::parse(target.as_str())
+                .with_section(|| generate_span_error_section(target.as_span()))?,
+        )),
         Rule::boolean => Ok(Value::Bool(target.as_str().parse()?)),
-        _ => bail!("Unexpected value: {:?}", target),
+        _ => {
+            return Err(eyre!("Unexpected value: {:?}", target)
+                .with_section(|| generate_span_error_section(target.as_span())));
+        }
     }
 }

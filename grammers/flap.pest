@@ -5,7 +5,7 @@ singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
 COMMENT = _{ multiline_comment | singleline_comment }
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
-number = @{ ASCII_DIGIT+ | ("0x" ~ ASCII_HEX_DIGIT+) | ("0b" ~ ASCII_BIN_DIGIT+) | ("0o" ~ ASCII_OCT_DIGIT+) }
+number = @{ ("0x" ~ (ASCII_HEX_DIGIT | "_")+) | ("0b" ~ (ASCII_BIN_DIGIT | "_")+) | ("0o" ~ (ASCII_OCT_DIGIT | "_")+) | (ASCII_DIGIT | "_")+  }
 true = { "true" }
 false = { "false" }
 boolean = @{ true | false }
@@ -17,7 +17,8 @@ ident = @{ ident_start_chars+ ~ ident_chars* }
 
 int_type = { "int" }
 bool_type = { "bool" }
-var_type = { int_type | bool_type }
+void_type = { "void" }
+var_type = { int_type | bool_type | void_type }
 
 // Arithmetic operators
 add = { "+" }
@@ -41,7 +42,12 @@ logical_and = { "&&" }
 logical_or = { "||" }
 logical_not = { "!" }
 
-binary_op = _{ add | subtract | power | multiply | divide | modulo | eq | ne | le | ge | lt | gt | logical_and | logical_or }
+// Bit operators
+shr = { ">>" }
+shl = { "<<" }
+bit_and = { "&" }
+
+binary_op = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
 unary_op = _{ negate | logical_not }
 atom = _{ if_statement | function_call | value | ident | ( "(" ~ expression ~ ")") }
 expression = { unary_op? ~ atom ~ (binary_op ~ unary_op? ~atom)* }

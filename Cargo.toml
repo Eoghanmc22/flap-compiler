@@ -7,5 +7,6 @@ edition = "2024"
 clap = { version = "4.5.48", features = ["derive"] }
 color-eyre = "0.6.5"
 lazy_static = "1.5.0"
+parse_int = "0.9.0"
 pest = "2.8.2"
 pest_derive = "2.8.2"

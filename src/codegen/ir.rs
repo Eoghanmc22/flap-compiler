@@ -1,4 +1,4 @@
-use color_eyre::eyre::{ContextCompat, Result};
+use color_eyre::eyre::{ContextCompat, Result, bail};
 
 use crate::{
     ast::{IdentRef, Type},
@@ -105,6 +105,18 @@ pub enum ClacOp<'a> {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
+    BShl {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    BShr {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    BAnd {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
     If {
         condition: DataReference<'a>,
         on_true: DefinitionIdent<'a>,
@@ -119,6 +131,8 @@ pub enum ClacOp<'a> {
 impl<'a> ClacOp<'a> {
     pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<Option<TempoaryIdent>> {
         let mut result = None;
+
+        println!("Generating code for {self:?}");
 
         match self {
             ClacOp::Print { value } => {
@@ -150,8 +164,8 @@ impl<'a> ClacOp<'a> {
             }
             ClacOp::Mod { lhs, rhs } => {
                 ctx.bring_up_references(&[*lhs, *rhs], 2)?;
-                result = Some(ctx.allocate_tempoary(Type::Int));
                 ctx.push_token(ClacToken::Mod)?;
+                result = Some(ctx.allocate_tempoary(Type::Int));
             }
             ClacOp::Pow { lhs, rhs } => {
                 ctx.bring_up_references(&[*lhs, *rhs], 2)?;
@@ -234,8 +248,6 @@ impl<'a> ClacOp<'a> {
                 ctx.push_token(ClacToken::Sub)?;
                 result = Some(ctx.allocate_tempoary(Type::Bool));
             }
-            // TODO: theres got to be a better way
-            // also need to double check
             ClacOp::LAnd { lhs, rhs } => {
                 let cursor_pos = ctx.cursor;
 
@@ -261,8 +273,6 @@ impl<'a> ClacOp<'a> {
 
                 result = Some(ctx.allocate_tempoary(Type::Bool));
             }
-            // TODO: theres got to be a better way
-            // also need to double check
             ClacOp::LOr { lhs, rhs } => {
                 ctx.push_token(ClacToken::Number(1))?;
 
@@ -288,6 +298,64 @@ impl<'a> ClacOp<'a> {
                 // This avoids double counting the stack delta,
                 // +1 from first `if`, +1 from second if, -1 from `mul`, -1 from `sub`
                 ctx.cursor = cursor_pos;
+
+                result = Some(ctx.allocate_tempoary(Type::Int));
+            }
+            ClacOp::BShl { lhs, rhs } => {
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Number(2))?;
+                ctx.push_token(ClacToken::Swap)?;
+                ctx.push_token(ClacToken::Pow)?;
+                ctx.push_token(ClacToken::Mul)?;
+                result = Some(ctx.allocate_tempoary(Type::Int));
+            }
+            ClacOp::BShr { lhs, rhs } => {
+                ctx.bring_up_references(&[*lhs, *rhs], 2)?;
+                ctx.push_token(ClacToken::Number(2))?;
+                ctx.push_token(ClacToken::Swap)?;
+                ctx.push_token(ClacToken::Pow)?;
+                ctx.push_token(ClacToken::Div)?;
+                result = Some(ctx.allocate_tempoary(Type::Int));
+            }
+            ClacOp::BAnd { lhs, rhs } => {
+                let DataReference::Number(rhs) = *rhs else {
+                    bail!(
+                        "Bit wise and is only implemented for anding with a literal int, or an int that ends up getting inlined"
+                    );
+                };
+                let mut rhs = rhs as u32;
+
+                ctx.bring_up_references(&[*lhs], 1)?;
+                ctx.push_token(ClacToken::Number(0))?;
+
+                // This is more complicated than I expected
+                let mut total_shift = 0;
+                while rhs.count_ones() > 0 {
+                    let trailing = rhs.trailing_ones();
+
+                    ctx.push_token(ClacToken::Number(2))?;
+                    ctx.push_token(ClacToken::Pick)?;
+                    if total_shift > 0 {
+                        ctx.push_token(ClacToken::Number(2i32.pow(total_shift)))?;
+                        ctx.push_token(ClacToken::Div)?;
+                    }
+                    ctx.push_token(ClacToken::Number(2i32.pow(trailing)))?;
+                    ctx.push_token(ClacToken::Mod)?;
+                    if total_shift > 0 {
+                        ctx.push_token(ClacToken::Number(2i32.pow(total_shift)))?;
+                        ctx.push_token(ClacToken::Mul)?;
+                    }
+                    ctx.push_token(ClacToken::Add)?;
+
+                    total_shift += trailing;
+                    rhs >>= trailing;
+                    if rhs != 0 {
+                        total_shift += rhs.trailing_zeros();
+                        rhs >>= rhs.trailing_zeros();
+                    } else {
+                        break;
+                    }
+                }
 
                 result = Some(ctx.allocate_tempoary(Type::Int));
             }

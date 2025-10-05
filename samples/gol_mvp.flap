@@ -1,0 +1,130 @@
+const int DIMENSION = 7;
+//const int LEN = DIMENSION * DIMENSION;
+const int LEN = 49;
+const int SEED_HIGH = 0b0000000000000000100;
+const int SEED_LOW = 0b000011000010100000000000000000;
+
+int get_cell_index(int x, int y) {
+  x + DIMENSION * y
+}
+
+// Returns 1 if the cell at index x, y is alive
+// Returns 0 otherwise
+int get_cell_state(int data_high, int data_low, int x, int y) {
+  int index = get_cell_index(x, y);
+
+  if (index >= 30) {
+    int index = index - 30;
+    (data_high >> index) & 1
+  } else {
+    (data_low >> index) & 1
+  }
+}
+
+// Adds `by` to `pos` mod `DIMENSION`
+int offset(int pos, int by) {
+  if (by >= 0) {
+    (pos + by) % DIMENSION
+  } else {
+    (pos + DIMENSION + by) % DIMENSION
+  }
+}
+
+int idx_to_x(int idx) {
+  idx % DIMENSION
+}
+
+int idx_to_y(int idx) {
+  idx / DIMENSION
+}
+
+int update_cell(int data_high, int data_low, int x, int y) {
+  int neighbors = 
+          get_cell_state(data_high, data_low, offset(x, -1), offset(y, -1))
+          + get_cell_state(data_high, data_low, offset(x, 0), offset(y, -1))
+          + get_cell_state(data_high, data_low, offset(x, 1), offset(y, -1))
+          + get_cell_state(data_high, data_low, offset(x, -1), offset(y, 0))
+          + get_cell_state(data_high, data_low, offset(x, 1), offset(y, 0))
+          + get_cell_state(data_high, data_low, offset(x, -1), offset(y, 1))
+          + get_cell_state(data_high, data_low, offset(x, 0), offset(y, 1))
+          + get_cell_state(data_high, data_low, offset(x, 1), offset(y, 1));
+
+  int is_alive = get_cell_state(data_high, data_low, x, y);
+
+  if (neighbors < 2) {
+    0
+  } else if (neighbors == 2) {
+    is_alive
+  } else if (neighbors == 3) {
+    1
+  } else {
+    0
+  }
+}
+
+int compute_next_data_low(int last_data_high, int last_data_low, int next_data_low, int idx) {
+  if (idx < 30) {
+    int x = idx_to_x(idx);
+    int y = idx_to_y(idx);
+
+    int next_data_low = next_data_low + (update_cell(last_data_high, last_data_low, x, y) << idx);
+
+    compute_next_data_low(last_data_high, last_data_low, next_data_low, idx + 1)
+  } else {
+    next_data_low
+  }
+}
+
+int compute_next_data_high(int last_data_high, int last_data_low, int next_data_high, int idx) {
+  if (idx + 30 < LEN) {
+    int x = idx_to_x(idx + 30);
+    int y = idx_to_y(idx + 30);
+
+    int next_data_high = next_data_high + (update_cell(last_data_high, last_data_low, x, y) << idx);
+
+    compute_next_data_high(last_data_high, last_data_low, next_data_high, idx + 1)
+  } else {
+    next_data_high
+  }
+}
+
+int make_decimal_row(int data_high, int data_low, int x, int y, int row) {
+  if (x < DIMENSION) {
+    int row = row + (7 * get_cell_state(data_high, data_low, x, y) + 1) * (10 ** x);
+  
+    make_decimal_row(data_high, data_low, x + 1, y, row)
+  } else {
+    row
+  }
+}
+
+void print_game(int data_high, int data_low, int y) {
+  if (y < DIMENSION) {
+    int row = make_decimal_row(data_high, data_low, 0, y, 0);
+
+    print(row);
+  
+    print_game(data_high, data_low, y + 1);
+  }
+}
+
+void game_loop(int data_high, int data_low) {
+  print(999999999);
+  print(data_high);
+  print(data_low);
+
+  print_game(data_high, data_low, 0);
+
+  // Emulate new lines
+  print(0);
+  print(0);
+  print(0);
+
+  int next_data_low = compute_next_data_low(data_high, data_low, 0, 0);
+  int next_data_high = compute_next_data_high(data_high, data_low, 0, 0);
+
+  // Recursion goes brrrr
+  game_loop(next_data_high, next_data_low);
+}
+
+game_loop(SEED_HIGH, SEED_LOW);

@@ -1,0 +1,19 @@
+void test() {
+  print(100);
+}
+test();
+
+void test() {
+  print(100 >> 2);
+}
+test();
+
+void test() {
+  print((100 >> 2) & 1);
+}
+test();
+
+void test() {
+  print((100 >> 2) % 2);
+}
+test();

@@ -77,6 +77,10 @@ impl Default for CodegenCtx<'_> {
             ctx.define_builtin(&ident, sig, code);
         }
 
+        // Allocates the first stack frame
+        // Necessary to gurantee that the first stack frame starts at 0
+        ctx.top_scope_frame();
+
         ctx
     }
 }
@@ -279,9 +283,13 @@ impl<'a> CodegenCtx<'a> {
         references: &[DataReference<'a>],
         expected_width: u32,
     ) -> Result<()> {
+        println!("bring up references '{references:?}', expected_width, {expected_width}");
+
         // TODO: Optimize
         let starting_cursor = self.cursor;
         for reference in references {
+            println!("bring up reference '{reference:?}'",);
+
             match *reference {
                 DataReference::Number(num) => self.push_token(ClacToken::Number(num))?,
                 DataReference::Const(ident) => {
@@ -338,10 +346,14 @@ impl<'a> CodegenCtx<'a> {
 
     pub fn push_token(&mut self, token: ClacToken) -> Result<()> {
         self.cursor += token.stack_delta();
-        self.tokens.push(token);
 
         // Sanity check
-        assert!(self.cursor >= self.top_scope_frame().frame_start);
+        assert!(
+            self.cursor >= self.top_scope_frame().frame_start,
+            "COMPILER BUG: underflowed stack frame on token `{token:?}`"
+        );
+
+        self.tokens.push(token);
 
         Ok(())
     }

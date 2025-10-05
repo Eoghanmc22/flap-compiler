@@ -194,6 +194,9 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReferen
                 BinaryOp::Gt => ClacOp::Gt { lhs, rhs },
                 BinaryOp::LAnd => ClacOp::LAnd { lhs, rhs },
                 BinaryOp::LOr => ClacOp::LOr { lhs, rhs },
+                BinaryOp::BShl => ClacOp::BShl { lhs, rhs },
+                BinaryOp::BShr => ClacOp::BShr { lhs, rhs },
+                BinaryOp::BAnd => ClacOp::BAnd { lhs, rhs },
             };
 
             let tempoary = clac_op

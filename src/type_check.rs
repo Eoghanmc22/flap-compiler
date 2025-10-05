@@ -185,7 +185,10 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     | BinaryOp::Le
                     | BinaryOp::Ge
                     | BinaryOp::Lt
-                    | BinaryOp::Gt => Type::Int,
+                    | BinaryOp::Gt
+                    | BinaryOp::BShr
+                    | BinaryOp::BShl
+                    | BinaryOp::BAnd => Type::Int,
 
                     BinaryOp::LAnd | BinaryOp::LOr => Type::Bool,
                 };
@@ -208,7 +211,10 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     | BinaryOp::Mul
                     | BinaryOp::Div
                     | BinaryOp::Mod
-                    | BinaryOp::Pow => Type::Int,
+                    | BinaryOp::Pow
+                    | BinaryOp::BShr
+                    | BinaryOp::BShl
+                    | BinaryOp::BAnd => Type::Int,
 
                     BinaryOp::Eq
                     | BinaryOp::Ne

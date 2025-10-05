@@ -87,6 +87,11 @@ pub enum BinaryOp {
     // Logical
     LAnd,
     LOr,
+
+    // Bitwise
+    BShl,
+    BShr,
+    BAnd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
