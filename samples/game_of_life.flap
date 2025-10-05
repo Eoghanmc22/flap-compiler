@@ -1,13 +1,17 @@
+// Conways Game of Life
+
 const int DIMENSION = 7;
 //const int LEN = DIMENSION * DIMENSION;
 const int LEN = 49;
 const int SEED_HIGH = 0b0000000000000000100;
 const int SEED_LOW = 0b000011000010100000000000000000;
 
+// Convets a logical position into a bit index
 int get_cell_index(int x, int y) {
   x + DIMENSION * y
 }
 
+// Returns the status of a cell
 // Returns 1 if the cell at index x, y is alive
 // Returns 0 otherwise
 int get_cell_state(int data_high, int data_low, int x, int y) {
@@ -21,6 +25,7 @@ int get_cell_state(int data_high, int data_low, int x, int y) {
   }
 }
 
+// Wrapping offset of logical positions
 // Adds `by` to `pos` mod `DIMENSION`
 int offset(int pos, int by) {
   if (by >= 0) {
@@ -30,14 +35,17 @@ int offset(int pos, int by) {
   }
 }
 
+// Bit index to logical x position
 int idx_to_x(int idx) {
   idx % DIMENSION
 }
 
+// Bit index to logical y position
 int idx_to_y(int idx) {
   idx / DIMENSION
 }
 
+// Calculates the next state of a cell using the rules of Conways Game of Life
 int update_cell(int data_high, int data_low, int x, int y) {
   int neighbors = 
           get_cell_state(data_high, data_low, offset(x, -1), offset(y, -1))
@@ -62,66 +70,87 @@ int update_cell(int data_high, int data_low, int x, int y) {
   }
 }
 
-int compute_next_data_low(int last_data_high, int last_data_low, int next_data_low, int idx) {
-  if (idx < 30) {
-    int x = idx_to_x(idx);
-    int y = idx_to_y(idx);
+// Compute the next low order bits of the game state
+int compute_next_data_low(int last_data_high, int last_data_low) {
+  int compute_next_data_low(int last_data_high, int last_data_low, int next_data_low, int idx) {
+    if (idx < 30) {
+      int x = idx_to_x(idx);
+      int y = idx_to_y(idx);
 
-    int next_data_low = next_data_low + (update_cell(last_data_high, last_data_low, x, y) << idx);
+      int next_data_low = next_data_low + (update_cell(last_data_high, last_data_low, x, y) << idx);
 
-    compute_next_data_low(last_data_high, last_data_low, next_data_low, idx + 1)
-  } else {
-    next_data_low
+      compute_next_data_low(last_data_high, last_data_low, next_data_low, idx + 1)
+    } else {
+      next_data_low
+    }
   }
+
+  compute_next_data_low(last_data_high, last_data_low, 0, 0)
 }
 
-int compute_next_data_high(int last_data_high, int last_data_low, int next_data_high, int idx) {
-  if (idx + 30 < LEN) {
-    int x = idx_to_x(idx + 30);
-    int y = idx_to_y(idx + 30);
+// Compute the next high order bits of the game state
+int compute_next_data_high(int last_data_high, int last_data_low) {
+  int compute_next_data_high(int last_data_high, int last_data_low, int next_data_high, int idx) {
+    if (idx + 30 < LEN) {
+      int x = idx_to_x(idx + 30);
+      int y = idx_to_y(idx + 30);
 
-    int next_data_high = next_data_high + (update_cell(last_data_high, last_data_low, x, y) << idx);
+      int next_data_high = next_data_high + (update_cell(last_data_high, last_data_low, x, y) << idx);
 
-    compute_next_data_high(last_data_high, last_data_low, next_data_high, idx + 1)
-  } else {
-    next_data_high
+      compute_next_data_high(last_data_high, last_data_low, next_data_high, idx + 1)
+    } else {
+      next_data_high
+    }
   }
+
+  compute_next_data_high(last_data_high, last_data_low, 0, 0)
 }
 
-int make_decimal_row(int data_high, int data_low, int x, int y, int row) {
-  if (x < DIMENSION) {
-    // int row = row + (1 + 7 * get_cell_state(data_high, data_low, x, y)) * (10 ** x);
-    int row = row + (8 - 7 * get_cell_state(data_high, data_low, x, y)) * (10 ** x);
-  
-    make_decimal_row(data_high, data_low, x + 1, y, row)
-  } else {
-    row
+// Compute the integer used to print a game row in a somewhat human readable way
+int make_decimal_row(int data_high, int data_low, int y) {
+  int make_decimal_row(int data_high, int data_low, int x, int y, int row) {
+    if (x < DIMENSION) {
+      // int row = row + (1 + 7 * get_cell_state(data_high, data_low, x, y)) * (10 ** x);
+      int row = row + (8 - 7 * get_cell_state(data_high, data_low, x, y)) * (10 ** x);
+    
+      make_decimal_row(data_high, data_low, x + 1, y, row)
+    } else {
+      row
+    }
   }
+
+  make_decimal_row(data_high, data_low, 0, y, 0)
 }
 
-void print_game(int data_high, int data_low, int y) {
-  if (y < DIMENSION) {
-    int row = make_decimal_row(data_high, data_low, 0, y, 0);
+// Print the whole game state
+void print_game(int data_high, int data_low) {
+  void print_game(int data_high, int data_low, int y) {
+    if (y < DIMENSION) {
+      int row = make_decimal_row(data_high, data_low, y);
 
-    print(row);
-  
-    print_game(data_high, data_low, y + 1);
+      print(row);
+    
+      print_game(data_high, data_low, y + 1);
+    }
   }
+
+  print_game(data_high, data_low, 0)
 }
 
+// The recursive game loop
 void game_loop(int data_high, int data_low) {
-  print_game(data_high, data_low, 0);
+  print_game(data_high, data_low);
 
   // Emulate new lines
   print(0);
   print(0);
   print(0);
 
-  int next_data_low = compute_next_data_low(data_high, data_low, 0, 0);
-  int next_data_high = compute_next_data_high(data_high, data_low, 0, 0);
+  int next_data_low = compute_next_data_low(data_high, data_low);
+  int next_data_high = compute_next_data_high(data_high, data_low);
 
   // Recursion goes brrrr
-  game_loop(next_data_high, next_data_low);
+  game_loop(next_data_high, next_data_low)
 }
 
 game_loop(SEED_HIGH, SEED_LOW);
