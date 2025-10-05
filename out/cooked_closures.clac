@@ -12,6 +12,8 @@
     
     int i = 9999999 * 1;
     
+    // Due to a bug with how captures are implemented,
+    // this will currently print `i` instead of `num`
     print(get_num());
 ;
 

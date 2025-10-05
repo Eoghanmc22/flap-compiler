@@ -3,6 +3,7 @@
 //   - make all offsets relative to the start of their frame, and make every frame start with
 //   offset to the start of the parent frame
 //   - once we get that implemented we can re enable nested function defs
+// - Make the debug output chill out
 #![feature(push_mut)]
 
 use std::{
