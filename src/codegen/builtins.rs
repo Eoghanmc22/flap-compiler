@@ -7,13 +7,13 @@ use crate::{
 
 pub struct ClacBuiltin {}
 
-pub fn clac_builtins() -> HashMap<IdentRef<'static>, (Vec<ClacToken>, FunctionSignature<'static>)> {
+pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignature<'static>)> {
     let mut map = HashMap::new();
 
     map.insert(
         "print",
         (
-            vec![ClacToken::Print],
+            ClacToken::Print,
             FunctionSignature {
                 arguements: vec![(Type::Int, "value")],
                 return_type: Type::Void,
@@ -24,7 +24,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (Vec<ClacToken>, FunctionSi
     map.insert(
         "print_bool",
         (
-            vec![ClacToken::Print],
+            ClacToken::Print,
             FunctionSignature {
                 arguements: vec![(Type::Bool, "value")],
                 return_type: Type::Void,
@@ -35,7 +35,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (Vec<ClacToken>, FunctionSi
     map.insert(
         "quit",
         (
-            vec![ClacToken::Quit],
+            ClacToken::Quit,
             FunctionSignature {
                 arguements: vec![],
                 return_type: Type::Void,

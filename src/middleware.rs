@@ -1,22 +1,23 @@
 use color_eyre::{
     Section,
-    eyre::{Context, ContextCompat, Result},
+    eyre::{Context, ContextCompat, Result, eyre},
 };
 use pest::Span;
-use std::fmt::Write;
+use std::{fmt::Write, sync::Arc};
 
 use crate::{
     ast::{
-        BinaryOp, Block, ConstDef, Expr, FunctionAttribute, FunctionCall, FunctionDef, IfCase,
-        IfExpr, LocalDef, Punctuation, Statement, Type,
+        BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionAttribute, FunctionCall, FunctionDef,
+        IfCase, IfExpr, LocalDef, Punctuation, Statement, Type,
     },
     codegen::{
-        CodegenCtx,
+        CodegenCtx, MaybeTailCall,
+        clac::ClacProgram,
         ir::{ClacOp, DataReference, FunctionSignature},
     },
 };
 
-pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<DataReference<'a>> {
+pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<MaybeTailCall<'a>> {
     let mut last_return_val = None;
 
     for statement in &block.statements {
@@ -44,21 +45,21 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<
     if let Some(last_return_val) = last_return_val {
         Ok(last_return_val)
     } else {
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)))
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)).into())
     }
 }
 
 fn walk_function_call<'a>(
     ctx: &mut CodegenCtx<'a>,
     func_call: &'a FunctionCall<'a>,
-) -> Result<DataReference<'a>> {
+) -> Result<MaybeTailCall<'a>> {
     let parameters = func_call
         .parameters
         .iter()
-        .map(|it| walk_expr(ctx, it))
-        .collect::<Result<Vec<_>>>()?;
+        .map(|it| walk_expr(ctx, it)?.into_data_ref(ctx))
+        .collect::<Result<Vec<DataReference<'a>>>>()?;
 
-    ctx.call_function_like(func_call.function, parameters)
+    ctx.call_function_like(func_call.function, parameters, func_call.span)
         .wrap_err_with(|| format!("Walk function call '{:?}' failed", func_call.function))
         .with_section(|| generate_span_error_section(func_call.span))
 }
@@ -97,13 +98,21 @@ fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Resu
 }
 
 fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Result<()> {
-    let data_ref = walk_expr(ctx, &local_def.expr)?;
+    let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
     ctx.promote_to_local(data_ref, local_def.name, local_def.var_type);
 
     Ok(())
 }
 
-fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<DataReference<'a>> {
+fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<MaybeTailCall<'a>> {
+    if if_expr.otherwise.is_none() && if_expr.return_type != DeferedType::ResolvedType(Type::Void) {
+        return Err(eyre!(
+            "Got non exhustive if statement with non void return type ({:?})",
+            if_expr.return_type
+        )
+        .with_section(|| generate_span_error_section(if_expr.span)));
+    }
+
     walk_if_statement_inner(
         ctx,
         &if_expr.cases,
@@ -117,18 +126,21 @@ fn walk_if_statement_inner<'a>(
     if_cases: &'a [IfCase],
     otherwise: Option<&'a Block>,
     return_type: Type,
-) -> Result<DataReference<'a>> {
+) -> Result<MaybeTailCall<'a>> {
+    let sig = FunctionSignature {
+        arguements: vec![],
+        return_type,
+    };
+
     if let Some((next_case, remaining)) = if_cases.split_first() {
         let condition = walk_expr(ctx, &next_case.condition)
             .wrap_err("If cond should return something")
-            .with_section(|| generate_span_error_section(next_case.span))?;
+            .with_section(|| generate_span_error_section(next_case.span))?
+            .into_data_ref(ctx)?;
 
         let on_true = ctx.define_function(
             "on_true",
-            FunctionSignature {
-                arguements: vec![],
-                return_type,
-            },
+            sig.clone(),
             &[FunctionAttribute::AllowCaptures].into(),
             |ctx| walk_block(ctx, &next_case.contents),
         )?;
@@ -136,10 +148,7 @@ fn walk_if_statement_inner<'a>(
         let on_false = if !remaining.is_empty() || otherwise.is_some() {
             Some(ctx.define_function(
                 "on_false",
-                FunctionSignature {
-                    arguements: vec![],
-                    return_type,
-                },
+                sig.clone(),
                 &[FunctionAttribute::AllowCaptures].into(),
                 |ctx| walk_if_statement_inner(ctx, remaining, otherwise, return_type),
             )?)
@@ -152,32 +161,43 @@ fn walk_if_statement_inner<'a>(
             on_true,
             on_false,
         };
-        clac_op.append_into(ctx)?;
 
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(return_type)))
+        let mut tokens = ClacProgram::default();
+        clac_op.execute((&mut tokens, ctx))?;
+
+        Ok(MaybeTailCall::TailCall {
+            signature: Arc::new(FunctionSignature {
+                arguements: vec![(Type::Bool, "condition")],
+                ..sig
+            }),
+            call_span: next_case.span,
+            parameters: vec![condition],
+            tokens: Arc::new(tokens.0),
+        })
     } else if let Some(otherwise) = otherwise {
         walk_block(ctx, otherwise)
     } else {
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)))
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)).into())
     }
 }
 
-fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReference<'a>> {
+fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
     match expr {
-        Expr::Value(value, _span) => Ok(DataReference::Number(value.as_repr())),
-        Expr::Ident(ident, span) => ctx
+        Expr::Value(value, _span) => Ok(DataReference::Number(value.as_repr()).into()),
+        Expr::Ident(ident, span) => Ok(ctx
             .lookup_ident_data_ref(ident)
             .map(|it| it.0)
             .wrap_err_with(|| format!("Could not find identifier: {ident}"))
-            .with_section(|| generate_span_error_section(*span)),
+            .with_section(|| generate_span_error_section(*span))?
+            .into()),
         Expr::BinaryOp {
             op,
             left,
             right,
             span,
         } => {
-            let lhs = walk_expr(ctx, left)?;
-            let rhs = walk_expr(ctx, right)?;
+            let lhs = walk_expr(ctx, left)?.into_data_ref(ctx)?;
+            let rhs = walk_expr(ctx, right)?.into_data_ref(ctx)?;
 
             let clac_op = match op {
                 BinaryOp::Add => ClacOp::Add { lhs, rhs },
@@ -204,10 +224,10 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReferen
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
                 .with_section(|| generate_span_error_section(*span))?
                 .unwrap();
-            Ok(DataReference::Tempoary(tempoary))
+            Ok(DataReference::Tempoary(tempoary).into())
         }
         Expr::UnaryOp { op, operand, span } => {
-            let value = walk_expr(ctx, operand)?;
+            let value = walk_expr(ctx, operand)?.into_data_ref(ctx)?;
 
             let clac_op = match op {
                 crate::ast::UnaryOp::Negate => ClacOp::Neg { value },
@@ -219,7 +239,7 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<DataReferen
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
                 .with_section(|| generate_span_error_section(*span))?
                 .unwrap();
-            Ok(DataReference::Tempoary(tempoary))
+            Ok(DataReference::Tempoary(tempoary).into())
         }
         Expr::FunctionCall(func_call) => walk_function_call(ctx, func_call),
         Expr::If(if_expr) => walk_if_expr(ctx, if_expr),

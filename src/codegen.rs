@@ -3,7 +3,11 @@ pub mod clac;
 pub mod ir;
 pub mod post_process;
 
-use color_eyre::eyre::{ContextCompat, Result, bail};
+use color_eyre::{
+    Section,
+    eyre::{Context, ContextCompat, Result, bail, eyre},
+};
+use pest::Span;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -14,22 +18,22 @@ use std::{
 };
 
 use crate::{
-    ast::{FunctionAttribute, Ident, IdentRef, Type, Value},
+    ast::{FunctionAttribute, IdentRef, Type, Value},
     codegen::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, MangledIdent},
-        ir::{ClacOp, DataReference, FunctionSignature},
+        ir::{DataReference, FunctionSignature},
     },
+    middleware::generate_span_error_section,
 };
 
 static TEMPOARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 static FUNCTION_COUNTER: AtomicU64 = AtomicU64::new(0);
-static CONST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DefinitionIdent<'a> {
     Function(IdentRef<'a>),
-    Builtin(IdentRef<'a>),
+    Inline(IdentRef<'a>),
     Const(IdentRef<'a>),
 }
 
@@ -52,12 +56,54 @@ pub enum Opaque {
     Opaque,
 }
 
+pub enum MaybeTailCall<'a> {
+    Regular(DataReference<'a>),
+    TailCall {
+        parameters: Vec<DataReference<'a>>,
+        signature: Arc<FunctionSignature<'a>>,
+        tokens: Arc<Vec<ClacToken>>,
+        call_span: Span<'a>,
+    },
+}
+
+impl<'a> MaybeTailCall<'a> {
+    pub fn into_data_ref(self, ctx: &mut CodegenCtx<'a>) -> Result<DataReference<'a>> {
+        match self {
+            MaybeTailCall::Regular(data_reference) => Ok(data_reference),
+            MaybeTailCall::TailCall {
+                parameters,
+                signature,
+                tokens,
+                call_span,
+            } => {
+                let res: Result<_> = try {
+                    ctx.bring_up_references(&parameters, signature.paramater_width())?;
+
+                    for token in tokens.iter() {
+                        ctx.push_token(token.clone())?;
+                    }
+
+                    DataReference::Tempoary(ctx.allocate_tempoary(signature.return_type))
+                };
+                res.wrap_err("Error running tail call")
+                    .with_section(|| generate_span_error_section(call_span))
+            }
+        }
+    }
+}
+
+impl<'a> From<DataReference<'a>> for MaybeTailCall<'a> {
+    fn from(value: DataReference<'a>) -> Self {
+        MaybeTailCall::Regular(value)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
     frame_start: i32,
     locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
     temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
-    definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, Arc<FunctionSignature<'a>>)>,
+    definitions: HashMap<StoredDefinitionIdent<'a>, (ClacToken, Arc<FunctionSignature<'a>>)>,
 
     opaque: Opaque,
 }
@@ -69,9 +115,6 @@ pub struct CodegenCtx<'a> {
     // Index of one past the top of the stack
     // Aka the length of the stack
     cursor: i32,
-
-    // TODO: I dont like builtins being this special
-    builtins: HashMap<Ident, (Arc<Vec<ClacToken>>, Arc<FunctionSignature<'a>>)>,
 }
 
 impl Default for CodegenCtx<'_> {
@@ -80,11 +123,10 @@ impl Default for CodegenCtx<'_> {
             tokens: Default::default(),
             scope_stack: Default::default(),
             cursor: Default::default(),
-            builtins: Default::default(),
         };
 
         for (ident, (code, sig)) in clac_builtins() {
-            ctx.define_builtin(&ident, sig, code);
+            ctx.define_inline(&ident, sig, code);
         }
 
         // Allocates the first stack frame
@@ -147,7 +189,7 @@ impl<'a> CodegenCtx<'a> {
             .insert(ident, (var_type, data_ref));
     }
 
-    pub fn define_function<F: FnOnce(&mut Self) -> Result<DataReference<'a>>>(
+    pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
         &mut self,
         ident: IdentRef<'a>,
         signature: FunctionSignature<'a>,
@@ -168,7 +210,13 @@ impl<'a> CodegenCtx<'a> {
 
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
-            (mangled.clone(), signature.clone()),
+            (
+                ClacToken::Call {
+                    mangled_ident: mangled.clone(),
+                    stack_delta: signature.stack_delta(),
+                },
+                signature.clone(),
+            ),
         );
 
         let original_cursor = self.cursor;
@@ -206,26 +254,55 @@ impl<'a> CodegenCtx<'a> {
 
             let return_data_ref = (scope)(self)?;
 
-            self.bring_up_references(&[return_data_ref], signature.return_width())?;
+            let (retain_width, tail_call) = match return_data_ref {
+                MaybeTailCall::Regular(data_reference) => {
+                    self.bring_up_references(&[data_reference], signature.return_width())?;
+
+                    (signature.return_width(), None)
+                }
+                MaybeTailCall::TailCall {
+                    parameters,
+                    signature: tail_call_sig,
+                    tokens,
+                    call_span,
+                } => {
+                    if signature.return_type != tail_call_sig.return_type {
+                        return Err(eyre!(
+                            "Attempted to tail call `{ident}` but it returns a {:?}, and the calling runction returns a {:?}",
+                            tail_call_sig.return_type,
+                            signature.return_type
+                        )).with_section(|| generate_span_error_section(call_span));
+                    }
+
+                    self.bring_up_references(&parameters, tail_call_sig.paramater_width())
+                        .wrap_err("COMPILER BUG: error bringing up references for tail call")
+                        .with_section(|| generate_span_error_section(call_span))?;
+
+                    (tail_call_sig.paramater_width(), Some(tokens))
+                }
+            };
 
             let frame = self.pop_scope_frame().unwrap();
-            let needs_dropping = self.cursor - frame.frame_start - signature.return_width() as i32;
+            let needs_dropping = self.cursor - frame.frame_start - retain_width as i32;
 
             assert!(needs_dropping >= 0);
 
             for _ in 0..needs_dropping {
                 // TODO: Optimize, generalize
-                if signature.return_width() > 0 {
-                    assert_eq!(signature.return_width(), 1);
+                if retain_width > 0 {
+                    assert_eq!(retain_width, 1);
                     self.push_token(ClacToken::Swap)?;
                 }
                 self.push_token(ClacToken::Drop)?;
             }
 
-            assert_eq!(
-                self.cursor - frame.frame_start,
-                signature.return_width() as i32
-            );
+            assert_eq!(self.cursor - frame.frame_start, retain_width as i32);
+
+            if let Some(tail_call) = tail_call {
+                for token in tail_call.iter() {
+                    self.push_token(token.clone())?;
+                }
+            }
         }
 
         self.push_token(ClacToken::EndDef)?;
@@ -241,10 +318,6 @@ impl<'a> CodegenCtx<'a> {
         value: Value,
     ) -> Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Const(ident);
-        let num = CONST_COUNTER.fetch_add(1, Ordering::Relaxed);
-
-        let mangled = format!("const-{}-{}", ident, num);
-        let mangled = MangledIdent(Arc::new(mangled));
 
         let signature = Arc::new(FunctionSignature {
             arguements: vec![],
@@ -253,33 +326,25 @@ impl<'a> CodegenCtx<'a> {
 
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
-            (mangled.clone(), signature),
+            (ClacToken::Number(value.as_repr()), signature),
         );
-
-        self.push_token(ClacToken::StartDef {
-            mangled_ident: mangled,
-        })
-        .unwrap();
-
-        {
-            self.push_scope_frame(Opaque::Opaque);
-            self.push_token(ClacToken::Number(value.as_repr()))?;
-            self.pop_scope_frame();
-        }
-
-        self.push_token(ClacToken::EndDef)?;
 
         Ok(def_ident)
     }
 
-    pub fn define_builtin(
+    pub fn define_inline(
         &mut self,
         ident: IdentRef<'a>,
         sig: FunctionSignature<'a>,
-        code: Vec<ClacToken>,
-    ) {
-        self.builtins
-            .insert(ident.to_string(), (Arc::new(code), Arc::new(sig)));
+        token: ClacToken,
+    ) -> DefinitionIdent<'a> {
+        let def_ident = DefinitionIdent::Inline(ident);
+
+        self.top_scope_frame()
+            .definitions
+            .insert(StoredDefinitionIdent(def_ident), (token, Arc::new(sig)));
+
+        def_ident
     }
 
     /// Copies the data pointed to by the references to the top of the stack
@@ -300,14 +365,15 @@ impl<'a> CodegenCtx<'a> {
             match *reference {
                 DataReference::Number(num) => self.push_token(ClacToken::Number(num))?,
                 DataReference::Const(ident) => {
-                    let (mangled, sig) = self
+                    let (func_impl, sig) = self
                         .lookup_definition(DefinitionIdent::Const(ident))
                         .wrap_err("Bring up valid const")?;
 
-                    self.push_token(ClacToken::Call {
-                        mangled_ident: mangled.clone(),
-                        stack_delta: sig.stack_delta(),
-                    })?;
+                    if !sig.arguements.is_empty() {
+                        bail!("Constant '{ident}' has a non zero number of arguements: {sig:?}");
+                    }
+
+                    self.push_token(func_impl)?;
                 }
                 DataReference::Local(ident) => {
                     let (var_type, data_ref) =
@@ -369,45 +435,45 @@ impl<'a> CodegenCtx<'a> {
         &mut self,
         ident: IdentRef<'a>,
         parameters: Vec<DataReference<'a>>,
-    ) -> Result<DataReference<'a>> {
-        let tempoary = if let Some((inline_code, sig)) = self.builtins.get_mut(ident).cloned() {
-            self.bring_up_references(&parameters, sig.paramater_width())?;
+        call_span: Span<'a>,
+    ) -> Result<MaybeTailCall<'a>> {
+        let (func_impl, sig) = self
+            .lookup_function_like_signature(ident)
+            .wrap_err("Attempted to call unknown function-like")
+            .with_section(|| generate_span_error_section(call_span))?;
 
-            for clac_token in &*inline_code {
-                self.push_token(clac_token.clone())?;
-            }
-            self.allocate_tempoary(sig.return_type)
-        } else {
-            let clac_op = ClacOp::Call {
-                name: crate::codegen::DefinitionIdent::Function(ident),
-                parameters,
-            };
-
-            clac_op.append_into(self)?.unwrap()
-        };
-
-        Ok(DataReference::Tempoary(tempoary))
+        Ok(MaybeTailCall::TailCall {
+            parameters,
+            signature: sig,
+            tokens: Arc::new(vec![func_impl]),
+            call_span,
+        })
     }
 
     pub fn lookup_function_like_signature(
         &self,
         ident: IdentRef<'a>,
-    ) -> Option<Arc<FunctionSignature<'a>>> {
-        if let Some((_inline_code, sig)) = self.builtins.get(ident) {
-            Some(sig.clone())
-        } else {
-            self.lookup_definition(DefinitionIdent::Function(ident))
-                .map(|(_mangled, sig)| sig)
+    ) -> Option<(ClacToken, Arc<FunctionSignature<'a>>)> {
+        for frame in self.scope_stack.iter().rev() {
+            if let Some((func_impl, sig)) = frame.definitions.get(&DefinitionIdent::Inline(ident)) {
+                return Some((func_impl.clone(), sig.clone()));
+            }
+            if let Some((func_impl, sig)) = frame.definitions.get(&DefinitionIdent::Function(ident))
+            {
+                return Some((func_impl.clone(), sig.clone()));
+            }
         }
+
+        None
     }
 
     pub fn lookup_definition(
         &self,
         ident: DefinitionIdent,
-    ) -> Option<(MangledIdent, Arc<FunctionSignature<'a>>)> {
+    ) -> Option<(ClacToken, Arc<FunctionSignature<'a>>)> {
         for frame in self.scope_stack.iter().rev() {
-            if let Some((mangled, sig)) = frame.definitions.get(&ident) {
-                return Some((mangled.clone(), sig.clone()));
+            if let Some((func_impl, sig)) = frame.definitions.get(&ident) {
+                return Some((func_impl.clone(), sig.clone()));
             }
         }
 

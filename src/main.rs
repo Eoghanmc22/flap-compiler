@@ -1,5 +1,4 @@
 // TODO:
-// - reenable nested function defs
 // - unify functions and builtins
 //   - get rid of the special builtins map
 //   - support inligning regular functions
@@ -15,7 +14,8 @@
 // - Name spaces and file imports
 // - Make the debug output chill out
 // - The source code comments dont seem to work any more
-#![feature(push_mut)]
+// - Comp time eval?
+#![feature(push_mut, try_blocks)]
 
 use std::{
     ffi::OsStr,
@@ -87,8 +87,11 @@ fn compile(file: PathBuf) -> Result<()> {
 
     let mut codegen = CodegenCtx::default();
     let tail_expr = middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
+    let tail_data_ref = tail_expr
+        .into_data_ref(&mut codegen)
+        .wrap_err("Get tail data ref")?;
     codegen
-        .bring_up_references(&[tail_expr], return_type.width())
+        .bring_up_references(&[tail_data_ref], return_type.width())
         .wrap_err("Bring up tail expr")?;
 
     let mut program = codegen.into_tokens();
