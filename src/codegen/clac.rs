@@ -10,7 +10,8 @@ impl Display for ClacProgram {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.0.iter().peekable();
         while let Some(token) = iter.next() {
-            if iter.peek().is_none() || matches!(token, ClacToken::NewLine | ClacToken::Comment(_))
+            if matches!(iter.peek(), None | Some(ClacToken::NewLine))
+                || matches!(token, ClacToken::NewLine | ClacToken::Comment(_))
             {
                 write!(f, "{token}")?;
             } else {
