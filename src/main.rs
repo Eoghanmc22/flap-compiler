@@ -15,6 +15,7 @@
 // - Make the debug output chill out
 // - The source code comments dont seem to work any more
 // - Comp time eval?
+// - Cull unused builtins
 #![feature(push_mut, try_blocks)]
 
 use std::{

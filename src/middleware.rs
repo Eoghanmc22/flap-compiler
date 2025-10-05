@@ -36,7 +36,7 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<
             }
             Statement::Expr(expr, Punctuation::Unpunctuated) => Some(walk_expr(ctx, expr)?),
             Statement::Expr(expr, Punctuation::Punctuated) => {
-                walk_expr(ctx, expr)?;
+                walk_expr(ctx, expr)?.into_data_ref(ctx)?;
                 None
             }
         }

@@ -5,5 +5,10 @@
     i
 ;
 
+: comment Start Definitions ;
+: drop_range_inner 1 pick 2 pick if 2 12 skip drop drop -1 + swap -1 + swap drop_range_outer 0 32 skip % swap 2 / swap 1 pick if 1 3 skip drop 12 skip + if drop_range_inner 4 skip drop_range_inner -1 5 skip 1 2 skip drop_range_inner 0 swap 2 * + ;
+: drop_range_outer rot 3 pick if drop_range_inner 0 skip 2 pick if drop 4 skip rot rot 3 skip -1 + drop_range_outer ;
+: drop_range drop_range_outer drop drop ;
+
 : comment Start Main ;
 37

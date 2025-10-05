@@ -1,6 +1,7 @@
 pub mod builtins;
 pub mod clac;
 pub mod ir;
+pub mod mutation;
 pub mod post_process;
 
 use color_eyre::{
@@ -23,6 +24,7 @@ use crate::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, MangledIdent},
         ir::{ClacOp, DataReference, FunctionSignature},
+        mutation::register_mutation_builtins,
     },
     middleware::generate_span_error_section,
 };
@@ -126,286 +128,7 @@ impl Default for CodegenCtx<'_> {
             cursor: Default::default(),
         };
 
-        ctx.define_function(
-            "drop_range",
-            FunctionSignature {
-                arguements: vec![(Type::Int, "start_depth"), (Type::Int, "end_depth")],
-                return_type: Type::Void,
-            },
-            &[
-                FunctionAttribute::NoMangle,
-                FunctionAttribute::AllowUnderflow,
-                FunctionAttribute::Naked,
-            ]
-            .into(),
-            |ctx| {
-                ctx.define_function(
-                    "drop_range_outer",
-                    FunctionSignature {
-                        arguements: vec![(Type::Int, "start_depth"), (Type::Int, "end_depth")],
-                        return_type: Type::Void,
-                    },
-                    &[
-                        FunctionAttribute::NoMangle,
-                        FunctionAttribute::AllowUnderflow,
-                        FunctionAttribute::Naked,
-                    ]
-                    .into(),
-                    |ctx| {
-                        ctx.define_function(
-                            "drop_range_inner",
-                            FunctionSignature {
-                                arguements: vec![
-                                    (Type::Int, "start_depth"),
-                                    (Type::Int, "end_depth"),
-                                    (Type::Int, "number"),
-                                ],
-                                return_type: Type::Void,
-                            },
-                            &[
-                                FunctionAttribute::NoMangle,
-                                FunctionAttribute::AllowUnderflow,
-                                FunctionAttribute::Naked,
-                            ]
-                            .into(),
-                            |ctx| {
-                                // Debug
-                                ctx.push_token(ClacToken::Number(99999999))?;
-                                ctx.push_token(ClacToken::Print)?;
-                                ctx.push_token(ClacToken::Number(1))?;
-                                ctx.push_token(ClacToken::Pick)?;
-                                ctx.push_token(ClacToken::Print)?;
-                                ctx.push_token(ClacToken::Number(2))?;
-                                ctx.push_token(ClacToken::Pick)?;
-                                ctx.push_token(ClacToken::Print)?;
-                                ctx.push_token(ClacToken::Number(3))?;
-                                ctx.push_token(ClacToken::Pick)?;
-                                ctx.push_token(ClacToken::Print)?;
-
-                                // start, end, num
-
-                                // Load number
-                                ctx.push_token(ClacToken::Number(1))?;
-                                ctx.push_token(ClacToken::Pick)?;
-
-                                // Load number
-                                ctx.push_token(ClacToken::Number(2))?;
-                                ctx.push_token(ClacToken::Pick)?;
-
-                                // start, end, num, num, num
-
-                                // if number != 0
-                                ctx.push_token(ClacToken::If)?;
-                                // start, end, num, num
-                                // later used for mod
-                                ctx.push_token(ClacToken::Number(2))?;
-                                ctx.push_token(ClacToken::Number(12))?;
-                                ctx.push_token(ClacToken::Skip)?;
-
-                                // if number == 0
-                                // start, end, num, num
-                                ctx.push_token(ClacToken::Drop)?;
-                                ctx.push_token(ClacToken::Drop)?;
-                                ctx.push_token(ClacToken::Number(-1))?;
-                                ctx.push_token(ClacToken::Add)?;
-                                ctx.push_token(ClacToken::Swap)?;
-                                ctx.push_token(ClacToken::Number(-1))?;
-                                ctx.push_token(ClacToken::Add)?;
-                                ctx.push_token(ClacToken::Swap)?;
-                                // start-1, end-1
-                                ctx.push_token(ClacToken::Call {
-                                    mangled_ident: MangledIdent(
-                                        "drop_range_outer".to_string().into(),
-                                    ),
-                                    stack_delta: 0,
-                                })?;
-                                // Base case for reconstruction
-                                ctx.push_token(ClacToken::Number(0))?;
-                                ctx.push_token(ClacToken::Number(32))?;
-                                ctx.push_token(ClacToken::Skip)?;
-
-                                // if number != 0
-                                // start_depth, end_depth, number, number, 2
-                                {
-                                    // number % 2 = lsb(number) (can be 0, 1, -1)
-                                    ctx.push_token(ClacToken::Mod)?;
-
-                                    // number, number%2
-                                    ctx.push_token(ClacToken::Swap)?;
-
-                                    // number%2, number
-                                    ctx.push_token(ClacToken::Number(2))?;
-                                    ctx.push_token(ClacToken::Div)?;
-
-                                    // number%2, number/2
-                                    ctx.push_token(ClacToken::Swap)?;
-                                    // number/2, number%2
-
-                                    ctx.push_token(ClacToken::Number(1))?;
-                                    ctx.push_token(ClacToken::Pick)?;
-                                    // number/2, number%2, number%2
-
-                                    // if lsb(number) == 1 || -1
-                                    ctx.push_token(ClacToken::If)?;
-                                    ctx.push_token(ClacToken::Number(1))?;
-                                    ctx.push_token(ClacToken::Number(3))?;
-                                    ctx.push_token(ClacToken::Skip)?;
-
-                                    // if lsb(number) == 0
-                                    // number/2, number%2
-                                    ctx.push_token(ClacToken::Drop)?;
-                                    ctx.push_token(ClacToken::Number(12))?;
-                                    ctx.push_token(ClacToken::Skip)?;
-
-                                    // if lsb(number) == 1 || -1
-                                    // number/2, number%2, 1
-                                    ctx.push_token(ClacToken::Add)?;
-                                    // number/2, number%2+1
-
-                                    // if lsb(number) == 1
-                                    ctx.push_token(ClacToken::If)?;
-                                    // start_depth, end_depth, number/2
-                                    ctx.push_token(ClacToken::Call {
-                                        mangled_ident: MangledIdent(
-                                            "drop_range_inner".to_string().into(),
-                                        ),
-                                        stack_delta: 0,
-                                    })?;
-                                    ctx.push_token(ClacToken::Number(4))?;
-                                    ctx.push_token(ClacToken::Skip)?;
-
-                                    // if lsb(number) == -1
-                                    // start_depth, end_depth, number/2
-                                    ctx.push_token(ClacToken::Call {
-                                        mangled_ident: MangledIdent(
-                                            "drop_range_inner".to_string().into(),
-                                        ),
-                                        stack_delta: 0,
-                                    })?;
-                                    ctx.push_token(ClacToken::Number(-1))?;
-                                    ctx.push_token(ClacToken::Number(5))?;
-                                    ctx.push_token(ClacToken::Skip)?;
-
-                                    // if lsb(number) == 1
-                                    ctx.push_token(ClacToken::Number(1))?;
-                                    ctx.push_token(ClacToken::Number(2))?;
-                                    ctx.push_token(ClacToken::Skip)?;
-
-                                    // if lsb(number) == 0
-                                    // start_depth, end_depth, number/2
-                                    ctx.push_token(ClacToken::Call {
-                                        mangled_ident: MangledIdent(
-                                            "drop_range_inner".to_string().into(),
-                                        ),
-                                        stack_delta: 0,
-                                    })?;
-                                    ctx.push_token(ClacToken::Number(0))?;
-
-                                    // start_depth, end_depth, number/2, lsb(number)
-                                    ctx.push_token(ClacToken::Swap)?;
-                                    ctx.push_token(ClacToken::Number(2))?;
-                                    ctx.push_token(ClacToken::Mul)?;
-                                    ctx.push_token(ClacToken::Add)?;
-                                    // start_depth, end_depth, number
-                                }
-
-                                Ok(MaybeTailCall::Regular(DataReference::Tempoary(
-                                    ctx.allocate_tempoary(Type::Void),
-                                )))
-                            },
-                        )
-                        .wrap_err("Define builtin drop_range_inner")?;
-
-                        // Debug
-                        ctx.push_token(ClacToken::Number(7777777))?;
-                        ctx.push_token(ClacToken::Print)?;
-                        ctx.push_token(ClacToken::Number(1))?;
-                        ctx.push_token(ClacToken::Pick)?;
-                        ctx.push_token(ClacToken::Print)?;
-                        ctx.push_token(ClacToken::Number(2))?;
-                        ctx.push_token(ClacToken::Pick)?;
-                        ctx.push_token(ClacToken::Print)?;
-
-                        // Initial value for drop_range_inner `number`
-                        ctx.push_token(ClacToken::Rot)?;
-
-                        // start, end, number
-
-                        // Load start depth
-                        ctx.push_token(ClacToken::Number(3))?;
-                        ctx.push_token(ClacToken::Pick)?;
-
-                        // start, end, number, start
-
-                        // if start_depth != 0
-                        ctx.push_token(ClacToken::If)?;
-                        ctx.push_token(ClacToken::Call {
-                            mangled_ident: MangledIdent("drop_range_inner".to_string().into()),
-                            stack_delta: 0,
-                        })?;
-                        // start, end, number_reconstructed
-                        ctx.push_token(ClacToken::Number(0))?;
-                        ctx.push_token(ClacToken::Skip)?;
-
-                        // start, end, number_to_drop or number_reconstructed
-
-                        // Load end depth
-                        ctx.push_token(ClacToken::Number(2))?;
-                        ctx.push_token(ClacToken::Pick)?;
-
-                        // start, end, number_to_drop or number_reconstructed, end
-                        // DEBUG
-                        ctx.push_token(ClacToken::Number(1))?;
-                        ctx.push_token(ClacToken::Pick)?;
-                        ctx.push_token(ClacToken::Print)?;
-
-                        // if end_depth != 0
-                        ctx.push_token(ClacToken::If)?;
-                        ctx.push_token(ClacToken::Drop)?;
-                        ctx.push_token(ClacToken::Number(4))?;
-                        ctx.push_token(ClacToken::Skip)?;
-
-                        // if end_depth == 0
-                        ctx.push_token(ClacToken::Rot)?;
-                        ctx.push_token(ClacToken::Rot)?;
-                        ctx.push_token(ClacToken::Number(3))?;
-                        ctx.push_token(ClacToken::Skip)?;
-
-                        // if end_depth != 0
-                        // start, end
-                        ctx.push_token(ClacToken::Number(-1))?;
-                        ctx.push_token(ClacToken::Add)?;
-                        ctx.push_token(ClacToken::Call {
-                            mangled_ident: MangledIdent("drop_range_outer".to_string().into()),
-                            stack_delta: 0,
-                        })?;
-
-                        Ok(MaybeTailCall::Regular(DataReference::Tempoary(
-                            ctx.allocate_tempoary(Type::Void),
-                        )))
-                    },
-                )
-                .wrap_err("Define builtin drop_range_outer")
-                .unwrap();
-
-                ctx.push_token(ClacToken::Call {
-                    mangled_ident: MangledIdent("drop_range_outer".to_string().into()),
-                    stack_delta: 0,
-                })?;
-                ctx.push_token(ClacToken::Drop)?;
-                ctx.push_token(ClacToken::Drop)?;
-
-                // DEBUG
-                ctx.push_token(ClacToken::Number(1000))?;
-                ctx.push_token(ClacToken::Skip)?;
-
-                Ok(MaybeTailCall::Regular(DataReference::Tempoary(
-                    ctx.allocate_tempoary(Type::Void),
-                )))
-            },
-        )
-        .wrap_err("Define builtin drop_range")
-        .unwrap();
+        register_mutation_builtins(&mut ctx);
 
         for (ident, (code, sig)) in clac_builtins() {
             ctx.define_inline(&ident, sig, code);
@@ -569,13 +292,27 @@ impl<'a> CodegenCtx<'a> {
 
                 assert!(needs_dropping >= 0);
 
-                for _ in 0..needs_dropping {
-                    // TODO: Optimize, generalize
-                    if retain_width > 0 {
-                        assert_eq!(retain_width, 1);
-                        self.push_token(ClacToken::Swap)?;
+                if retain_width == 0 {
+                    for _ in 0..needs_dropping {
+                        self.push_token(ClacToken::Drop)?;
                     }
-                    self.push_token(ClacToken::Drop)?;
+                } else if retain_width == 1 {
+                    for _ in 0..needs_dropping {
+                        self.push_token(ClacToken::Swap)?;
+                        self.push_token(ClacToken::Drop)?;
+                    }
+                } else if retain_width == 2 {
+                    for _ in 0..needs_dropping {
+                        self.push_token(ClacToken::Rot)?;
+                        self.push_token(ClacToken::Drop)?;
+                    }
+                } else {
+                    self.push_token(ClacToken::Number(retain_width as i32))?;
+                    self.push_token(ClacToken::Number(retain_width as i32 + needs_dropping))?;
+                    self.push_token(ClacToken::Call {
+                        mangled_ident: MangledIdent(Arc::new("drop_range".to_string())),
+                        stack_delta: -needs_dropping - 2,
+                    })?;
                 }
 
                 assert_eq!(self.cursor - frame.frame_start, retain_width as i32);

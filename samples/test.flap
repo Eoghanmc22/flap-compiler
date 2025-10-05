@@ -1,0 +1,14 @@
+int h(int i, int j) {
+  i
+}
+
+int f() {
+  int a = 1*1;
+  int b = 2*2;
+  int c = 3*3;
+  int d = 4*4;
+  int e = 5*5;
+  h(a, b)
+}
+
+print(f())
