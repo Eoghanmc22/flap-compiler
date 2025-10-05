@@ -221,13 +221,13 @@ impl Default for CodegenCtx<'_> {
                                 })?;
                                 // Base case for reconstruction
                                 ctx.push_token(ClacToken::Number(0))?;
-                                ctx.push_token(ClacToken::Number(18))?;
+                                ctx.push_token(ClacToken::Number(32))?;
                                 ctx.push_token(ClacToken::Skip)?;
 
                                 // if number != 0
                                 // start_depth, end_depth, number, number, 2
                                 {
-                                    // number % 2 = lsb(number)
+                                    // number % 2 = lsb(number) (can be 0, 1, -1)
                                     ctx.push_token(ClacToken::Mod)?;
 
                                     // number, number%2
@@ -241,6 +241,27 @@ impl Default for CodegenCtx<'_> {
                                     ctx.push_token(ClacToken::Swap)?;
                                     // number/2, number%2
 
+                                    ctx.push_token(ClacToken::Number(1))?;
+                                    ctx.push_token(ClacToken::Pick)?;
+                                    // number/2, number%2, number%2
+
+                                    // if lsb(number) == 1 || -1
+                                    ctx.push_token(ClacToken::If)?;
+                                    ctx.push_token(ClacToken::Number(1))?;
+                                    ctx.push_token(ClacToken::Number(3))?;
+                                    ctx.push_token(ClacToken::Skip)?;
+
+                                    // if lsb(number) == 0
+                                    // number/2, number%2
+                                    ctx.push_token(ClacToken::Drop)?;
+                                    ctx.push_token(ClacToken::Number(12))?;
+                                    ctx.push_token(ClacToken::Skip)?;
+
+                                    // if lsb(number) == 1 || -1
+                                    // number/2, number%2, 1
+                                    ctx.push_token(ClacToken::Add)?;
+                                    // number/2, number%2+1
+
                                     // if lsb(number) == 1
                                     ctx.push_token(ClacToken::If)?;
                                     // start_depth, end_depth, number/2
@@ -253,6 +274,23 @@ impl Default for CodegenCtx<'_> {
                                     ctx.push_token(ClacToken::Number(4))?;
                                     ctx.push_token(ClacToken::Skip)?;
 
+                                    // if lsb(number) == -1
+                                    // start_depth, end_depth, number/2
+                                    ctx.push_token(ClacToken::Call {
+                                        mangled_ident: MangledIdent(
+                                            "drop_range_inner".to_string().into(),
+                                        ),
+                                        stack_delta: 0,
+                                    })?;
+                                    ctx.push_token(ClacToken::Number(-1))?;
+                                    ctx.push_token(ClacToken::Number(5))?;
+                                    ctx.push_token(ClacToken::Skip)?;
+
+                                    // if lsb(number) == 1
+                                    ctx.push_token(ClacToken::Number(1))?;
+                                    ctx.push_token(ClacToken::Number(2))?;
+                                    ctx.push_token(ClacToken::Skip)?;
+
                                     // if lsb(number) == 0
                                     // start_depth, end_depth, number/2
                                     ctx.push_token(ClacToken::Call {
@@ -262,11 +300,6 @@ impl Default for CodegenCtx<'_> {
                                         stack_delta: 0,
                                     })?;
                                     ctx.push_token(ClacToken::Number(0))?;
-                                    ctx.push_token(ClacToken::Number(1))?;
-                                    ctx.push_token(ClacToken::Skip)?;
-
-                                    // if lsb(number) == 1
-                                    ctx.push_token(ClacToken::Number(1))?;
 
                                     // start_depth, end_depth, number/2, lsb(number)
                                     ctx.push_token(ClacToken::Swap)?;
