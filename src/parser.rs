@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use color_eyre::{
     Section,
-    eyre::{Context, Result, eyre},
+    eyre::{Context, ContextCompat, Result, eyre},
 };
 use pest::{
     Parser,
@@ -57,18 +57,10 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     println!("Input block_like tokens: {pair:#?}");
     let span = pair.as_span();
 
-    let statements = parse_statements(pair.into_inner())?;
-
-    Ok(Block { statements, span })
-}
-
-// TODO: Can this be inlined into parse_block_like
-fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
-    println!("Input statements tokens: {pairs:#?}");
-
     let mut statements = Vec::new();
 
     // Manual iteration so we can use peek
+    let mut pairs = pair.into_inner();
     while let Some(target) = pairs.next() {
         println!("Input statement tokens: {target:#?}");
         let span = target.as_span();
@@ -110,7 +102,7 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
 
                 let mut last_arg_type = None;
                 let mut arguements = Vec::new();
-                let mut statements = Vec::new();
+                let mut block = None;
 
                 for pair in inner {
                     match pair.as_rule() {
@@ -130,7 +122,7 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
                             arguements.push((last_arg_type, ident));
                         }
                         Rule::block => {
-                            statements = parse_statements(pair.into_inner())?;
+                            block = Some(parse_block_like(pair)?);
                             break;
                         }
                         _ => {
@@ -147,7 +139,9 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
                     attributes,
                     function,
                     arguements,
-                    contents: Block { statements, span },
+                    contents: block
+                        .wrap_err("Function def did not contain block")
+                        .with_section(|| generate_span_error_section(span))?,
                     return_type,
                     span,
                 })
@@ -193,7 +187,7 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
         statements.push(statement);
     }
 
-    Ok(statements)
+    Ok(Block { statements, span })
 }
 
 fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {

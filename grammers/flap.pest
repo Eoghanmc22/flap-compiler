@@ -1,4 +1,4 @@
-// TODO: Structs, Arrays, special syntax for builtins?
+// TODO: Structs, Arrays, Tuples
 
 multiline_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }

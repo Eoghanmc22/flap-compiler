@@ -1,7 +1,3 @@
-// TODO: Make type check use a different context than code gen context, and try to get rid of guess_type
-// The context should be able to store the signatures of variables and functions ad it traversed
-// the ast during type checking
-
 use std::{collections::HashMap, sync::Arc};
 
 use color_eyre::{
@@ -99,10 +95,10 @@ impl<'a> TypeChecker<'a> {
         self.top_scope_frame().variables.insert(ident, var_type);
     }
 
-    pub fn lookup_function(&self, ident: IdentRef<'a>) -> Option<&FunctionSignature<'a>> {
+    pub fn lookup_function(&self, ident: IdentRef<'a>) -> Option<Arc<FunctionSignature<'a>>> {
         for frame in self.scope_stack.iter().rev() {
             if let Some(sig) = frame.functions.get(&ident) {
-                return Some(sig);
+                return Some(sig.clone());
             }
         }
 
@@ -262,7 +258,6 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             .lookup_function(self.function)
             .wrap_err_with(|| format!("Could not find function: {}", self.function))
             .with_section(|| generate_span_error_section(self.span))?
-            // TODO: Avoid clone
             .clone();
 
         if self.parameters.len() != sig.arguements.len() {

@@ -7,7 +7,6 @@ use crate::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum DataReference<'a> {
-    // TODO: Do we need another type here for bool?
     Number(i32),
     Local(IdentRef<'a>),
     Const(IdentRef<'a>),

@@ -60,7 +60,7 @@ pub struct CodegenCtx<'a> {
     cursor: i32,
 
     // TODO: I dont like builtins being this special
-    builtins: HashMap<Ident, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
+    builtins: HashMap<Ident, (Arc<Vec<ClacToken>>, Arc<FunctionSignature<'a>>)>,
 }
 
 impl Default for CodegenCtx<'_> {
@@ -156,11 +156,7 @@ impl<'a> CodegenCtx<'a> {
 
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
-            (
-                mangled.clone(),
-                // TODO: Remove clone
-                signature.clone(),
-            ),
+            (mangled.clone(), signature.clone()),
         );
 
         let original_cursor = self.cursor;
@@ -265,7 +261,7 @@ impl<'a> CodegenCtx<'a> {
         code: Vec<ClacToken>,
     ) {
         self.builtins
-            .insert(ident.to_string(), (code, Arc::new(sig)));
+            .insert(ident.to_string(), (Arc::new(code), Arc::new(sig)));
     }
 
     /// Copies the data pointed to by the references to the top of the stack
@@ -356,12 +352,11 @@ impl<'a> CodegenCtx<'a> {
         ident: IdentRef<'a>,
         parameters: Vec<DataReference<'a>>,
     ) -> Result<DataReference<'a>> {
-        // TODO: Try to get rid of clone
         let tempoary = if let Some((inline_code, sig)) = self.builtins.get_mut(ident).cloned() {
             self.bring_up_references(&parameters, sig.paramater_width())?;
 
-            for clac_token in inline_code {
-                self.push_token(clac_token)?;
+            for clac_token in &*inline_code {
+                self.push_token(clac_token.clone())?;
             }
             self.allocate_tempoary(sig.return_type)
         } else {
@@ -429,7 +424,6 @@ impl<'a> CodegenCtx<'a> {
             if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(ident)) {
                 return Some((DataReference::Const(ident), sig.return_type));
             }
-            // TODO: Is there anything else to check?
         }
 
         None
