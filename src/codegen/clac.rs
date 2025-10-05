@@ -115,7 +115,19 @@ impl Display for ClacToken {
                 ..
             } => write!(f, "{}", ident.0),
             ClacToken::NewLine => writeln!(f),
-            ClacToken::Comment(text) => writeln!(f, ": comment {text} ;"),
+            ClacToken::Comment(text) => {
+                let ends_with_white_space = text
+                    .chars()
+                    .last()
+                    .map(|it| it.is_whitespace())
+                    .unwrap_or(false);
+
+                if ends_with_white_space {
+                    writeln!(f, ": comment {text};")
+                } else {
+                    writeln!(f, ": comment {text} ;")
+                }
+            }
         }
     }
 }

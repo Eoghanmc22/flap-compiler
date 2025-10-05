@@ -1,4 +1,4 @@
-: comment Compiled using Eoghan's flap to clac compiler ;
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
 
 : comment flap source code:
     // Apparently constants get inlines lol
@@ -13,7 +13,7 @@
     int i = 9999999 * 1;
     
     print(get_num());
- ;
+;
 
 : comment Start Definitions ;
 : func-get_num-4 1 pick ;

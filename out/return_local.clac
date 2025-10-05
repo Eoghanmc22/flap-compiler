@@ -1,9 +1,9 @@
-: comment Compiled using Eoghan's flap to clac compiler ;
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
 
 : comment flap source code:
     int i = 37;
     i
- ;
+;
 
 : comment Start Main ;
 37

@@ -70,7 +70,7 @@ impl PostProcesser for AttributionPostProcessor {
         let original = mem::take(program).0;
 
         program.0.push(ClacToken::Comment(
-            "Compiled using Eoghan's flap to clac compiler".to_string(),
+            "Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler".to_string(),
         ));
         program.0.push(ClacToken::NewLine);
         program.0.extend_from_slice(&original);
