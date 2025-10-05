@@ -19,7 +19,6 @@ use crate::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, MangledIdent},
         ir::{ClacOp, DataReference, FunctionSignature},
-        post_process::post_processers,
     },
 };
 
@@ -88,13 +87,7 @@ impl Default for CodegenCtx<'_> {
 // FIXME: Many of these functions should be private
 impl<'a> CodegenCtx<'a> {
     pub fn into_tokens(self) -> ClacProgram {
-        let mut program = ClacProgram(self.tokens);
-
-        for mut post_processor in post_processers() {
-            post_processor.process(&mut program);
-        }
-
-        program
+        ClacProgram(self.tokens)
     }
 
     fn push_scope_frame(&mut self) -> &mut ScopeFrame<'a> {

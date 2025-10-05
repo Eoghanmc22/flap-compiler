@@ -1,5 +1,20 @@
 : comment Compiled using Eoghan's flap to clac compiler ;
 
+: comment flap source code:
+    // Apparently constants get inlines lol
+    int num = 42*2;
+    
+    int get_num() {
+      num
+    }
+    
+    print(get_num());
+    
+    int i = 9999999 * 1;
+    
+    print(get_num());
+ ;
+
 : comment Start Definitions ;
 : func-get_num-4 1 pick ;
 

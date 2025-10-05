@@ -1,4 +1,25 @@
 : comment Compiled using Eoghan's flap to clac compiler ;
 
+: comment flap source code:
+    print_bool(1 > 0);
+    print_bool(1 > 1);
+    print_bool(1 > 2);
+    print_bool(1 < 0);
+    print_bool(1 < 1);
+    print_bool(1 < 2);
+    print_bool(1 == 0);
+    print_bool(1 == 1);
+    print_bool(1 == 2);
+    print_bool(1 != 0);
+    print_bool(1 != 1);
+    print_bool(1 != 2);
+    print_bool(1 <= 0);
+    print_bool(1 <= 1);
+    print_bool(1 <= 2);
+    print_bool(1 >= 0);
+    print_bool(1 >= 1);
+    print_bool(1 >= 2);
+ ;
+
 : comment Start Main ;
 0 1 < 1 pick print 1 1 < 1 pick print 2 1 < 1 pick print 1 0 < 1 pick print 1 1 < 1 pick print 1 2 < 1 pick print 1 0 - if 0 1 skip 1 1 pick print 1 1 - if 0 1 skip 1 1 pick print 1 2 - if 0 1 skip 1 1 pick print 1 0 - if 1 1 skip 0 1 pick print 1 1 - if 1 1 skip 0 1 pick print 1 2 - if 1 1 skip 0 1 pick print 1 0 1 < - 1 pick print 1 1 1 < - 1 pick print 1 2 1 < - 1 pick print 1 1 0 < - 1 pick print 1 1 1 < - 1 pick print 1 1 2 < - 1 pick print

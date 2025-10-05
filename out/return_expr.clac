@@ -1,4 +1,9 @@
 : comment Compiled using Eoghan's flap to clac compiler ;
 
+: comment flap source code:
+    int a = 67;
+    67 ** 2
+ ;
+
 : comment Start Main ;
-67 2 **
+67 2 ** 1 pick

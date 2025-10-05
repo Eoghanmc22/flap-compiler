@@ -1,2 +1,8 @@
 : comment Compiled using Eoghan's flap to clac compiler ;
 
+: comment flap source code:
+    42
+ ;
+
+: comment Start Main ;
+42

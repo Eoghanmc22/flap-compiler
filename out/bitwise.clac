@@ -1,5 +1,27 @@
 : comment Compiled using Eoghan's flap to clac compiler ;
 
+: comment flap source code:
+    void test() {
+      print(100);
+    }
+    test();
+    
+    void test() {
+      print(100 >> 2);
+    }
+    test();
+    
+    void test() {
+      print((100 >> 2) & 1);
+    }
+    test();
+    
+    void test() {
+      print((100 >> 2) % 2);
+    }
+    test();
+ ;
+
 : comment Start Definitions ;
 : func-test-0 100 print ;
 : func-test-1 100 2 2 swap ** / 1 pick print drop ;

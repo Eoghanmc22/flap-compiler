@@ -1,2 +1,7 @@
 : comment Compiled using Eoghan's flap to clac compiler ;
 
+: comment flap source code:
+    bool a = true;
+    bool b = false;
+ ;
+

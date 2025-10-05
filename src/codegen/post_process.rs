@@ -2,13 +2,6 @@ use std::mem;
 
 use crate::codegen::clac::{ClacProgram, ClacToken};
 
-pub fn post_processers() -> Vec<Box<dyn PostProcesser>> {
-    vec![
-        Box::new(ExtractDefinitionsPostProcessor),
-        Box::new(AttributionPostProcessor),
-    ]
-}
-
 pub trait PostProcesser {
     fn process(&mut self, program: &mut ClacProgram);
 }
@@ -79,6 +72,38 @@ impl PostProcesser for AttributionPostProcessor {
         program.0.push(ClacToken::Comment(
             "Compiled using Eoghan's flap to clac compiler".to_string(),
         ));
+        program.0.push(ClacToken::NewLine);
+        program.0.extend_from_slice(&original);
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct SourceCodeCommentPostProcessor<'a>(pub &'a str);
+
+impl PostProcesser for SourceCodeCommentPostProcessor<'_> {
+    fn process(&mut self, program: &mut ClacProgram) {
+        let original = mem::take(program).0;
+
+        let mut comment = String::new();
+
+        comment.push_str("flap source code:\n");
+        for line in (self.0.trim()).lines() {
+            comment.push_str("    ");
+            comment.push_str(line);
+            comment.push('\n');
+        }
+        program.0.push(ClacToken::Comment(comment));
+
+        // program.0.push(ClacToken::NewLine);
+        // program
+        //     .0
+        //     .push(ClacToken::Comment("flap source code".to_string()));
+
+        // for line in self.0.lines() {
+        //     program.0.push(ClacToken::Comment(line.to_string()));
+        // }
+        // program.0.push(ClacToken::Comment(self.0.to_string()));
+
         program.0.push(ClacToken::NewLine);
         program.0.extend_from_slice(&original);
     }

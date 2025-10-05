@@ -17,7 +17,13 @@ use clap::Parser;
 use color_eyre::eyre::{Context, Result};
 
 use crate::{
-    codegen::CodegenCtx,
+    codegen::{
+        CodegenCtx,
+        post_process::{
+            AttributionPostProcessor, ExtractDefinitionsPostProcessor, PostProcesser,
+            SourceCodeCommentPostProcessor,
+        },
+    },
     type_check::{TypeCheck, TypeChecker},
 };
 
@@ -58,21 +64,32 @@ fn main() -> Result<()> {
 }
 
 fn compile(file: PathBuf) -> Result<()> {
-    let contents = fs::read_to_string(&file).wrap_err("Read file")?;
+    let source_code = fs::read_to_string(&file).wrap_err("Read file")?;
 
-    let mut program = parser::parse_program(&contents).wrap_err("Parse program")?;
+    let mut program = parser::parse_program(&source_code).wrap_err("Parse program")?;
     println!("Parsed AST: {program:#?}");
 
-    // TODO: Is there anything we can use the program return type for?
     let mut type_checker = TypeChecker::default();
-    let _return_type = program
+    let return_type = program
         .check_and_resolve_types(&mut type_checker)
         .wrap_err("Type Check Program")?;
 
     let mut codegen = CodegenCtx::default();
-    middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
+    let tail_expr = middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
+    codegen
+        .bring_up_references(&[tail_expr], return_type.width())
+        .wrap_err("Bring up tail expr")?;
 
-    let program = codegen.into_tokens();
+    let mut program = codegen.into_tokens();
+
+    let post_processors: [&mut dyn PostProcesser; _] = [
+        &mut ExtractDefinitionsPostProcessor,
+        &mut SourceCodeCommentPostProcessor(&source_code),
+        &mut AttributionPostProcessor,
+    ];
+    for post_processor in post_processors {
+        post_processor.process(&mut program);
+    }
 
     let output_dir = PathBuf::from("out/");
     fs::create_dir_all(&output_dir).wrap_err("Create out dir")?;
