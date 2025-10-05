@@ -46,9 +46,8 @@ unary_op = _{ negate | logical_not }
 atom = _{ if_statement | function_call | value | ident | ( "(" ~ expression ~ ")") }
 expression = { unary_op? ~ atom ~ (binary_op ~ unary_op? ~atom)* }
 
-// A static_var can only take on the value of a literal
-// static_var = { "static" ~ var_type ~ "=" ~ expression }
-static_var = { "static" ~ var_type ~ ident ~ "=" ~ value }
+// A const_var can only take on the value of a literal
+const_var = { "const" ~ var_type ~ ident ~ "=" ~ value }
 local_var = { var_type ~ ident ~ "=" ~ expression }
 
 function_parameters = _{ ( expression ~ ("," ~ expression)* )? }
@@ -60,7 +59,7 @@ else_block = { "else" ~ block }
 if_statement = { if_block ~ if_else_block* ~ else_block? }
 
 semicolon = { ";" }
-statement = _{ (static_var | local_var | expression) ~ semicolon }
+statement = _{ (const_var | local_var | expression) ~ semicolon }
 
 no_mangle = { "no_mangle" }
 function_attr = { no_mangle }

@@ -9,8 +9,8 @@ use pest::{
 use pest_derive::Parser;
 
 use crate::ast::{
-    BinaryOp, Block, DeferedType, Expr, FunctionAttribute, FunctionCall, FunctionDef, IdentRef,
-    IfCase, IfExpr, LocalDef, Punctuation, Statement, StaticDef, Type, UnaryOp, Value,
+    BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionAttribute, FunctionCall, FunctionDef,
+    IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement, Type, UnaryOp, Value,
 };
 
 lazy_static::lazy_static! {
@@ -131,7 +131,7 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
                     span,
                 })
             }
-            Rule::static_var => {
+            Rule::const_var => {
                 let mut inner = target.into_inner();
                 let var_type = parse_type(inner.next().unwrap())?;
                 let name = parse_ident(inner.next().unwrap())?;
@@ -140,7 +140,7 @@ fn parse_statements(mut pairs: Pairs<Rule>) -> Result<Vec<Statement>> {
                 let value_span = value_pair.as_span();
                 let value = parse_value(value_pair)?;
 
-                Statement::Static(StaticDef {
+                Statement::Const(ConstDef {
                     name,
                     var_type,
                     value,

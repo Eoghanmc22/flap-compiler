@@ -23,13 +23,13 @@ use crate::{
 
 static TEMPOARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 static FUNCTION_COUNTER: AtomicU64 = AtomicU64::new(0);
-static STATIC_COUNTER: AtomicU64 = AtomicU64::new(0);
+static CONST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DefinitionIdent<'a> {
     Function(IdentRef<'a>),
     Builtin(IdentRef<'a>),
-    Static(IdentRef<'a>),
+    Const(IdentRef<'a>),
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -215,16 +215,16 @@ impl<'a> CodegenCtx<'a> {
         Ok(def_ident)
     }
 
-    pub fn define_static(
+    pub fn define_const(
         &mut self,
         ident: IdentRef<'a>,
         var_type: Type,
         value: Value,
     ) -> Result<DefinitionIdent<'a>> {
-        let def_ident = DefinitionIdent::Static(ident);
-        let num = STATIC_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let def_ident = DefinitionIdent::Const(ident);
+        let num = CONST_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        let mangled = format!("static-{}-{}", ident, num);
+        let mangled = format!("const-{}-{}", ident, num);
         let mangled = MangledIdent(Arc::new(mangled));
 
         let signature = Arc::new(FunctionSignature {
@@ -276,10 +276,10 @@ impl<'a> CodegenCtx<'a> {
         for reference in references {
             match *reference {
                 DataReference::Number(num) => self.push_token(ClacToken::Number(num))?,
-                DataReference::Static(ident) => {
+                DataReference::Const(ident) => {
                     let (mangled, sig) = self
-                        .lookup_definition(DefinitionIdent::Static(ident))
-                        .wrap_err("Bring up valid static")?;
+                        .lookup_definition(DefinitionIdent::Const(ident))
+                        .wrap_err("Bring up valid const")?;
 
                     self.push_token(ClacToken::Call {
                         mangled_ident: mangled.clone(),
@@ -413,8 +413,8 @@ impl<'a> CodegenCtx<'a> {
             if let Some((var_type, _)) = frame.locals.get(ident) {
                 return Some((DataReference::Local(ident), *var_type));
             }
-            if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Static(ident)) {
-                return Some((DataReference::Static(ident), sig.return_type));
+            if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(ident)) {
+                return Some((DataReference::Const(ident), sig.return_type));
             }
             // TODO: Is there anything else to check?
         }

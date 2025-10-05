@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use pest::Span;
 
-
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
@@ -176,7 +175,7 @@ impl FunctionDef<'_> {
 }
 
 #[derive(Debug, Clone)]
-pub struct StaticDef<'a> {
+pub struct ConstDef<'a> {
     pub name: IdentRef<'a>,
     pub var_type: Type,
     pub value: Value,
@@ -184,7 +183,7 @@ pub struct StaticDef<'a> {
     pub value_span: Span<'a>,
 }
 
-impl AsSpan for StaticDef<'_> {
+impl AsSpan for ConstDef<'_> {
     fn as_span(&self) -> Span<'_> {
         self.span
     }
@@ -241,7 +240,7 @@ pub enum Punctuation {
 pub enum Statement<'a> {
     Expr(Expr<'a>, Punctuation),
     FunctionDef(FunctionDef<'a>),
-    Static(StaticDef<'a>),
+    Const(ConstDef<'a>),
     Local(LocalDef<'a>),
 }
 
@@ -250,7 +249,7 @@ impl AsSpan for Statement<'_> {
         match self {
             Statement::Expr(expr, _) => expr.as_span(),
             Statement::FunctionDef(function_def) => function_def.as_span(),
-            Statement::Static(static_def) => static_def.as_span(),
+            Statement::Const(const_def) => const_def.as_span(),
             Statement::Local(local_def) => local_def.as_span(),
         }
     }

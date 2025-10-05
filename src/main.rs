@@ -3,7 +3,6 @@
 //   - make all offsets relative to the start of their frame, and make every frame start with
 //   offset to the start of the parent frame
 //   - once we get that implemented we can re enable nested function defs
-// - rename statics to constants
 // - add a post processing step to remove nested functions
 // - bit shifts
 #![feature(push_mut)]

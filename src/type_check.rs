@@ -11,8 +11,8 @@ use color_eyre::{
 
 use crate::{
     ast::{
-        AsSpan, BinaryOp, Block, DeferedType, Expr, FunctionCall, FunctionDef, IdentRef, IfCase,
-        IfExpr, LocalDef, Punctuation, Statement, StaticDef, Type, UnaryOp, Value,
+        AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef, IdentRef,
+        IfCase, IfExpr, LocalDef, Punctuation, Statement, Type, UnaryOp, Value,
     },
     codegen::{builtins::clac_builtins, ir::FunctionSignature},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
@@ -334,12 +334,12 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     }
 }
 
-impl<'a> TypeCheck<'a> for StaticDef<'a> {
+impl<'a> TypeCheck<'a> for ConstDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         let actual_type = self.value.check_and_resolve_types(ctx)?;
         if actual_type != self.var_type {
             return Err(
-                eyre!("Static definition set to the incorrect type").with_section(|| {
+                eyre!("Const definition set to the incorrect type").with_section(|| {
                     generate_span_error_section_with_annotations(
                         self.span,
                         &[(
@@ -358,7 +358,7 @@ impl<'a> TypeCheck<'a> for StaticDef<'a> {
         // recursively defined. (We arent trying to impl nix lol)
         ctx.define_variable(self.name, self.var_type);
 
-        // The Static Definition it self should not have a rrtuen type
+        // The const definition it self should not have a retuen type
         Ok(Type::Void)
     }
 }
@@ -484,7 +484,7 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
         match self {
             Statement::FunctionDef(function_def) => function_def.check_and_resolve_types(ctx),
-            Statement::Static(static_def) => static_def.check_and_resolve_types(ctx),
+            Statement::Const(const_def) => const_def.check_and_resolve_types(ctx),
             Statement::Local(local_def) => local_def.check_and_resolve_types(ctx),
             Statement::Expr(expr, Punctuation::Unpunctuated) => expr.check_and_resolve_types(ctx),
             Statement::Expr(expr, Punctuation::Punctuated) => {

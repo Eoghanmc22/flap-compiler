@@ -7,8 +7,8 @@ use std::fmt::Write;
 
 use crate::{
     ast::{
-        BinaryOp, Block, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef, Punctuation,
-        Statement, StaticDef, Type,
+        BinaryOp, Block, ConstDef, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef,
+        Punctuation, Statement, Type,
     },
     codegen::{
         CodegenCtx,
@@ -21,8 +21,8 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<
 
     for statement in &block.statements {
         last_return_val = match statement {
-            Statement::Static(static_def) => {
-                walk_static_def(ctx, static_def)?;
+            Statement::Const(const_def) => {
+                walk_const_def(ctx, const_def)?;
                 None
             }
             Statement::Local(local_def) => {
@@ -83,15 +83,15 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
     Ok(())
 }
 
-fn walk_static_def<'a>(ctx: &mut CodegenCtx<'a>, static_def: &'a StaticDef) -> Result<()> {
-    let StaticDef {
+fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Result<()> {
+    let ConstDef {
         name,
         var_type,
         value,
         ..
-    } = static_def;
+    } = const_def;
 
-    ctx.define_static(name, *var_type, *value)?;
+    ctx.define_const(name, *var_type, *value)?;
 
     Ok(())
 }
