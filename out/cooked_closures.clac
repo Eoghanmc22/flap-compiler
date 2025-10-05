@@ -1,1 +1,7 @@
-42 2 * : func-get_num-0 1 pick ; func-get_num-0 1 pick print 9999999 1 * func-get_num-0 1 pick print
+: comment Compiled using Eoghan's flap to clac compiler ;
+
+: comment Start Definitions ;
+: func-get_num-0 1 pick ; 
+
+: comment Start Main ;
+42 2 * func-get_num-0 1 pick print 9999999 1 * func-get_num-0 1 pick print

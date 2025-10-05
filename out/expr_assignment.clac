@@ -1,1 +1,4 @@
+: comment Compiled using Eoghan's flap to clac compiler ;
+
+: comment Start Main ;
 37 64 +

@@ -3,16 +3,18 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::ast::Ident;
 
+#[derive(Default, Debug, Clone)]
 pub struct ClacProgram(pub Vec<ClacToken>);
 
 impl Display for ClacProgram {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.0.iter().peekable();
         while let Some(token) = iter.next() {
-            if iter.peek().is_some() {
-                write!(f, "{token} ")?;
-            } else {
+            if iter.peek().is_none() || matches!(token, ClacToken::NewLine | ClacToken::Comment(_))
+            {
                 write!(f, "{token}")?;
+            } else {
+                write!(f, "{token} ")?;
             }
         }
 
@@ -24,7 +26,7 @@ impl Display for ClacProgram {
 pub struct MangledIdent(pub Arc<Ident>);
 
 /// A Clac Source Code Token
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClacToken {
     Number(i32),
     Print,
@@ -50,6 +52,10 @@ pub enum ClacToken {
         mangled_ident: MangledIdent,
         stack_delta: i32,
     },
+
+    // Misc
+    NewLine,
+    Comment(String),
 }
 
 impl ClacToken {
@@ -74,6 +80,8 @@ impl ClacToken {
             ClacToken::StartDef { .. } => 0,
             ClacToken::EndDef => 0,
             ClacToken::Call { stack_delta, .. } => *stack_delta,
+            ClacToken::NewLine => 0,
+            ClacToken::Comment(_) => 0,
         }
     }
 }
@@ -105,6 +113,8 @@ impl Display for ClacToken {
                 mangled_ident: ident,
                 ..
             } => write!(f, "{}", ident.0),
+            ClacToken::NewLine => writeln!(f),
+            ClacToken::Comment(text) => writeln!(f, ": comment {text} ;"),
         }
     }
 }
