@@ -144,6 +144,7 @@ impl AsSpan for FunctionCall<'_> {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum FunctionAttribute {
     NoMangle,
+    AllowCaptures,
 }
 
 #[derive(Debug, Clone)]

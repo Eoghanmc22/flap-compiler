@@ -7,8 +7,8 @@ use std::fmt::Write;
 
 use crate::{
     ast::{
-        BinaryOp, Block, ConstDef, Expr, FunctionCall, FunctionDef, IfCase, IfExpr, LocalDef,
-        Punctuation, Statement, Type,
+        BinaryOp, Block, ConstDef, Expr, FunctionAttribute, FunctionCall, FunctionDef, IfCase,
+        IfExpr, LocalDef, Punctuation, Statement, Type,
     },
     codegen::{
         CodegenCtx,
@@ -129,7 +129,7 @@ fn walk_if_statement_inner<'a>(
                 arguements: vec![],
                 return_type,
             },
-            &Default::default(),
+            &[FunctionAttribute::AllowCaptures].into(),
             |ctx| walk_block(ctx, &next_case.contents),
         )?;
 
@@ -140,7 +140,7 @@ fn walk_if_statement_inner<'a>(
                     arguements: vec![],
                     return_type,
                 },
-                &Default::default(),
+                &[FunctionAttribute::AllowCaptures].into(),
                 |ctx| walk_if_statement_inner(ctx, remaining, otherwise, return_type),
             )?)
         } else {

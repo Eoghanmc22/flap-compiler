@@ -43,12 +43,23 @@ pub struct BranchIdent(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Offset(pub i32);
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+/// Specifies if we are allowed to access locals below this stack frame
+pub enum Opaque {
+    /// Allow references to locals below this frame
+    AllowCaptures,
+    /// Only allow references to locals in and above this frame
+    Opaque,
+}
+
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
     frame_start: i32,
     locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
     temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
     definitions: HashMap<StoredDefinitionIdent<'a>, (MangledIdent, Arc<FunctionSignature<'a>>)>,
+
+    opaque: Opaque,
 }
 
 #[derive(Debug, Clone)]
@@ -90,12 +101,13 @@ impl<'a> CodegenCtx<'a> {
         ClacProgram(self.tokens)
     }
 
-    fn push_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
+    fn push_scope_frame(&mut self, opaque: Opaque) -> &mut ScopeFrame<'a> {
         self.scope_stack.push_mut(ScopeFrame {
             frame_start: self.cursor,
             locals: Default::default(),
             temporaries: Default::default(),
             definitions: Default::default(),
+            opaque,
         })
     }
 
@@ -105,7 +117,7 @@ impl<'a> CodegenCtx<'a> {
 
     fn top_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
         if self.scope_stack.is_empty() {
-            self.push_scope_frame()
+            self.push_scope_frame(Opaque::Opaque)
         } else {
             self.scope_stack.last_mut().unwrap()
         }
@@ -165,8 +177,14 @@ impl<'a> CodegenCtx<'a> {
         })
         .unwrap();
 
+        let opaque = if attributes.contains(&FunctionAttribute::AllowCaptures) {
+            Opaque::AllowCaptures
+        } else {
+            Opaque::Opaque
+        };
+
         {
-            self.push_scope_frame();
+            self.push_scope_frame(opaque);
             self.cursor += signature.paramater_width() as i32;
 
             let frame = self.top_scope_frame();
@@ -244,7 +262,7 @@ impl<'a> CodegenCtx<'a> {
         .unwrap();
 
         {
-            self.push_scope_frame();
+            self.push_scope_frame(Opaque::Opaque);
             self.push_token(ClacToken::Number(value.as_repr()))?;
             self.pop_scope_frame();
         }
@@ -401,6 +419,9 @@ impl<'a> CodegenCtx<'a> {
             if let Some((var_type, data_ref)) = frame.locals.get(ident) {
                 return Some((*var_type, *data_ref));
             }
+            if frame.opaque == Opaque::Opaque {
+                break;
+            }
         }
 
         None
@@ -417,13 +438,20 @@ impl<'a> CodegenCtx<'a> {
     }
 
     pub fn lookup_ident_data_ref(&self, ident: IdentRef<'a>) -> Option<(DataReference<'a>, Type)> {
+        let mut is_opaque = false;
+
         for frame in self.scope_stack.iter().rev() {
-            if let Some((var_type, _)) = frame.locals.get(ident) {
-                return Some((DataReference::Local(ident), *var_type));
+            if !is_opaque {
+                if let Some((var_type, _)) = frame.locals.get(ident) {
+                    return Some((DataReference::Local(ident), *var_type));
+                }
             }
+
             if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(ident)) {
                 return Some((DataReference::Const(ident), sig.return_type));
             }
+
+            is_opaque |= frame.opaque == Opaque::Opaque;
         }
 
         None

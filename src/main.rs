@@ -1,9 +1,20 @@
 // TODO:
-// - captures are cooked
-//   - make all offsets relative to the start of their frame, and make every frame start with
-//   offset to the start of the parent frame
-//   - once we get that implemented we can re enable nested function defs
+// - reenable nested function defs
+// - unify functions and builtins
+//   - get rid of the special builtins map
+//   - support inligning regular functions
+//   - DO this by replacing the mangledident thing with an enum that can either be a mangled ident
+//   or a vector of clac tokens
+// - Add structs and arrays
+//   - make a drop range builtin
+// - Make an optimization for tail recursion
+//   - We should drop everything but the arguements to the call if a function is the last thing
+//   called in a block
+// - Constants should be allowed to have expressions
+// - Structs, tuples, arrays
+// - Name spaces and file imports
 // - Make the debug output chill out
+// - The source code comments dont seem to work any more
 #![feature(push_mut)]
 
 use std::{
