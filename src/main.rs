@@ -19,9 +19,11 @@
 
 use std::{
     ffi::OsStr,
+    fmt::Debug,
     fs::{self, OpenOptions},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
+    time::Instant,
 };
 
 use clap::Parser;
@@ -75,21 +77,24 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    let start = Instant::now();
     info!("Starting flap to clac compiler");
     match cli.command {
         Commands::Compile { files } => {
             for file in files {
-                info!("Compiling {file:?} ...");
-                compile(file)?;
+                info!("Compiling {file:?}");
+                compile(&file)?;
             }
         }
     }
+    info!("Done in {:.2}s!", start.elapsed().as_secs_f64());
 
     Ok(())
 }
 
 #[instrument]
-fn compile(file: PathBuf) -> Result<()> {
+fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
+    let file = file.as_ref();
     let source_code = fs::read_to_string(&file).wrap_err("Read file")?;
 
     let mut program = parser::parse_program(&source_code).wrap_err("Parse program")?;
