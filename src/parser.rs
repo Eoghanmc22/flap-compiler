@@ -156,29 +156,33 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                 let var_type = parse_type(inner.next().unwrap())?;
                 let name = parse_ident(inner.next().unwrap())?;
 
-                let value_pair = inner.next().unwrap();
-                let value_span = value_pair.as_span();
-                let value = parse_value(value_pair)?;
+                let expr_pair = inner.next().unwrap();
+                let expr_span = expr_pair.as_span();
+                let expr = parse_expr(expr_pair.into_inner())?;
 
                 Statement::Const(ConstDef {
                     name,
                     var_type,
-                    value,
+                    expr,
                     span,
-                    value_span,
+                    expr_span,
                 })
             }
             Rule::local_var => {
                 let mut inner = target.into_inner();
                 let var_type = parse_type(inner.next().unwrap())?;
                 let name = parse_ident(inner.next().unwrap())?;
-                let expr = parse_expr(inner.next().unwrap().into_inner())?;
+
+                let expr_pair = inner.next().unwrap();
+                let expr_span = expr_pair.as_span();
+                let expr = parse_expr(expr_pair.into_inner())?;
 
                 Statement::Local(LocalDef {
                     name,
                     var_type,
                     expr,
                     span,
+                    expr_span,
                 })
             }
             Rule::semicolon => continue,

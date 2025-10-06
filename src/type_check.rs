@@ -410,14 +410,14 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     #[instrument(name = "typecheck_const_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
-        let actual_type = self.value.check_and_resolve_types(ctx)?;
+        let actual_type = self.expr.check_and_resolve_types(ctx)?;
         if actual_type != self.var_type {
             return Err(
                 eyre!("Const definition set to the incorrect type").with_section(|| {
                     generate_span_error_section_with_annotations(
                         self.span,
                         &[(
-                            self.value_span,
+                            self.expr_span,
                             &format!(
                                 "has the type `{actual_type:?}`, but a `{:?}` is required",
                                 self.var_type

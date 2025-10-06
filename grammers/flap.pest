@@ -53,7 +53,7 @@ atom = _{ if_statement | function_call | value | ident | ( "(" ~ expression ~ ")
 expression = { unary_op? ~ atom ~ (binary_op ~ unary_op? ~atom)* }
 
 // A const_var can only take on the value of a literal
-const_var = { "const" ~ var_type ~ ident ~ "=" ~ value }
+const_var = { "const" ~ var_type ~ ident ~ "=" ~ expression }
 local_var = { var_type ~ ident ~ "=" ~ expression }
 
 function_parameters = _{ ( expression ~ ("," ~ expression)* )? }

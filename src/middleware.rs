@@ -8,8 +8,8 @@ use tracing::{instrument, trace};
 
 use crate::{
     ast::{
-        BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef, IfCase, IfExpr,
-        LocalDef, Punctuation, Statement, Type,
+        AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef, IfCase,
+        IfExpr, LocalDef, Punctuation, Statement, Type, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall,
@@ -93,11 +93,22 @@ fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Resu
     let ConstDef {
         name,
         var_type,
-        value,
+        expr,
         ..
     } = const_def;
 
-    ctx.define_const(name, *var_type, *value)?;
+    let expr_data_ref = walk_expr(ctx, expr)?.into_data_ref(ctx)?;
+    let expr_data_ref = ctx.dereference_data_ref(expr_data_ref)?;
+    let expr_value = match expr_data_ref {
+        DataReference::Number(num) => num,
+        _ => {
+            return Err(eyre!("Const could not be evaluated at compile time"))
+                .with_section(|| generate_span_error_section(const_def.as_span()));
+        }
+    };
+
+    // TODO: this wont be okay once we have wide types
+    ctx.define_const(name, *var_type, Value::Int(expr_value))?;
 
     Ok(())
 }

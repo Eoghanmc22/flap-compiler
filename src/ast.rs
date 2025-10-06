@@ -305,9 +305,9 @@ impl FunctionDef<'_> {
 pub struct ConstDef<'a> {
     pub name: IdentRef<'a>,
     pub var_type: Type,
-    pub value: Value,
+    pub expr: Expr<'a>,
     pub span: Span<'a>,
-    pub value_span: Span<'a>,
+    pub expr_span: Span<'a>,
 }
 
 impl AsSpan for ConstDef<'_> {
@@ -335,6 +335,7 @@ pub struct LocalDef<'a> {
     pub var_type: Type,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
+    pub expr_span: Span<'a>,
 }
 
 impl AsSpan for LocalDef<'_> {

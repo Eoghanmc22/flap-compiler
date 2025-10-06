@@ -4,8 +4,7 @@
     // Conways Game of Life
     
     const int DIMENSION = 7;
-    //const int LEN = DIMENSION * DIMENSION;
-    const int LEN = 49;
+    const int LEN = DIMENSION * DIMENSION;
     const int SEED_HIGH = 0b0000000000000000100;
     const int SEED_LOW = 0b000011000010100000000000000000;
     
