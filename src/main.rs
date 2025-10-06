@@ -15,6 +15,7 @@
 //   - use of drop_range for tail recursion (most important)
 //   - tail recursion at large?
 //   - returning types wider than 2 ints since that requires drop range
+// - Add data flow analysis and instruction reordering
 #![feature(push_mut, try_blocks)]
 
 use std::{
