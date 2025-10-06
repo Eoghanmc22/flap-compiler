@@ -27,7 +27,7 @@ impl Display for ClacProgram {
 pub struct MangledIdent(pub Arc<Ident>);
 
 /// A Clac Source Code Token
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ClacToken {
     Number(i32),
     Print,
@@ -57,6 +57,7 @@ pub enum ClacToken {
     // Misc
     NewLine,
     Comment(String),
+    Silent(Box<ClacToken>),
 }
 
 impl ClacToken {
@@ -83,6 +84,7 @@ impl ClacToken {
             ClacToken::Call { stack_delta, .. } => *stack_delta,
             ClacToken::NewLine => 0,
             ClacToken::Comment(_) => 0,
+            ClacToken::Silent(_) => 0,
         }
     }
 }
@@ -128,6 +130,37 @@ impl Display for ClacToken {
                     writeln!(f, ": comment {text} ;")
                 }
             }
+            ClacToken::Silent(clac_token) => <ClacToken as Display>::fmt(clac_token, f),
+        }
+    }
+}
+
+impl PartialEq for ClacToken {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
+            (
+                Self::StartDef {
+                    mangled_ident: l_mangled_ident,
+                },
+                Self::StartDef {
+                    mangled_ident: r_mangled_ident,
+                },
+            ) => l_mangled_ident == r_mangled_ident,
+            (
+                Self::Call {
+                    mangled_ident: l_mangled_ident,
+                    stack_delta: l_stack_delta,
+                },
+                Self::Call {
+                    mangled_ident: r_mangled_ident,
+                    stack_delta: r_stack_delta,
+                },
+            ) => l_mangled_ident == r_mangled_ident && l_stack_delta == r_stack_delta,
+            (Self::Comment(l0), Self::Comment(r0)) => l0 == r0,
+            (Self::Silent(l0), r0) => &**l0 == r0,
+            (l0, Self::Silent(r0)) => l0 == &**r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
 }

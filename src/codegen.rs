@@ -169,7 +169,7 @@ impl<'a> CodegenCtx<'a> {
     pub fn allocate_tempoary(&mut self, var_type: Type) -> TempoaryIdent {
         let ident = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-        assert!(var_type == Type::Void || self.cursor > 0);
+        assert!(var_type.width() == 0 || self.cursor > 0);
         let offset = Offset(self.cursor - 1);
 
         self.top_scope_frame()
@@ -492,7 +492,7 @@ impl<'a> CodegenCtx<'a> {
 
     pub fn lookup_definition(
         &self,
-        ident: DefinitionIdent,
+        ident: DefinitionIdent<'a>,
     ) -> Option<(ClacToken, Arc<FunctionSignature<'a>>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((func_impl, sig)) = frame.definitions.get(&ident) {
@@ -503,7 +503,7 @@ impl<'a> CodegenCtx<'a> {
         None
     }
 
-    pub fn lookup_local(&self, ident: IdentRef) -> Option<AnnotatedDataRef<'a>> {
+    pub fn lookup_local(&self, ident: IdentRef<'a>) -> Option<AnnotatedDataRef<'a>> {
         self.scope_stack
             .last()
             .and_then(|it| it.locals.get(ident))

@@ -13,6 +13,10 @@ use crate::{
 pub trait TokenConsumer<'a> {
     fn consume(&mut self, token: ClacToken) -> Result<()>;
     fn ctx(&mut self) -> &mut CodegenCtx<'a>;
+
+    fn consume_silent(&mut self, token: ClacToken) -> Result<()> {
+        self.consume(ClacToken::Silent(Box::new(token)))
+    }
 }
 
 impl<'a> TokenConsumer<'a> for &mut CodegenCtx<'a> {
@@ -203,48 +207,48 @@ impl<'a> ClacOp<'a> {
         }
     }
 
-    pub fn execute<C: TokenConsumer<'a>>(&self, mut out: C) -> Result<Option<TempoaryIdent>> {
-        let mut result = None;
-
-        match self {
+    pub fn execute<C: TokenConsumer<'a>>(&self, mut out: C) -> Result<Type> {
+        let return_type = match self {
             ClacOp::Print { .. } => {
                 out.consume(ClacToken::Print)?;
+                Type::Void
             }
             ClacOp::Quit => {
                 out.consume(ClacToken::Quit)?;
+                Type::Void
             }
             ClacOp::Add { .. } => {
                 out.consume(ClacToken::Add)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::Sub { .. } => {
                 out.consume(ClacToken::Sub)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::Mul { .. } => {
                 out.consume(ClacToken::Mul)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::Div { .. } => {
                 out.consume(ClacToken::Div)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::Mod { .. } => {
                 out.consume(ClacToken::Mod)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::Pow { .. } => {
                 out.consume(ClacToken::Pow)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::Lt { .. } => {
                 out.consume(ClacToken::Lt)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::Gt { .. } => {
                 // lhs and rhs reversed to save an instruction
                 out.consume(ClacToken::Lt)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::Le { .. } => {
                 // lhs and rhs reversed to save an instruction
@@ -252,69 +256,55 @@ impl<'a> ClacOp<'a> {
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Sub)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::Ge { .. } => {
                 out.consume(ClacToken::Rot)?;
                 out.consume(ClacToken::Rot)?;
                 out.consume(ClacToken::Lt)?;
                 out.consume(ClacToken::Sub)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::Eq { .. } => {
                 out.consume(ClacToken::Sub)?;
 
-                let cursor_pos = out.ctx().cursor;
-
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(0))?;
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Skip)?;
-                out.consume(ClacToken::Number(1))?;
+                out.consume_silent(ClacToken::Number(1))?;
 
-                // This avoids double counting the stack delta,
-                // -1 from `if`, +1 from value load
-                out.ctx().cursor = cursor_pos;
-
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::Ne { .. } => {
                 out.consume(ClacToken::Sub)?;
 
-                let cursor_pos = out.ctx().cursor;
-
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Skip)?;
-                out.consume(ClacToken::Number(0))?;
+                out.consume_silent(ClacToken::Number(0))?;
 
-                // This avoids double counting the stack delta,
-                // -1 from `if`, +1 from value load
-                out.ctx().cursor = cursor_pos;
-
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::Neg { .. } => {
                 out.consume(ClacToken::Number(0))?;
                 out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Sub)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::Not { .. } => {
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Sub)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::LAnd { .. } => {
-                let cursor_pos = out.ctx().cursor;
-
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Skip)?;
-                out.consume(ClacToken::Number(0))?;
+                out.consume_silent(ClacToken::Number(0))?;
 
                 out.consume(ClacToken::Swap)?;
 
@@ -322,30 +312,24 @@ impl<'a> ClacOp<'a> {
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Skip)?;
-                out.consume(ClacToken::Number(0))?;
+                out.consume_silent(ClacToken::Number(0))?;
 
                 out.consume(ClacToken::Mul)?;
 
-                // TODO: check
-                // Actual delta is 1-2, computed i -3-2
-                out.ctx().cursor = cursor_pos - 1;
-
-                result = Some(out.ctx().allocate_tempoary(Type::Bool));
+                Type::Bool
             }
             ClacOp::LOr { .. } => {
-                let cursor_pos = out.ctx().cursor;
+                out.consume(ClacToken::If)?;
+                out.consume(ClacToken::Number(0))?;
+                out.consume(ClacToken::Number(1))?;
+                out.consume(ClacToken::Skip)?;
+                out.consume_silent(ClacToken::Number(1))?;
 
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(0))?;
                 out.consume(ClacToken::Number(1))?;
                 out.consume(ClacToken::Skip)?;
-                out.consume(ClacToken::Number(1))?;
-
-                out.consume(ClacToken::If)?;
-                out.consume(ClacToken::Number(0))?;
-                out.consume(ClacToken::Number(1))?;
-                out.consume(ClacToken::Skip)?;
-                out.consume(ClacToken::Number(1))?;
+                out.consume_silent(ClacToken::Number(1))?;
 
                 out.consume(ClacToken::Mul)?;
 
@@ -353,25 +337,21 @@ impl<'a> ClacOp<'a> {
                 out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Sub)?;
 
-                // TODO: check
-                // Actual delta is 1-2, computed i -3-2
-                out.ctx().cursor = cursor_pos - 1;
-
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::BShl { .. } => {
                 out.consume(ClacToken::Number(2))?;
                 out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Pow)?;
                 out.consume(ClacToken::Mul)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::BShr { .. } => {
                 out.consume(ClacToken::Number(2))?;
                 out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Pow)?;
                 out.consume(ClacToken::Div)?;
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::BAnd { rhs, .. } => {
                 let DataReference::Number(rhs) = *rhs else {
@@ -448,7 +428,7 @@ impl<'a> ClacOp<'a> {
                     }
                 }
 
-                result = Some(out.ctx().allocate_tempoary(Type::Int));
+                Type::Int
             }
             ClacOp::If {
                 on_true, on_false, ..
@@ -468,24 +448,24 @@ impl<'a> ClacOp<'a> {
 
                     out.consume(ClacToken::If)?;
                     out.consume(on_true_impl)?;
-
-                    let cursor_pos = out.ctx().cursor;
-
                     out.consume(ClacToken::Number(1))?;
                     out.consume(ClacToken::Skip)?;
-                    out.consume(on_false_impl)?;
+                    out.consume_silent(on_false_impl)?;
 
-                    // This avoids double counting the stack delta,
-                    // We will either hit on true or on false, never both
-                    // This sets the counter back to the its value after the first call
-                    out.ctx().cursor = cursor_pos;
+                    def_true.return_type
                 } else {
-                    assert_eq!(def_true.stack_delta(), 0);
+                    assert!(def_true.stack_delta() <= 0);
 
                     out.consume(ClacToken::If)?;
                     out.consume(on_true_impl)?;
-                    out.consume(ClacToken::Number(0))?;
+                    out.consume(ClacToken::Number(-def_true.stack_delta()))?;
                     out.consume(ClacToken::Skip)?;
+
+                    for _ in 0..-def_true.stack_delta() {
+                        out.consume_silent(ClacToken::Drop)?;
+                    }
+
+                    Type::Void
                 }
             }
             ClacOp::Call { name, .. } => {
@@ -497,7 +477,7 @@ impl<'a> ClacOp<'a> {
 
                 out.consume(func_impl)?;
 
-                result = Some(out.ctx().allocate_tempoary(return_type));
+                return_type
             }
             ClacOp::Inline {
                 tokens, signature, ..
@@ -506,17 +486,19 @@ impl<'a> ClacOp<'a> {
                     out.consume(token.clone())?;
                 }
 
-                result = Some(out.ctx().allocate_tempoary(signature.return_type));
+                signature.return_type
             }
-        }
+        };
 
-        Ok(result)
+        Ok(return_type)
     }
 
-    pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<Option<TempoaryIdent>> {
+    pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<TempoaryIdent> {
         println!("Generating code for {self:?}");
 
         self.load_inputs(ctx)?;
-        self.execute(ctx)
+        let return_type = self.execute(&mut *ctx)?;
+
+        Ok(ctx.allocate_tempoary(return_type))
     }
 }

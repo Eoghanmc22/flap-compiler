@@ -11,7 +11,7 @@ use crate::{
         LocalDef, Punctuation, Statement, Type,
     },
     codegen::{
-        CodegenCtx, MaybeTailCall,
+        AnnotatedDataRef, CodegenCtx, MaybeTailCall,
         clac::ClacProgram,
         ir::{ClacOp, DataReference, FunctionSignature},
     },
@@ -113,41 +113,44 @@ fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<May
         .with_section(|| generate_span_error_section(if_expr.span)));
     }
 
-    walk_if_statement_inner(
-        ctx,
-        &if_expr.cases,
-        if_expr.otherwise.as_ref(),
-        if_expr.return_type.unwrap(),
-    )
+    let sig = FunctionSignature {
+        arguements: if_expr
+            .captures
+            .unwrap()
+            .captures
+            .iter()
+            .map(|(a, b)| (*b, *a))
+            .collect(),
+        return_type: if_expr.return_type.unwrap(),
+    };
+
+    walk_if_statement_inner(ctx, &if_expr.cases, if_expr.otherwise.as_ref(), sig)
 }
 
 fn walk_if_statement_inner<'a>(
     ctx: &mut CodegenCtx<'a>,
     if_cases: &'a [IfCase],
     otherwise: Option<&'a Block>,
-    return_type: Type,
+    mut signature: FunctionSignature<'a>,
 ) -> Result<MaybeTailCall<'a>> {
-    let sig = FunctionSignature {
-        arguements: vec![],
-        return_type,
-    };
-
     if let Some((next_case, remaining)) = if_cases.split_first() {
         let condition = walk_expr(ctx, &next_case.condition)
             .wrap_err("If cond should return something")
             .with_section(|| generate_span_error_section(next_case.span))?
             .into_data_ref(ctx)?;
 
-        let on_true = ctx.define_function("on_true", sig.clone(), &Default::default(), |ctx| {
-            walk_block(ctx, &next_case.contents)
-        })?;
+        let on_true =
+            ctx.define_function("on_true", signature.clone(), &Default::default(), |ctx| {
+                walk_block(ctx, &next_case.contents)
+            })?;
 
         let on_false = if !remaining.is_empty() || otherwise.is_some() {
-            Some(
-                ctx.define_function("on_false", sig.clone(), &Default::default(), |ctx| {
-                    walk_if_statement_inner(ctx, remaining, otherwise, return_type)
-                })?,
-            )
+            Some(ctx.define_function(
+                "on_false",
+                signature.clone(),
+                &Default::default(),
+                |ctx| walk_if_statement_inner(ctx, remaining, otherwise, signature.clone()),
+            )?)
         } else {
             None
         };
@@ -159,15 +162,33 @@ fn walk_if_statement_inner<'a>(
         };
 
         let mut tokens = ClacProgram::default();
-        clac_op.execute((&mut tokens, ctx))?;
+        clac_op.execute((&mut tokens, &mut *ctx))?;
+
+        let mut parameters = Vec::new();
+        for (arg_data_type, arg_ident) in &signature.arguements {
+            let AnnotatedDataRef {
+                reference,
+                data_type,
+            } = ctx.lookup_local(arg_ident).wrap_err(
+                "Look up local for capture for if statement could not find corosponding local",
+            )?;
+
+            if *arg_data_type != data_type {
+                return Err(eyre!(
+                    "Look up local for capture for if statement failed due to type mismatch"
+                ));
+            }
+
+            parameters.push(reference);
+        }
+
+        signature.arguements.push((Type::Bool, "condition"));
+        parameters.push(condition);
 
         Ok(MaybeTailCall::TailCall {
-            signature: Arc::new(FunctionSignature {
-                arguements: vec![(Type::Bool, "condition")],
-                ..sig
-            }),
+            signature: Arc::new(signature),
             call_span: next_case.span,
-            parameters: vec![condition],
+            parameters,
             tokens: Arc::new(tokens.0),
         })
     } else if let Some(otherwise) = otherwise {
@@ -218,8 +239,7 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
             let tempoary = clac_op
                 .append_into(ctx)
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
-                .with_section(|| generate_span_error_section(*span))?
-                .unwrap();
+                .with_section(|| generate_span_error_section(*span))?;
             Ok(DataReference::Tempoary(tempoary).into())
         }
         Expr::UnaryOp { op, operand, span } => {
@@ -233,8 +253,7 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
             let tempoary = clac_op
                 .append_into(ctx)
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
-                .with_section(|| generate_span_error_section(*span))?
-                .unwrap();
+                .with_section(|| generate_span_error_section(*span))?;
             Ok(DataReference::Tempoary(tempoary).into())
         }
         Expr::FunctionCall(func_call) => walk_function_call(ctx, func_call),
