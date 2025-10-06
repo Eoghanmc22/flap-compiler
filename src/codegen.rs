@@ -23,7 +23,7 @@ use crate::{
     codegen::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, MangledIdent},
-        ir::{ClacOp, DataReference, FunctionSignature},
+        ir::{DataReference, FunctionSignature},
         mutation::register_mutation_builtins,
     },
     middleware::generate_span_error_section,
@@ -49,13 +49,10 @@ pub struct BranchIdent(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Offset(pub i32);
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-/// Specifies if we are allowed to access locals below this stack frame
-pub enum Opaque {
-    /// Allow references to locals below this frame
-    AllowCaptures,
-    /// Only allow references to locals in and above this frame
-    Opaque,
+#[derive(Debug, Clone, Copy)]
+pub struct AnnotatedDataRef<'a> {
+    pub reference: DataReference<'a>,
+    pub data_type: Type,
 }
 
 pub enum MaybeTailCall<'a> {
@@ -103,11 +100,10 @@ impl<'a> From<DataReference<'a>> for MaybeTailCall<'a> {
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
     frame_start: i32,
-    locals: HashMap<IdentRef<'a>, (Type, DataReference<'a>)>,
+    locals: HashMap<IdentRef<'a>, AnnotatedDataRef<'a>>,
     temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
     definitions: HashMap<StoredDefinitionIdent<'a>, (ClacToken, Arc<FunctionSignature<'a>>)>,
 
-    opaque: Opaque,
     allow_underflow: bool,
 }
 
@@ -154,11 +150,6 @@ impl<'a> CodegenCtx<'a> {
             locals: Default::default(),
             temporaries: Default::default(),
             definitions: Default::default(),
-            opaque: if attributes.contains(&FunctionAttribute::AllowCaptures) {
-                Opaque::AllowCaptures
-            } else {
-                Opaque::Opaque
-            },
             allow_underflow: attributes.contains(&FunctionAttribute::AllowUnderflow),
         })
     }
@@ -194,9 +185,13 @@ impl<'a> CodegenCtx<'a> {
         ident: IdentRef<'a>,
         var_type: Type,
     ) {
-        self.top_scope_frame()
-            .locals
-            .insert(ident, (var_type, data_ref));
+        self.top_scope_frame().locals.insert(
+            ident,
+            AnnotatedDataRef {
+                reference: data_ref,
+                data_type: var_type,
+            },
+        );
     }
 
     pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
@@ -250,9 +245,13 @@ impl<'a> CodegenCtx<'a> {
                 // Name arg as a tempoary
                 let tempoary = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
                 frame.temporaries.insert(tempoary, (*var_type, cur_offset));
-                frame
-                    .locals
-                    .insert(ident, (*var_type, DataReference::Tempoary(tempoary)));
+                frame.locals.insert(
+                    ident,
+                    AnnotatedDataRef {
+                        reference: DataReference::Tempoary(tempoary),
+                        data_type: *var_type,
+                    },
+                );
             }
             println!("New Frame 1 '{ident}': {frame:#?}");
 
@@ -396,11 +395,13 @@ impl<'a> CodegenCtx<'a> {
                     self.push_token(func_impl)?;
                 }
                 DataReference::Local(ident) => {
-                    let (var_type, data_ref) =
-                        self.lookup_local(ident).wrap_err("Bring up valid local")?;
+                    let AnnotatedDataRef {
+                        reference,
+                        data_type,
+                    } = self.lookup_local(ident).wrap_err("Bring up valid local")?;
 
                     println!("recursing to bring up local reference '{ident}'",);
-                    self.bring_up_references(&[data_ref], var_type.width())?;
+                    self.bring_up_references(&[reference], data_type.width())?;
                 }
                 DataReference::Tempoary(ident) => {
                     let (var_type, offset) = self
@@ -502,17 +503,11 @@ impl<'a> CodegenCtx<'a> {
         None
     }
 
-    pub fn lookup_local(&self, ident: IdentRef) -> Option<(Type, DataReference<'a>)> {
-        for frame in self.scope_stack.iter().rev() {
-            if let Some((var_type, data_ref)) = frame.locals.get(ident) {
-                return Some((*var_type, *data_ref));
-            }
-            if frame.opaque == Opaque::Opaque {
-                break;
-            }
-        }
-
-        None
+    pub fn lookup_local(&self, ident: IdentRef) -> Option<AnnotatedDataRef<'a>> {
+        self.scope_stack
+            .last()
+            .and_then(|it| it.locals.get(ident))
+            .copied()
     }
 
     pub fn lookup_temporary(&self, ident: TempoaryIdent) -> Option<(Type, Offset)> {
@@ -525,24 +520,21 @@ impl<'a> CodegenCtx<'a> {
         None
     }
 
-    pub fn lookup_ident_data_ref(&self, ident: IdentRef<'a>) -> Option<(DataReference<'a>, Type)> {
-        let mut is_opaque = false;
-
-        for frame in self.scope_stack.iter().rev() {
-            if !is_opaque {
-                if let Some((var_type, _)) = frame.locals.get(ident) {
-                    return Some((DataReference::Local(ident), *var_type));
+    pub fn lookup_ident_data_ref(&self, ident: IdentRef<'a>) -> Option<AnnotatedDataRef<'a>> {
+        if let Some(local) = self.lookup_local(ident) {
+            Some(local)
+        } else {
+            for frame in self.scope_stack.iter().rev() {
+                if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(ident)) {
+                    return Some(AnnotatedDataRef {
+                        reference: DataReference::Const(ident),
+                        data_type: sig.return_type,
+                    });
                 }
             }
 
-            if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(ident)) {
-                return Some((DataReference::Const(ident), sig.return_type));
-            }
-
-            is_opaque |= frame.opaque == Opaque::Opaque;
+            None
         }
-
-        None
     }
 }
 

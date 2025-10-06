@@ -7,8 +7,8 @@ use std::{fmt::Write, sync::Arc};
 
 use crate::{
     ast::{
-        BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionAttribute, FunctionCall, FunctionDef,
-        IfCase, IfExpr, LocalDef, Punctuation, Statement, Type,
+        BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef, IfCase, IfExpr,
+        LocalDef, Punctuation, Statement, Type,
     },
     codegen::{
         CodegenCtx, MaybeTailCall,
@@ -138,20 +138,16 @@ fn walk_if_statement_inner<'a>(
             .with_section(|| generate_span_error_section(next_case.span))?
             .into_data_ref(ctx)?;
 
-        let on_true = ctx.define_function(
-            "on_true",
-            sig.clone(),
-            &[FunctionAttribute::AllowCaptures].into(),
-            |ctx| walk_block(ctx, &next_case.contents),
-        )?;
+        let on_true = ctx.define_function("on_true", sig.clone(), &Default::default(), |ctx| {
+            walk_block(ctx, &next_case.contents)
+        })?;
 
         let on_false = if !remaining.is_empty() || otherwise.is_some() {
-            Some(ctx.define_function(
-                "on_false",
-                sig.clone(),
-                &[FunctionAttribute::AllowCaptures].into(),
-                |ctx| walk_if_statement_inner(ctx, remaining, otherwise, return_type),
-            )?)
+            Some(
+                ctx.define_function("on_false", sig.clone(), &Default::default(), |ctx| {
+                    walk_if_statement_inner(ctx, remaining, otherwise, return_type)
+                })?,
+            )
         } else {
             None
         };
@@ -186,7 +182,7 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
         Expr::Value(value, _span) => Ok(DataReference::Number(value.as_repr()).into()),
         Expr::Ident(ident, span) => Ok(ctx
             .lookup_ident_data_ref(ident)
-            .map(|it| it.0)
+            .map(|it| it.reference)
             .wrap_err_with(|| format!("Could not find identifier: {ident}"))
             .with_section(|| generate_span_error_section(*span))?
             .into()),
