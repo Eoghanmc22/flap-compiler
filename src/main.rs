@@ -2,8 +2,6 @@
 // - if statements require semicolons after them
 // - support inlining regular functions?
 // - Add structs and arrays
-// - Tail recursion is great but drop range is hella slow
-//   - Make using drop_range optional
 // - Constants should be allowed to have expressions
 // - Structs, tuples, arrays
 // - Name spaces and file imports

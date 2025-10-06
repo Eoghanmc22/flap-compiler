@@ -269,6 +269,15 @@ impl<'a> CodegenCtx<'a> {
 
                     (signature.return_width(), None)
                 }
+                // TODO: Make the threshold here configurable
+                MaybeTailCall::TailCall {
+                    signature: ref tail_call_sig,
+                    ..
+                } if tail_call_sig.paramater_width() > 2 => {
+                    let ret_width = tail_call_sig.return_width();
+                    let _data_ref = return_data_ref.into_data_ref(self)?;
+                    (ret_width, None)
+                }
                 MaybeTailCall::TailCall {
                     parameters,
                     signature: tail_call_sig,
