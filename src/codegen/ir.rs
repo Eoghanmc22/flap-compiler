@@ -460,6 +460,7 @@ impl<'a> ClacOp<'a> {
                     def_true.return_type
                 } else {
                     assert!(def_true.stack_delta() <= 0);
+                    assert!(def_true.return_width() == 0);
 
                     out.consume(ClacToken::If)?;
                     out.consume(on_true_impl)?;
