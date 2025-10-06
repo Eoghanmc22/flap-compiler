@@ -1,22 +1,21 @@
 // TODO:
-// - if statements wequire semi colons after them
-// - unify functions and builtins
-//   - get rid of the special builtins map
-//   - support inligning regular functions
-//   - DO this by replacing the mangledident thing with an enum that can either be a mangled ident
-//   or a vector of clac tokens
+// - if statements require semicolons after them
+// - support inlining regular functions?
 // - Add structs and arrays
-//   - make a drop range builtin
-// - Make an optimization for tail recursion
-//   - We should drop everything but the arguements to the call if a function is the last thing
-//   called in a block
+// - Tail recursion is great but drop range is hella slow
+//   - Make using drop_range optional
 // - Constants should be allowed to have expressions
 // - Structs, tuples, arrays
 // - Name spaces and file imports
 // - Make the debug output chill out
-// - The source code comments dont seem to work any more
 // - Comp time eval?
 // - Cull unused builtins
+// - Things that should be toggale
+//   - Nested defs
+//   - Source code comment
+//   - use of drop_range for tail recursion (most important)
+//   - tail recursion at large?
+//   - returning types wider than 2 ints since that requires drop range
 #![feature(push_mut, try_blocks)]
 
 use std::{
