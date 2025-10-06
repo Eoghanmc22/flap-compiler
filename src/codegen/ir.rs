@@ -259,9 +259,9 @@ impl<'a> ClacOp<'a> {
                 Type::Bool
             }
             ClacOp::Ge { .. } => {
-                out.consume(ClacToken::Rot)?;
-                out.consume(ClacToken::Rot)?;
                 out.consume(ClacToken::Lt)?;
+                out.consume(ClacToken::Number(1))?;
+                out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Sub)?;
                 Type::Bool
             }

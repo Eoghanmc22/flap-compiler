@@ -1,4 +1,5 @@
 // TODO:
+// - if statements wequire semi colons after them
 // - unify functions and builtins
 //   - get rid of the special builtins map
 //   - support inligning regular functions

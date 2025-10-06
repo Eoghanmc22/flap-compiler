@@ -27,4 +27,4 @@
 : drop_range drop_range_outer drop drop ;
 
 : comment Start Main ;
-0 1 < 1 pick print 1 1 < 1 pick print 2 1 < 1 pick print 1 0 < 1 pick print 1 1 < 1 pick print 1 2 < 1 pick print 1 0 - if 0 1 skip 1 1 pick print 1 1 - if 0 1 skip 1 1 pick print 1 2 - if 0 1 skip 1 1 pick print 1 0 - if 1 1 skip 0 1 pick print 1 1 - if 1 1 skip 0 1 pick print 1 2 - if 1 1 skip 0 1 pick print 0 1 < 1 swap - 1 pick print 1 1 < 1 swap - 1 pick print 2 1 < 1 swap - 1 pick print 1 0 rot rot < - 1 pick print 1 1 rot rot < - 1 pick print 1 2 rot rot < - 1 pick print
+0 1 < 1 pick print 1 1 < 1 pick print 2 1 < 1 pick print 1 0 < 1 pick print 1 1 < 1 pick print 1 2 < 1 pick print 1 0 - if 0 1 skip 1 1 pick print 1 1 - if 0 1 skip 1 1 pick print 1 2 - if 0 1 skip 1 1 pick print 1 0 - if 1 1 skip 0 1 pick print 1 1 - if 1 1 skip 0 1 pick print 1 2 - if 1 1 skip 0 1 pick print 0 1 < 1 swap - 1 pick print 1 1 < 1 swap - 1 pick print 2 1 < 1 swap - 1 pick print 1 0 < 1 swap - 1 pick print 1 1 < 1 swap - 1 pick print 1 2 < 1 swap - 1 pick print

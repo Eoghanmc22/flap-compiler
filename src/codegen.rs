@@ -245,12 +245,18 @@ impl<'a> CodegenCtx<'a> {
                 // Name arg as a tempoary
                 let tempoary = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
                 frame.temporaries.insert(tempoary, (*var_type, cur_offset));
-                frame.locals.insert(
-                    ident,
-                    AnnotatedDataRef {
-                        reference: DataReference::Tempoary(tempoary),
-                        data_type: *var_type,
-                    },
+                assert!(
+                    frame
+                        .locals
+                        .insert(
+                            ident,
+                            AnnotatedDataRef {
+                                reference: DataReference::Tempoary(tempoary),
+                                data_type: *var_type,
+                            },
+                        )
+                        .is_none(),
+                    "Dupliate function arguements"
                 );
             }
             println!("New Frame 1 '{ident}': {frame:#?}");
