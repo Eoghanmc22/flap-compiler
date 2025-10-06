@@ -10,6 +10,7 @@ use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
 };
 use pest_derive::Parser;
+use tracing::{instrument, trace};
 
 use crate::{
     ast::{
@@ -45,17 +46,19 @@ lazy_static::lazy_static! {
 #[grammar = "../grammers/flap.pest"]
 struct FlapParser;
 
+#[instrument]
 pub fn parse_program<'a>(input: &'a str) -> Result<Block<'a>> {
     let mut pairs = FlapParser::parse(Rule::program, input).wrap_err("Autogen parser")?;
-    println!("Input program tokens: {pairs:#?}");
+    trace!("Input program tokens: {pairs:#?}");
 
     let program_contents_pair = pairs.next().unwrap();
 
     parse_block_like(program_contents_pair)
 }
 
+#[instrument]
 fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
-    println!("Input block_like tokens: {pair:#?}");
+    trace!("Input block_like tokens: {pair:#?}");
     let span = pair.as_span();
 
     let mut statements = Vec::new();
@@ -63,7 +66,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     // Manual iteration so we can use peek
     let mut pairs = pair.into_inner();
     while let Some(target) = pairs.next() {
-        println!("Input statement tokens: {target:#?}");
+        trace!("Input statement tokens: {target:#?}");
         let span = target.as_span();
 
         let statement = match target.as_rule() {
@@ -196,6 +199,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     })
 }
 
+#[instrument]
 fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     let span = pair.as_span();
     let inner = pair.into_inner();
@@ -226,6 +230,7 @@ fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     })
 }
 
+#[instrument]
 fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
@@ -239,6 +244,7 @@ fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     })
 }
 
+#[instrument]
 fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     let target = pair.into_inner().next().unwrap();
 
@@ -253,6 +259,7 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     }
 }
 
+#[instrument]
 fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     if !matches!(pair.as_rule(), Rule::ident) {
         return Err(eyre!("Got {:?}, expected ident", pair)
@@ -262,6 +269,7 @@ fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     Ok(pair.as_str())
 }
 
+#[instrument]
 fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
     PRATT_PARSER
         .map_primary(|primary| {
@@ -334,6 +342,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         .parse(pairs)
 }
 
+#[instrument]
 fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
@@ -349,6 +358,7 @@ fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
     })
 }
 
+#[instrument]
 fn parse_value(pair: Pair<Rule>) -> Result<Value> {
     let target = pair.into_inner().next().unwrap();
 

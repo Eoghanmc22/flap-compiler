@@ -4,6 +4,7 @@ use color_eyre::{
 };
 use pest::Span;
 use std::{fmt::Write, sync::Arc};
+use tracing::{instrument, trace};
 
 use crate::{
     ast::{
@@ -17,6 +18,7 @@ use crate::{
     },
 };
 
+#[instrument(skip(ctx), fields(%block))]
 pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<MaybeTailCall<'a>> {
     let mut last_return_val = None;
 
@@ -49,6 +51,7 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<
     }
 }
 
+#[instrument(skip(ctx), fields(%func_call))]
 fn walk_function_call<'a>(
     ctx: &mut CodegenCtx<'a>,
     func_call: &'a FunctionCall<'a>,
@@ -64,6 +67,7 @@ fn walk_function_call<'a>(
         .with_section(|| generate_span_error_section(func_call.span))
 }
 
+#[instrument(skip(ctx), fields(%func_def))]
 fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) -> Result<()> {
     ctx.define_function(
         func_def.function,
@@ -84,6 +88,7 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
     Ok(())
 }
 
+#[instrument(skip(ctx), fields(%const_def))]
 fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Result<()> {
     let ConstDef {
         name,
@@ -97,6 +102,7 @@ fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Resu
     Ok(())
 }
 
+#[instrument(skip(ctx), fields(%local_def))]
 fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Result<()> {
     let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
     ctx.promote_to_local(data_ref, local_def.name, local_def.var_type);
@@ -104,6 +110,7 @@ fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Resu
     Ok(())
 }
 
+#[instrument(skip(ctx), fields(%if_expr))]
 fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<MaybeTailCall<'a>> {
     if if_expr.otherwise.is_none() && if_expr.return_type != DeferedType::ResolvedType(Type::Void) {
         return Err(eyre!(
@@ -124,9 +131,12 @@ fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<May
         return_type: if_expr.return_type.unwrap(),
     };
 
+    trace!("if signature: {sig:?}");
+
     walk_if_statement_inner(ctx, &if_expr.cases, if_expr.otherwise.as_ref(), sig)
 }
 
+#[instrument(skip_all)]
 fn walk_if_statement_inner<'a>(
     ctx: &mut CodegenCtx<'a>,
     if_cases: &'a [IfCase],
@@ -198,6 +208,7 @@ fn walk_if_statement_inner<'a>(
     }
 }
 
+#[instrument(skip(ctx), fields(%expr))]
 fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
     match expr {
         Expr::Value(value, _span) => Ok(DataReference::Number(value.as_repr()).into()),

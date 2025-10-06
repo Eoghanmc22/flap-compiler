@@ -1,6 +1,7 @@
 // TODO:
-// - if statements require semicolons after them
-// - support inlining regular functions?
+// - I dont think logical and and or are short circuiting
+// - if statements shouldn't require semicolons after them
+// - support inlining regular functions? (this doesnt play well with if)
 // - Add structs and arrays
 // - Constants should be allowed to have expressions
 // - Structs, tuples, arrays
@@ -25,6 +26,9 @@ use std::{
 
 use clap::Parser;
 use color_eyre::eyre::{Context, Result};
+use tracing::{debug, info, instrument, level_filters::LevelFilter};
+use tracing_error::ErrorLayer;
+use tracing_subscriber::{EnvFilter, prelude::*};
 
 use crate::{
     codegen::{
@@ -56,15 +60,26 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(ErrorLayer::default())
+        .with(
+            tracing_subscriber::fmt::layer().with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env()?,
+            ),
+        );
+    tracing::subscriber::set_global_default(subscriber)?;
+
     color_eyre::install()?;
 
     let cli = Cli::parse();
 
-    println!("Hello, world!");
+    info!("Starting flap to clac compiler");
     match cli.command {
         Commands::Compile { files } => {
             for file in files {
-                println!("Compiling {file:?}");
+                info!("Compiling {file:?} ...");
                 compile(file)?;
             }
         }
@@ -73,11 +88,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[instrument]
 fn compile(file: PathBuf) -> Result<()> {
     let source_code = fs::read_to_string(&file).wrap_err("Read file")?;
 
     let mut program = parser::parse_program(&source_code).wrap_err("Parse program")?;
-    println!("Parsed AST: {program:#?}");
+    debug!("Parsed AST: {program:#?}");
 
     let mut type_checker = TypeChecker::default();
     let return_type = program

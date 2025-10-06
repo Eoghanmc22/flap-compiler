@@ -1,4 +1,32 @@
-use std::collections::{BTreeMap, HashSet};
+use crate::middleware::generate_span_error_section;
+use core::fmt;
+use std::{
+    collections::{BTreeMap, HashSet},
+    fmt::Display,
+};
+
+macro_rules! impl_display {
+    ($($the_type:ty),*) => {
+        $(
+            impl Display for $the_type {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "\n{}", generate_span_error_section(self.as_span()))
+                }
+            }
+        )*
+    };
+}
+
+impl_display! {
+    Expr<'_>,
+    Statement<'_>,
+    IfCase<'_>,
+    ConstDef<'_>,
+    FunctionDef<'_>,
+    FunctionCall<'_>,
+    IfExpr<'_>,
+    Block<'_>
+}
 
 use pest::Span;
 
@@ -25,6 +53,15 @@ impl Value {
 
     pub fn truthy(&self) -> bool {
         self.as_repr() != 0
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Int(int) => int.fmt(f),
+            Value::Bool(bool) => bool.fmt(f),
+        }
     }
 }
 
@@ -66,6 +103,15 @@ pub enum UnaryOp {
     LNot,
 }
 
+impl Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnaryOp::Negate => write!(f, "-"),
+            UnaryOp::LNot => write!(f, "!"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum BinaryOp {
     // Arithmetic
@@ -94,6 +140,30 @@ pub enum BinaryOp {
     BAnd,
 }
 
+impl Display for BinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BinaryOp::Add => write!(f, "+"),
+            BinaryOp::Sub => write!(f, "-"),
+            BinaryOp::Mul => write!(f, "*"),
+            BinaryOp::Div => write!(f, "/"),
+            BinaryOp::Mod => write!(f, "%"),
+            BinaryOp::Pow => write!(f, "**"),
+            BinaryOp::Eq => write!(f, "=="),
+            BinaryOp::Ne => write!(f, "!="),
+            BinaryOp::Le => write!(f, "<="),
+            BinaryOp::Ge => write!(f, ">="),
+            BinaryOp::Lt => write!(f, "<"),
+            BinaryOp::Gt => write!(f, ">"),
+            BinaryOp::LAnd => write!(f, "&&"),
+            BinaryOp::LOr => write!(f, "||"),
+            BinaryOp::BShl => write!(f, "<<"),
+            BinaryOp::BShr => write!(f, ">>"),
+            BinaryOp::BAnd => write!(f, "&"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Type {
     Int,
@@ -102,12 +172,31 @@ pub enum Type {
     Void,
 }
 
+impl Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Int => write!(f, "int"),
+            Type::Bool => write!(f, "bool"),
+            Type::Void => write!(f, "void"),
+        }
+    }
+}
+
 // TODO: This is a kinda hacky solution
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DeferedType {
     ResolvedType(Type),
     #[default]
     UnresolvedType,
+}
+
+impl Display for DeferedType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeferedType::ResolvedType(t) => t.fmt(f),
+            DeferedType::UnresolvedType => write!(f, "unresolved"),
+        }
+    }
 }
 
 impl DeferedType {
@@ -228,6 +317,19 @@ impl AsSpan for ConstDef<'_> {
 }
 
 #[derive(Debug, Clone)]
+pub struct IfCase<'a> {
+    pub condition: Expr<'a>,
+    pub contents: Block<'a>,
+    pub span: Span<'a>,
+}
+
+impl AsSpan for IfCase<'_> {
+    fn as_span(&self) -> Span<'_> {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct LocalDef<'a> {
     pub name: IdentRef<'a>,
     pub var_type: Type,
@@ -241,16 +343,9 @@ impl AsSpan for LocalDef<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct IfCase<'a> {
-    pub condition: Expr<'a>,
-    pub contents: Block<'a>,
-    pub span: Span<'a>,
-}
-
-impl AsSpan for IfCase<'_> {
-    fn as_span(&self) -> Span<'_> {
-        self.span
+impl Display for LocalDef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n{}", self.as_span().as_str())
     }
 }
 

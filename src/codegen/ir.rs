@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use color_eyre::eyre::{ContextCompat, Result, bail};
+use tracing::instrument;
 
 use crate::{
     ast::{IdentRef, Type},
@@ -20,6 +21,7 @@ pub trait TokenConsumer<'a> {
 }
 
 impl<'a> TokenConsumer<'a> for &mut CodegenCtx<'a> {
+    #[instrument]
     fn consume(&mut self, token: ClacToken) -> Result<()> {
         self.push_token(token)
     }
@@ -30,6 +32,7 @@ impl<'a> TokenConsumer<'a> for &mut CodegenCtx<'a> {
 }
 
 impl<'a> TokenConsumer<'a> for (&mut ClacProgram, &mut CodegenCtx<'a>) {
+    #[instrument]
     fn consume(&mut self, token: ClacToken) -> Result<()> {
         self.0.0.push(token);
 
@@ -169,6 +172,7 @@ pub enum ClacOp<'a> {
 }
 
 impl<'a> ClacOp<'a> {
+    #[instrument(skip(ctx))]
     pub fn load_inputs(&self, ctx: &mut CodegenCtx<'a>) -> Result<()> {
         match self {
             ClacOp::Print { value } => ctx.bring_up_references(&[*value], 1),
@@ -207,6 +211,7 @@ impl<'a> ClacOp<'a> {
         }
     }
 
+    #[instrument(skip(out))]
     pub fn execute<C: TokenConsumer<'a>>(&self, mut out: C) -> Result<Type> {
         let return_type = match self {
             ClacOp::Print { .. } => {
@@ -493,9 +498,8 @@ impl<'a> ClacOp<'a> {
         Ok(return_type)
     }
 
+    #[instrument(skip(ctx))]
     pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<TempoaryIdent> {
-        println!("Generating code for {self:?}");
-
         self.load_inputs(ctx)?;
         let return_type = self.execute(&mut *ctx)?;
 

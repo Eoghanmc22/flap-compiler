@@ -9,6 +9,7 @@ use color_eyre::{
     eyre::{Context, ContextCompat, Result, bail, eyre},
 };
 use pest::Span;
+use tracing::{debug, instrument, trace};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -55,6 +56,7 @@ pub struct AnnotatedDataRef<'a> {
     pub data_type: Type,
 }
 
+#[derive(Debug, Clone)]
 pub enum MaybeTailCall<'a> {
     Regular(DataReference<'a>),
     TailCall {
@@ -66,6 +68,7 @@ pub enum MaybeTailCall<'a> {
 }
 
 impl<'a> MaybeTailCall<'a> {
+    #[instrument(skip(ctx))]
     pub fn into_data_ref(self, ctx: &mut CodegenCtx<'a>) -> Result<DataReference<'a>> {
         match self {
             MaybeTailCall::Regular(data_reference) => Ok(data_reference),
@@ -194,6 +197,7 @@ impl<'a> CodegenCtx<'a> {
         );
     }
 
+    #[instrument(skip(self, scope))]
     pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
         &mut self,
         ident: IdentRef<'a>,
@@ -235,8 +239,6 @@ impl<'a> CodegenCtx<'a> {
             self.cursor += signature.paramater_width() as i32;
 
             let frame = self.top_scope_frame();
-            println!("New Frame 1 '{ident}': {frame:#?}");
-
             let mut offset = 0;
             for (var_type, ident) in &signature.arguements {
                 let cur_offset = Offset(frame.frame_start + offset);
@@ -259,7 +261,8 @@ impl<'a> CodegenCtx<'a> {
                     "Dupliate function arguements"
                 );
             }
-            println!("New Frame 1 '{ident}': {frame:#?}");
+
+            debug!("Start function frame '{ident}': {frame:#?}");
 
             let return_data_ref = (scope)(self)?;
 
@@ -342,6 +345,8 @@ impl<'a> CodegenCtx<'a> {
         self.push_token(ClacToken::EndDef)?;
         self.cursor = original_cursor;
 
+        debug!("End function frame '{ident}'");
+
         Ok(def_ident)
     }
 
@@ -384,17 +389,18 @@ impl<'a> CodegenCtx<'a> {
     /// Copies the data pointed to by the references to the top of the stack
     /// Stack after call: S, r_1, ..., r_n
     // TODO: Check types instead of widths
+    #[instrument(skip(self))]
     pub fn bring_up_references(
         &mut self,
         references: &[DataReference<'a>],
         expected_width: u32,
     ) -> Result<()> {
-        println!("bring up references '{references:?}', expected_width, {expected_width}");
+        trace!("bring up references '{references:?}', expected_width, {expected_width}");
 
         // TODO: Optimize
         let starting_cursor = self.cursor;
         for reference in references {
-            println!("bring up reference '{reference:?}'",);
+            trace!("bring up reference '{reference:?}'",);
 
             match *reference {
                 DataReference::Number(num) => self.push_token(ClacToken::Number(num))?,
@@ -415,7 +421,7 @@ impl<'a> CodegenCtx<'a> {
                         data_type,
                     } = self.lookup_local(ident).wrap_err("Bring up valid local")?;
 
-                    println!("recursing to bring up local reference '{ident}'",);
+                    trace!("recursing to bring up local reference '{ident}'",);
                     self.bring_up_references(&[reference], data_type.width())?;
                 }
                 DataReference::Tempoary(ident) => {
@@ -428,7 +434,7 @@ impl<'a> CodegenCtx<'a> {
                     }
 
                     let rel_offset = self.cursor - offset.0;
-                    println!(
+                    trace!(
                         "bring up reference '{reference:?}', cursor: {}, offset: {}, rel_offset: {}",
                         self.cursor, offset.0, rel_offset
                     );
@@ -469,6 +475,7 @@ impl<'a> CodegenCtx<'a> {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub fn call_function_like(
         &mut self,
         ident: IdentRef<'a>,
