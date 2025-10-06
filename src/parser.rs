@@ -13,8 +13,9 @@ use pest_derive::Parser;
 
 use crate::{
     ast::{
-        BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionAttribute, FunctionCall, FunctionDef,
-        IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement, Type, UnaryOp, Value,
+        BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr, FunctionAttribute,
+        FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement,
+        Type, UnaryOp, Value,
     },
     middleware::generate_span_error_section,
 };
@@ -144,6 +145,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                         .with_section(|| generate_span_error_section(span))?,
                     return_type,
                     span,
+                    captures: DeferedCaptures::UnresolvedCaptures,
                 })
             }
             Rule::const_var => {
@@ -187,7 +189,11 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
         statements.push(statement);
     }
 
-    Ok(Block { statements, span })
+    Ok(Block {
+        statements,
+        span,
+        captures: DeferedCaptures::UnresolvedCaptures,
+    })
 }
 
 fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
@@ -216,6 +222,7 @@ fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
         otherwise,
         span,
         return_type: DeferedType::UnresolvedType,
+        captures: DeferedCaptures::UnresolvedCaptures,
     })
 }
 

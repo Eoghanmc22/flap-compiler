@@ -117,7 +117,7 @@ fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<May
         ctx,
         &if_expr.cases,
         if_expr.otherwise.as_ref(),
-        Option::from(if_expr.return_type).unwrap(),
+        if_expr.return_type.unwrap(),
     )
 }
 

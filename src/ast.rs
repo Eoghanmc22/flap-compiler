@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use pest::Span;
 
@@ -110,12 +110,16 @@ pub enum DeferedType {
     UnresolvedType,
 }
 
-impl From<DeferedType> for Option<Type> {
-    fn from(value: DeferedType) -> Self {
-        match value {
+impl DeferedType {
+    pub fn to_option(&self) -> Option<Type> {
+        match *self {
             DeferedType::ResolvedType(var_type) => Some(var_type),
             DeferedType::UnresolvedType => None,
         }
+    }
+
+    pub fn unwrap(&self) -> Type {
+        self.to_option().unwrap()
     }
 }
 
@@ -125,6 +129,32 @@ impl Type {
             Type::Int | Type::Bool => 1,
             Type::Void => 0,
         }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Captures<'a> {
+    pub captures: BTreeMap<IdentRef<'a>, Type>,
+}
+
+// TODO: This is a kinda hacky solution
+#[derive(Debug, Clone, Default)]
+pub enum DeferedCaptures<'a> {
+    ResolvedCaptures(Captures<'a>),
+    #[default]
+    UnresolvedCaptures,
+}
+
+impl<'a> DeferedCaptures<'a> {
+    pub fn to_option(&self) -> Option<&Captures<'a>> {
+        match self {
+            DeferedCaptures::ResolvedCaptures(captures) => Some(captures),
+            DeferedCaptures::UnresolvedCaptures => None,
+        }
+    }
+
+    pub fn unwrap(&self) -> &Captures<'a> {
+        self.to_option().unwrap()
     }
 }
 
@@ -153,6 +183,7 @@ pub struct FunctionDef<'a> {
     pub attributes: HashSet<FunctionAttribute>,
     pub function: IdentRef<'a>,
     pub arguements: Vec<(Type, IdentRef<'a>)>,
+    pub captures: DeferedCaptures<'a>,
     pub contents: Block<'a>,
     pub return_type: Type,
     pub span: Span<'a>,
@@ -227,6 +258,7 @@ impl AsSpan for IfCase<'_> {
 pub struct IfExpr<'a> {
     pub cases: Vec<IfCase<'a>>,
     pub otherwise: Option<Block<'a>>,
+    pub captures: DeferedCaptures<'a>,
     pub return_type: DeferedType,
     pub span: Span<'a>,
 }
@@ -265,6 +297,7 @@ impl AsSpan for Statement<'_> {
 #[derive(Debug, Clone)]
 pub struct Block<'a> {
     pub statements: Vec<Statement<'a>>,
+    pub captures: DeferedCaptures<'a>,
     // pub return_type: Type,
     pub span: Span<'a>,
 }
