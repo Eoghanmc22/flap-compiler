@@ -558,6 +558,35 @@ impl<'a> CodegenCtx<'a> {
             None
         }
     }
+
+    pub fn dereference_data_ref(&self, data_ref: DataReference<'a>) -> Result<DataReference<'a>> {
+        match data_ref {
+            DataReference::Local(local) => self.dereference_data_ref(
+                self.lookup_local(local)
+                    .ok_or_else(|| {
+                        eyre!(
+                            "Attempted to deref a data reference pointing to a non existant local"
+                        )
+                    })?
+                    .reference,
+            ),
+            DataReference::Const(constant) => {
+                let (token, _sig) = self.lookup_definition(DefinitionIdent::Const(constant))
+                    .ok_or_else(|| {
+                        eyre!(
+                            "Attempted to deref a data reference pointing to a non existant constant"
+                        )
+                    })?;
+
+                if let ClacToken::Number(num) = token {
+                    Ok(DataReference::Number(num))
+                } else {
+                    Ok(DataReference::Const(constant))
+                }
+            }
+            data_ref => Ok(data_ref),
+        }
+    }
 }
 
 // Work arround for a lifetime issue

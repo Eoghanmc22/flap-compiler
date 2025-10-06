@@ -247,11 +247,11 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
                 BinaryOp::BAnd => ClacOp::BAnd { lhs, rhs },
             };
 
-            let tempoary = clac_op
+            let ret = clac_op
                 .append_into(ctx)
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
                 .with_section(|| generate_span_error_section(*span))?;
-            Ok(DataReference::Tempoary(tempoary).into())
+            Ok(ret.into())
         }
         Expr::UnaryOp { op, operand, span } => {
             let value = walk_expr(ctx, operand)?.into_data_ref(ctx)?;
@@ -261,11 +261,11 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
                 crate::ast::UnaryOp::LNot => ClacOp::Not { value },
             };
 
-            let tempoary = clac_op
+            let ret = clac_op
                 .append_into(ctx)
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
                 .with_section(|| generate_span_error_section(*span))?;
-            Ok(DataReference::Tempoary(tempoary).into())
+            Ok(ret.into())
         }
         Expr::FunctionCall(func_call) => walk_function_call(ctx, func_call),
         Expr::If(if_expr) => walk_if_expr(ctx, if_expr),

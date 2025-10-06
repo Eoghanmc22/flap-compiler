@@ -27,9 +27,9 @@
 : drop_range_outer 1 pick if rot 2 skip 19 skip 3 pick if drop_range_inner 0 skip 2 pick if drop 4 skip rot rot 3 skip -1 + drop_range_outer ;
 : drop_range drop_range_outer drop drop ;
 : func-test-3 100 print ;
-: func-test-4 100 2 2 swap ** / 1 pick print drop ;
-: func-test-5 100 2 2 swap ** / 1 pick 0 2 pick 2 % 1 pick * + 1 pick print drop drop drop ;
-: func-test-6 100 2 2 swap ** / 1 pick 2 % 1 pick print drop drop ;
+: func-test-4 25 print ;
+: func-test-5 1 print ;
+: func-test-6 1 print ;
 
 : comment Start Main ;
 func-test-3 func-test-4 func-test-5 func-test-6

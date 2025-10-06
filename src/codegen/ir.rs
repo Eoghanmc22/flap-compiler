@@ -499,11 +499,207 @@ impl<'a> ClacOp<'a> {
         Ok(return_type)
     }
 
+    pub fn try_execute_const(&self, ctx: &mut CodegenCtx<'a>) -> Option<DataReference<'a>> {
+        let ret = match self {
+            ClacOp::Add { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.wrapping_add(rhs))
+            }
+            ClacOp::Sub { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.wrapping_sub(rhs))
+            }
+            ClacOp::Mul { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.wrapping_mul(rhs))
+            }
+            ClacOp::Div { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.wrapping_div(rhs))
+            }
+            ClacOp::Mod { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.wrapping_rem(rhs))
+            }
+            ClacOp::Pow { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.wrapping_pow(rhs as u32))
+            }
+            ClacOp::Lt { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number((lhs < rhs) as _)
+            }
+            ClacOp::Gt { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number((lhs > rhs) as _)
+            }
+            ClacOp::Le { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number((lhs <= rhs) as _)
+            }
+            ClacOp::Ge { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number((lhs >= rhs) as _)
+            }
+            ClacOp::Eq { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number((lhs == rhs) as _)
+            }
+            ClacOp::Ne { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number((lhs != rhs) as _)
+            }
+            ClacOp::Neg { value } => {
+                let DataReference::Number(value) = ctx.dereference_data_ref(*value).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(-value)
+            }
+            ClacOp::Not { value } => {
+                let DataReference::Number(value) = ctx.dereference_data_ref(*value).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(1 - value)
+            }
+            ClacOp::LAnd { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(((lhs != 0) && (rhs != 0)) as _)
+            }
+            ClacOp::LOr { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(((lhs != 0) || (rhs != 0)) as _)
+            }
+            ClacOp::BShl { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.unbounded_shl(rhs as u32))
+            }
+            ClacOp::BShr { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs.unbounded_shr(rhs as u32))
+            }
+            ClacOp::BAnd { lhs, rhs } => {
+                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                    return None;
+                };
+                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                    return None;
+                };
+
+                DataReference::Number(lhs & rhs)
+            }
+            _ => return None,
+        };
+
+        Some(ret)
+    }
+
     #[instrument(skip(ctx))]
-    pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<TempoaryIdent> {
+    pub fn append_into(&self, ctx: &mut CodegenCtx<'a>) -> Result<DataReference<'a>> {
+        if let Some(res) = self.try_execute_const(ctx) {
+            return Ok(res);
+        }
+
         self.load_inputs(ctx)?;
         let return_type = self.execute(&mut *ctx)?;
 
-        Ok(ctx.allocate_tempoary(return_type))
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(return_type)))
     }
 }

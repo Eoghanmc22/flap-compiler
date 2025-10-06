@@ -37,8 +37,8 @@
 : drop_range_outer 1 pick if rot 2 skip 19 skip 3 pick if drop_range_inner 0 skip 2 pick if drop 4 skip rot rot 3 skip -1 + drop_range_outer ;
 : drop_range drop_range_outer drop drop ;
 : func-h-77 3 pick swap drop swap drop swap drop ;
-: func-f-78 1 1 * 2 2 * 3 3 * 4 4 * 5 5 * 5 5 * 5 5 * 5 5 * 7 pick 7 pick 7 pick func-h-77 swap drop swap drop swap drop swap drop swap drop swap drop swap drop swap drop ;
-: func-test1-79 99 1 * 98 1 * 97 1 * 96 1 * 95 1 * 94 1 * func-f-78 1 pick print drop drop drop drop drop drop drop ;
+: func-f-78 4 9 16 func-h-77 ;
+: func-test1-79 func-f-78 1 pick print drop ;
 
 : comment Start Main ;
 func-test1-79 func-f-78 1 pick print

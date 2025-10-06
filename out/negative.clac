@@ -10,4 +10,4 @@
 : drop_range drop_range_outer drop drop ;
 
 : comment Start Main ;
-100 0 swap - 1 pick
+-100
