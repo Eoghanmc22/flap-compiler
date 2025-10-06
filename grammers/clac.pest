@@ -1,0 +1,27 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+number = { ASCII_DIGIT+ }
+
+print = { "print" }
+quit = { "quit" }
+drop = { "drop" }
+swap = { "swap" }
+rot = { "rot" }
+if = { "if" }
+pick = { "pick" }
+skip = { "skip" }
+// needs to be last
+ident = { (!WHITESPACE ~ ANY)+ }
+
+add = { "+" }
+sub = { "-" }
+mul = { "*" }
+div = { "/" }
+mod = { "%" }
+// needs to be before mul
+pow = { "**" }
+lt = { "<" }
+
+token = { pow | add | sub | mul | div | mod | lt | print | quit | drop | swap | rot| if | pick | swap | number | ident }
+
+program = { SOI ~ token* ~ EOI }
