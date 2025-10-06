@@ -189,12 +189,26 @@ fn register_drop_range(ctx: &mut CodegenCtx) {
                     )
                     .wrap_err("Define builtin drop_range_inner")?;
 
+                    // Load end_depth
+                    ctx.push_token(ClacToken::Number(1))?;
+                    ctx.push_token(ClacToken::Pick)?;
+
+                    // if end_depth != 0
+                    // bring forward the next number
+                    ctx.push_token(ClacToken::If)?;
                     // Initial value for drop_range_inner `number`
                     ctx.push_token(ClacToken::Rot)?;
+                    ctx.push_token(ClacToken::Number(2))?;
+                    ctx.push_token(ClacToken::Skip)?;
+
+                    // otherwise when end_depth == 0
+                    // jump to end
+                    ctx.push_token(ClacToken::Number(19))?;
+                    ctx.push_token(ClacToken::Skip)?;
 
                     // start, end, number
 
-                    // Load start depth
+                    // Load start_depth
                     ctx.push_token(ClacToken::Number(3))?;
                     ctx.push_token(ClacToken::Pick)?;
 
@@ -212,7 +226,7 @@ fn register_drop_range(ctx: &mut CodegenCtx) {
 
                     // start, end, number_to_drop or number_reconstructed
 
-                    // Load end depth
+                    // Load end_depth
                     ctx.push_token(ClacToken::Number(2))?;
                     ctx.push_token(ClacToken::Pick)?;
 

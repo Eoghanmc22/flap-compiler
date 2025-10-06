@@ -1,4 +1,4 @@
-int h(int i, int j) {
+int h(int i, int j, int k) {
   i
 }
 
@@ -8,7 +8,22 @@ int f() {
   int c = 3*3;
   int d = 4*4;
   int e = 5*5;
-  h(a, b)
+  int e = 5*5;
+  int e = 5*5;
+  int e = 5*5;
+  h(b, c, d)
 }
 
-print(f())
+void test1() {
+  int a = 99*1;
+  int a = 98*1;
+  int a = 97*1;
+  int a = 96*1;
+  int a = 95*1;
+  int a = 94*1;
+
+  print(f());
+}
+test1();
+
+print(f());
