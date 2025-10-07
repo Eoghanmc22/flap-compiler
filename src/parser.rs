@@ -43,7 +43,7 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Parser)]
-#[grammar = "../grammers/flap.pest"]
+#[grammar = "../grammars/flap.pest"]
 struct FlapParser;
 
 #[instrument]
