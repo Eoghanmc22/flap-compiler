@@ -20,7 +20,7 @@ See the language grammer and sample code for more details.
 ## Installation
 
 ```sh
-$ cargo install --git https://github.com/Eoghanmcyy/flap-compiler.git --locked
+$ cargo install --git https://github.com/Eoghanmc22/flap-compiler.git --locked
 ```
 
 ## Usage
