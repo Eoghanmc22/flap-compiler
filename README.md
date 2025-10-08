@@ -15,17 +15,23 @@ can always we rewritten as an if expression. In flap,
 blocks return the last expression they contain. If the
 last expression ends with a semicolon, it returns void,
 otherwise it returns what the expression evaluates to.
-See the language grammer and sample code for more details.
+See the language grammar and sample code for more details.
 
 ## Installation
 
+Make sure the rust programming language is installed
+
 ```sh
-$ cargo install --git https://github.com/Eoghanmc22/flap-compiler.git --locked
+$ cargo +nightly install --git https://github.com/Eoghanmc22/flap-compiler.git --locked
 ```
 
 ## Usage
 
 The compile subcommand takes a list of files to compile
+
+```sh
+$ flap-compiler compile [files to compile...]
+```
 
 ## Architecture
 
@@ -41,5 +47,5 @@ stack. The IR also includes many operands which are not implemented in clac,
 but can be implemented interms of clac opcodes. The next stage in the compile
 process is to convert the IR to actual clac tokens/opcodes, and do some postprocessing
 steps. Clac does not support the nested function definitions my compiler generates,
-while implementing if expression for example. To get around this  we simply extract
+while implementing if expressions for example. To get around this, we simply extract
 such definitions to the start of the compiled clac file.
