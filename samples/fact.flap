@@ -1,0 +1,14 @@
+#[no_mangle]
+int fact(int num) {
+  int fact_inner(int acc, int i) {
+    if (i <= 1) {
+      acc
+    } else {
+      fact_inner(acc * i, i - 1)
+    }
+  }
+
+  fact_inner(1, num)
+}
+
+print(3*fact(7)+2);
