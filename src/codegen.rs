@@ -30,9 +30,6 @@ use crate::{
     middleware::generate_span_error_section,
 };
 
-static TEMPOARY_COUNTER: AtomicU64 = AtomicU64::new(0);
-static FUNCTION_COUNTER: AtomicU64 = AtomicU64::new(0);
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DefinitionIdent<'a> {
     Function(IdentRef<'a>),
@@ -117,6 +114,8 @@ pub struct CodegenCtx<'a> {
     // Index of one past the top of the stack
     // Aka the length of the stack
     cursor: i32,
+
+    id_counter: Arc<AtomicU64>,
 }
 
 impl Default for CodegenCtx<'_> {
@@ -125,6 +124,7 @@ impl Default for CodegenCtx<'_> {
             tokens: Default::default(),
             scope_stack: Default::default(),
             cursor: Default::default(),
+            id_counter: Arc::new(AtomicU64::new(0)),
         };
 
         register_mutation_builtins(&mut ctx);
@@ -170,7 +170,7 @@ impl<'a> CodegenCtx<'a> {
     }
 
     pub fn allocate_tempoary(&mut self, var_type: Type) -> TempoaryIdent {
-        let ident = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
+        let ident = TempoaryIdent(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
         assert!(var_type.width() == 0 || self.cursor > 0);
         let offset = Offset(self.cursor - 1);
@@ -206,7 +206,7 @@ impl<'a> CodegenCtx<'a> {
         scope: F,
     ) -> Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Function(ident);
-        let num = FUNCTION_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let num = self.id_counter.fetch_add(1, Ordering::Relaxed);
 
         let mangled = if attributes.contains(&FunctionAttribute::NoMangle) {
             ident.to_string()
@@ -238,6 +238,7 @@ impl<'a> CodegenCtx<'a> {
             self.push_scope_frame(&attributes);
             self.cursor += signature.paramater_width() as i32;
 
+            let id_counter = self.id_counter.clone();
             let frame = self.top_scope_frame();
             let mut offset = 0;
             for (var_type, ident) in &signature.arguements {
@@ -245,7 +246,7 @@ impl<'a> CodegenCtx<'a> {
                 offset += var_type.width() as i32;
 
                 // Name arg as a tempoary
-                let tempoary = TempoaryIdent(TEMPOARY_COUNTER.fetch_add(1, Ordering::Relaxed));
+                let tempoary = TempoaryIdent(id_counter.fetch_add(1, Ordering::Relaxed));
                 frame.temporaries.insert(tempoary, (*var_type, cur_offset));
                 assert!(
                     frame
