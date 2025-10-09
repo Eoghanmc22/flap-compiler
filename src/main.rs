@@ -1,13 +1,9 @@
 // TODO:
 // - I dont think logical and and or are short circuiting
-// - if statements shouldn't require semicolons after them
 // - support inlining regular functions? (this doesnt play well with if)
 // - Add structs and arrays
-// - Constants should be allowed to have expressions
 // - Structs, tuples, arrays
 // - Name spaces and file imports
-// - Make the debug output chill out
-// - Comp time eval?
 // - Cull unused builtins
 // - Things that should be toggale
 //   - Nested defs

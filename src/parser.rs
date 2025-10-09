@@ -79,6 +79,16 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
 
                 Statement::Expr(parse_expr(target.into_inner())?, punctuation)
             }
+            Rule::if_statement => {
+                let punctuation =
+                    if matches!(pairs.peek().map(|it| it.as_rule()), Some(Rule::EOI) | None) {
+                        Punctuation::Unpunctuated
+                    } else {
+                        Punctuation::Punctuated
+                    };
+
+                Statement::Expr(Expr::If(parse_if_expr(target)?), punctuation)
+            }
             Rule::function_def => {
                 let mut inner = target.into_inner();
 

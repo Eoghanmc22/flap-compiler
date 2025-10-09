@@ -65,7 +65,7 @@ else_block = { "else" ~ block }
 if_statement = { if_block ~ if_else_block* ~ else_block? }
 
 semicolon = { ";" }
-statement = _{ ((const_var | local_var | expression) ~ semicolon) | function_def }
+statement = _{ ((const_var | local_var | expression) ~ semicolon) | function_def | if_statement }
 
 no_mangle = { "no_mangle" }
 function_attr = { no_mangle }

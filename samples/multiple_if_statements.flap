@@ -1,0 +1,15 @@
+if (true) {
+  print(1)
+}
+if (true) {
+  print(2)
+}
+if (true) {
+  print(3)
+}
+if (true) {
+  print(4)
+}
+if (true) {
+  print(5)
+}
