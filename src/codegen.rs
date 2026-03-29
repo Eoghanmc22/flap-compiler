@@ -1,7 +1,6 @@
 pub mod builtins;
 pub mod clac;
 pub mod ir;
-pub mod mutation;
 pub mod post_process;
 
 use color_eyre::{
@@ -25,7 +24,6 @@ use crate::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, MangledIdent},
         ir::{DataReference, FunctionSignature},
-        mutation::register_mutation_builtins,
     },
     middleware::generate_span_error_section,
 };
@@ -126,8 +124,6 @@ impl Default for CodegenCtx<'_> {
             cursor: Default::default(),
             id_counter: Arc::new(AtomicU64::new(0)),
         };
-
-        register_mutation_builtins(&mut ctx);
 
         for (ident, (code, sig)) in clac_builtins() {
             ctx.define_inline(&ident, sig, code);
@@ -310,23 +306,23 @@ impl<'a> CodegenCtx<'a> {
 
                 assert!(needs_dropping >= 0);
 
-                if retain_width == 0 {
+                if retain_width == 0 && needs_dropping <= 3 {
                     for _ in 0..needs_dropping {
                         self.push_token(ClacToken::Drop)?;
                     }
-                } else if retain_width == 1 {
+                } else if retain_width == 1 && needs_dropping <= 1 {
                     for _ in 0..needs_dropping {
                         self.push_token(ClacToken::Swap)?;
                         self.push_token(ClacToken::Drop)?;
                     }
-                } else if retain_width == 2 {
+                } else if retain_width == 2 && needs_dropping <= 1 {
                     for _ in 0..needs_dropping {
                         self.push_token(ClacToken::Rot)?;
                         self.push_token(ClacToken::Drop)?;
                     }
-                } else {
-                    self.push_token(ClacToken::Number(retain_width as i32))?;
-                    self.push_token(ClacToken::Number(retain_width as i32 + needs_dropping))?;
+                } else if needs_dropping > 0 {
+                    self.push_token(ClacToken::Number(needs_dropping + retain_width as i32))?;
+                    self.push_token(ClacToken::Number(needs_dropping))?;
                     self.push_token(ClacToken::Call {
                         mangled_ident: MangledIdent(Arc::new("drop_range".to_string())),
                         stack_delta: -needs_dropping - 2,

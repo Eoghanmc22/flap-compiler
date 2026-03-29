@@ -12,37 +12,34 @@
     const int NULL = 0;
     
     int mmap(int addr, int length, int prot, int flags, int fd, int pgoffset) {
-      syscall(pgoffset, fd, flags, prot, length, addr, 0x09)
+      syscall(0x09, addr, length, prot, flags, fd, pgoffset)
     }
     
     int write(int fd, int buf, int count) {
-      syscall(0, 0, 0, count, buf, fd, 1)
+      syscall(1, fd, buf, count, 0, 0, 0)
     }
     
     int page = mmap(NULL, 4096, PROT_READ + PROT_WRITE, MAP_PRIVATE + MAP_ANON, -1, 0);
-    write8(104, page);
-    write8(101, page+1);
-    write8(108, page+2);
-    write8(108, page+3);
-    write8(111, page+4);
-    write8(32, page+5);
-    write8(119, page+6);
-    write8(111, page+7);
-    write8(114, page+8);
-    write8(108, page+9);
-    write8(100, page+10);
-    write8(33, page+11);
-    write8(10, page+12);
+    write8(page, 104);
+    write8(page+1, 101);
+    write8(page+2, 108);
+    write8(page+3, 108);
+    write8(page+4, 111);
+    write8(page+5, 32);
+    write8(page+6, 119);
+    write8(page+7, 111);
+    write8(page+8, 114);
+    write8(page+9, 108);
+    write8(page+10, 100);
+    write8(page+11, 33);
+    write8(page+12, 10);
     
     write(1, page, 13);
 ;
 
 : comment Start Definitions ;
-: drop_range_inner 1 pick 2 pick if 2 12 skip drop drop -1 + swap -1 + swap drop_range_outer 0 32 skip % swap 2 / swap 1 pick if 1 3 skip drop 12 skip + if drop_range_inner 4 skip drop_range_inner -1 5 skip 1 2 skip drop_range_inner 0 swap 2 * + ;
-: drop_range_outer 1 pick if rot 2 skip 19 skip 3 pick if drop_range_inner 0 skip 2 pick if drop 4 skip rot rot 3 skip -1 + drop_range_outer ;
-: drop_range drop_range_outer drop drop ;
-: func-mmap-13 1 pick 3 pick 5 pick 7 pick 9 pick 11 pick 9 syscall swap drop swap drop swap drop swap drop swap drop swap drop ;
-: func-write-21 0 0 0 4 pick 6 pick 8 pick 1 syscall swap drop swap drop swap drop ;
+: func-mmap-0 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 7 6 drop_range ;
+: func-write-8 1 4 pick 4 pick 4 pick 0 0 0 syscall 4 3 drop_range ;
 
 : comment Start Main ;
-0 4096 3 34 -1 0 func-mmap-13 104 2 pick write8 1 pick 1 + 101 2 pick write8 2 pick 2 + 108 2 pick write8 3 pick 3 + 108 2 pick write8 4 pick 4 + 111 2 pick write8 5 pick 5 + 32 2 pick write8 6 pick 6 + 119 2 pick write8 7 pick 7 + 111 2 pick write8 8 pick 8 + 114 2 pick write8 9 pick 9 + 108 2 pick write8 10 pick 10 + 100 2 pick write8 11 pick 11 + 33 2 pick write8 12 pick 12 + 10 2 pick write8 1 14 pick 13 func-write-21
+0 4096 3 34 -1 0 func-mmap-0 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 1 14 pick 13 func-write-8

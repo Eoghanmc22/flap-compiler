@@ -9,30 +9,26 @@ const int MAP_ANON = 32;
 const int NULL = 0;
 
 int mmap(int addr, int length, int prot, int flags, int fd, int pgoffset) {
-  syscall(pgoffset, fd, flags, prot, length, addr, 0x09)
+  syscall(0x09, addr, length, prot, flags, fd, pgoffset)
 }
 
 int write(int fd, int buf, int count) {
-  syscall(0, 0, 0, count, buf, fd, 1)
-}
-
-int memcpy(int src, int dst, int len) {
-
+  syscall(1, fd, buf, count, 0, 0, 0)
 }
 
 int page = mmap(NULL, 4096, PROT_READ + PROT_WRITE, MAP_PRIVATE + MAP_ANON, -1, 0);
-write8(104, page);
-write8(101, page+1);
-write8(108, page+2);
-write8(108, page+3);
-write8(111, page+4);
-write8(32, page+5);
-write8(119, page+6);
-write8(111, page+7);
-write8(114, page+8);
-write8(108, page+9);
-write8(100, page+10);
-write8(33, page+11);
-write8(10, page+12);
+write8(page, 104);
+write8(page+1, 101);
+write8(page+2, 108);
+write8(page+3, 108);
+write8(page+4, 111);
+write8(page+5, 32);
+write8(page+6, 119);
+write8(page+7, 111);
+write8(page+8, 114);
+write8(page+9, 108);
+write8(page+10, 100);
+write8(page+11, 33);
+write8(page+12, 10);
 
 write(1, page, 13);
