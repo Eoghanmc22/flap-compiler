@@ -18,6 +18,7 @@ use crate::{
         FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement,
         Type, UnaryOp, Value,
     },
+    codegen::clac::ClacValue,
     middleware::generate_span_error_section,
 };
 
@@ -389,7 +390,7 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .replace("\\t", "\t")
                 .chars()
                 .nth(1)
-                .context("char")? as i32,
+                .context("char")? as ClacValue,
         )),
         _ => {
             return Err(eyre!("Unexpected value: {:?}", target)

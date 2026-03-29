@@ -3,6 +3,9 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::ast::Ident;
 
+pub type ClacValue = i64;
+pub type ClacValueUnsigned = u64;
+
 #[derive(Default, Debug, Clone)]
 pub struct ClacProgram(pub Vec<ClacToken>);
 
@@ -29,7 +32,7 @@ pub struct MangledIdent(pub Arc<Ident>);
 /// A Clac Source Code Token
 #[derive(Debug, Clone)]
 pub enum ClacToken {
-    Number(i32),
+    Number(ClacValue),
     Print,
     Quit,
     Add,
@@ -51,7 +54,7 @@ pub enum ClacToken {
     EndDef,
     Call {
         mangled_ident: MangledIdent,
-        stack_delta: i32,
+        stack_delta: ClacValue,
     },
 
     // Misc
@@ -61,7 +64,7 @@ pub enum ClacToken {
 }
 
 impl ClacToken {
-    pub fn stack_delta(&self) -> i32 {
+    pub fn stack_delta(&self) -> ClacValue {
         match self {
             ClacToken::Number(_) => 1,
             ClacToken::Print => -1,

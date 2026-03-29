@@ -7,7 +7,7 @@ use crate::{
     ast::{IdentRef, Type},
     codegen::{
         CodegenCtx, DefinitionIdent, TempoaryIdent,
-        clac::{ClacProgram, ClacToken},
+        clac::{ClacProgram, ClacToken, ClacValue, ClacValueUnsigned},
     },
 };
 
@@ -46,7 +46,7 @@ impl<'a> TokenConsumer<'a> for (&mut ClacProgram, &mut CodegenCtx<'a>) {
 
 #[derive(Debug, Clone, Copy)]
 pub enum DataReference<'a> {
-    Number(i32),
+    Number(ClacValue),
     Local(IdentRef<'a>),
     Const(IdentRef<'a>),
     Tempoary(TempoaryIdent),
@@ -59,19 +59,19 @@ pub struct FunctionSignature<'a> {
 }
 
 impl FunctionSignature<'_> {
-    pub fn paramater_width(&self) -> u32 {
+    pub fn paramater_width(&self) -> ClacValue {
         self.arguements
             .iter()
             .map(|(var_type, _)| var_type.width())
-            .sum::<u32>()
+            .sum::<ClacValue>()
     }
 
-    pub fn return_width(&self) -> u32 {
+    pub fn return_width(&self) -> ClacValue {
         self.return_type.width()
     }
 
-    pub fn stack_delta(&self) -> i32 {
-        self.return_width() as i32 - self.paramater_width() as i32
+    pub fn stack_delta(&self) -> ClacValue {
+        self.return_width() - self.paramater_width()
     }
 }
 
@@ -361,10 +361,10 @@ impl<'a> ClacOp<'a> {
             ClacOp::BAnd { rhs, .. } => {
                 let DataReference::Number(rhs) = *rhs else {
                     bail!(
-                        "Bit wise and is only implemented for anding with a literal int, or an int that ends up getting inlined"
+                        "Bit wise AND is only implemented for anding with a literal int, or an int that ends up getting inlined"
                     );
                 };
-                let mut rhs = rhs as u32;
+                let mut rhs = rhs as ClacValueUnsigned;
 
                 out.consume(ClacToken::Number(0))?;
 
@@ -407,7 +407,7 @@ impl<'a> ClacOp<'a> {
                         out.consume(ClacToken::Number(2))?;
                         out.consume(ClacToken::Pick)?;
                         if total_shift > 0 {
-                            out.consume(ClacToken::Number(2i32.pow(total_shift)))?;
+                            out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
                             out.consume(ClacToken::Div)?;
                         }
                         out.consume(ClacToken::Number(2))?;
@@ -417,7 +417,7 @@ impl<'a> ClacOp<'a> {
                         out.consume(ClacToken::Mul)?;
 
                         if total_shift > 0 {
-                            out.consume(ClacToken::Number(2i32.pow(total_shift)))?;
+                            out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
                             out.consume(ClacToken::Mul)?;
                         }
                         out.consume(ClacToken::Add)?;

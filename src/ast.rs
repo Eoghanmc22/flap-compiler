@@ -1,4 +1,4 @@
-use crate::middleware::generate_span_error_section;
+use crate::{codegen::clac::ClacValue, middleware::generate_span_error_section};
 use core::fmt;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -39,12 +39,12 @@ pub trait AsSpan {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Value {
-    Int(i32),
+    Int(ClacValue),
     Bool(bool),
 }
 
 impl Value {
-    pub fn as_repr(&self) -> i32 {
+    pub fn as_repr(&self) -> ClacValue {
         match self {
             Value::Int(int) => *int,
             Value::Bool(bool) => *bool as _,
@@ -213,7 +213,7 @@ impl DeferedType {
 }
 
 impl Type {
-    pub fn width(&self) -> u32 {
+    pub fn width(&self) -> ClacValue {
         match self {
             Type::Int | Type::Bool => 1,
             Type::Void => 0,
@@ -285,19 +285,19 @@ impl AsSpan for FunctionDef<'_> {
 }
 
 impl FunctionDef<'_> {
-    pub fn paramater_width(&self) -> u32 {
+    pub fn paramater_width(&self) -> ClacValue {
         self.arguements
             .iter()
             .map(|(var_type, _)| var_type.width())
-            .sum::<u32>()
+            .sum::<ClacValue>()
     }
 
-    pub fn return_width(&self) -> u32 {
+    pub fn return_width(&self) -> ClacValue {
         self.return_type.width()
     }
 
-    pub fn stack_delta(&self) -> i32 {
-        self.return_width() as i32 - self.paramater_width() as i32
+    pub fn stack_delta(&self) -> ClacValue {
+        self.return_width() - self.paramater_width()
     }
 }
 

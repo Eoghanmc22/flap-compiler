@@ -22,7 +22,7 @@ use crate::{
     ast::{FunctionAttribute, IdentRef, Type, Value},
     codegen::{
         builtins::clac_builtins,
-        clac::{ClacProgram, ClacToken, MangledIdent},
+        clac::{ClacProgram, ClacToken, ClacValue, MangledIdent},
         ir::{DataReference, FunctionSignature},
     },
     middleware::generate_span_error_section,
@@ -43,7 +43,7 @@ pub struct BranchIdent(pub u64);
 
 /// Repersents an offset from bottom of the stack / start of the program
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Offset(pub i32);
+pub struct Offset(pub ClacValue);
 
 #[derive(Debug, Clone, Copy)]
 pub struct AnnotatedDataRef<'a> {
@@ -97,7 +97,7 @@ impl<'a> From<DataReference<'a>> for MaybeTailCall<'a> {
 
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
-    frame_start: i32,
+    frame_start: ClacValue,
     locals: HashMap<IdentRef<'a>, AnnotatedDataRef<'a>>,
     temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
     definitions: HashMap<StoredDefinitionIdent<'a>, (ClacToken, Arc<FunctionSignature<'a>>)>,
@@ -111,7 +111,7 @@ pub struct CodegenCtx<'a> {
     scope_stack: Vec<ScopeFrame<'a>>,
     // Index of one past the top of the stack
     // Aka the length of the stack
-    cursor: i32,
+    cursor: ClacValue,
 
     id_counter: Arc<AtomicU64>,
 }
@@ -232,14 +232,14 @@ impl<'a> CodegenCtx<'a> {
 
         {
             self.push_scope_frame(&attributes);
-            self.cursor += signature.paramater_width() as i32;
+            self.cursor += signature.paramater_width();
 
             let id_counter = self.id_counter.clone();
             let frame = self.top_scope_frame();
             let mut offset = 0;
             for (var_type, ident) in &signature.arguements {
                 let cur_offset = Offset(frame.frame_start + offset);
-                offset += var_type.width() as i32;
+                offset += var_type.width();
 
                 // Name arg as a tempoary
                 let tempoary = TempoaryIdent(id_counter.fetch_add(1, Ordering::Relaxed));
@@ -301,7 +301,7 @@ impl<'a> CodegenCtx<'a> {
 
             if !attributes.contains(&FunctionAttribute::Naked) {
                 let frame = self.pop_scope_frame().unwrap();
-                let needs_dropping = self.cursor - frame.frame_start - retain_width as i32;
+                let needs_dropping = self.cursor - frame.frame_start - retain_width;
 
                 assert!(needs_dropping >= 0);
 
@@ -320,7 +320,7 @@ impl<'a> CodegenCtx<'a> {
                         self.push_token(ClacToken::Drop)?;
                     }
                 } else if needs_dropping > 0 {
-                    self.push_token(ClacToken::Number(needs_dropping + retain_width as i32))?;
+                    self.push_token(ClacToken::Number(needs_dropping + retain_width))?;
                     self.push_token(ClacToken::Number(needs_dropping))?;
                     self.push_token(ClacToken::Call {
                         mangled_ident: MangledIdent(Arc::new("drop_range".to_string())),
@@ -328,7 +328,7 @@ impl<'a> CodegenCtx<'a> {
                     })?;
                 }
 
-                assert_eq!(self.cursor - frame.frame_start, retain_width as i32);
+                assert_eq!(self.cursor - frame.frame_start, retain_width);
             }
 
             if let Some(tail_call) = tail_call {
@@ -389,7 +389,7 @@ impl<'a> CodegenCtx<'a> {
     pub fn bring_up_references(
         &mut self,
         references: &[DataReference<'a>],
-        expected_width: u32,
+        expected_width: ClacValue,
     ) -> Result<()> {
         trace!("bring up references '{references:?}', expected_width, {expected_width}");
 
@@ -445,7 +445,7 @@ impl<'a> CodegenCtx<'a> {
             }
         }
 
-        if self.cursor - starting_cursor != expected_width as i32 {
+        if self.cursor - starting_cursor != expected_width {
             bail!(
                 "Type error?: expected to load width {expected_width}, actually loaded: {}, references: {references:#?}",
                 self.cursor - starting_cursor
