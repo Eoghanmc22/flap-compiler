@@ -8,18 +8,22 @@ use tracing::{instrument, trace};
 
 use crate::{
     ast::{
-        AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef, IfCase,
-        IfExpr, LocalDef, Punctuation, Statement, Type, Value,
+        AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef,
+        FunctionSignature, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation, Statement, Type,
+        UnaryOp, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall,
         clac::{ClacProgram, ClacToken},
-        ir::{ClacOp, DataReference, FunctionSignature},
+        ir::{ClacOp, DataReference},
     },
 };
 
 #[instrument(skip(ctx), fields(%block))]
-pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<MaybeTailCall<'a>> {
+pub fn walk_block<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    block: &'a Block<'a>,
+) -> Result<MaybeTailCall<'a>> {
     let mut last_return_val = None;
 
     for statement in &block.statements {
@@ -41,19 +45,24 @@ pub fn walk_block<'a>(ctx: &mut CodegenCtx<'a>, block: &'a Block<'a>) -> Result<
                 walk_expr(ctx, expr)?.into_data_ref(ctx)?;
                 None
             }
+            Statement::PtrAssign(ptr_assign) => {
+                walk_ptr_assign(ctx, ptr_assign)?.into_data_ref(ctx)?;
+                None
+            }
+            Statement::Typedef(_) => None,
         }
     }
 
     if let Some(last_return_val) = last_return_val {
         Ok(last_return_val)
     } else {
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)).into())
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into())
     }
 }
 
 #[instrument(skip(ctx), fields(%func_call))]
-fn walk_function_call<'a>(
-    ctx: &mut CodegenCtx<'a>,
+fn walk_function_call<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
     func_call: &'a FunctionCall<'a>,
 ) -> Result<MaybeTailCall<'a>> {
     let parameters = func_call
@@ -68,17 +77,13 @@ fn walk_function_call<'a>(
 }
 
 #[instrument(skip(ctx), fields(%func_def))]
-fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) -> Result<()> {
+fn walk_function_def<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    func_def: &'a FunctionDef,
+) -> Result<()> {
     ctx.define_function(
         func_def.function,
-        FunctionSignature {
-            arguements: func_def
-                .arguements
-                .iter()
-                .map(|(var_type, ident)| (var_type.clone(), *ident))
-                .collect(),
-            return_type: func_def.return_type.clone(),
-        },
+        func_def.signature.clone(),
         &func_def.attributes,
         move |ctx| walk_block(ctx, &func_def.contents),
     )
@@ -89,7 +94,7 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
 }
 
 #[instrument(skip(ctx), fields(%const_def))]
-fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Result<()> {
+fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &'a ConstDef) -> Result<()> {
     let ConstDef {
         name,
         var_type,
@@ -114,15 +119,52 @@ fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Resu
 }
 
 #[instrument(skip(ctx), fields(%local_def))]
-fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Result<()> {
+fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &'a LocalDef) -> Result<()> {
     let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
     ctx.promote_to_local(data_ref, local_def.name, local_def.var_type.clone());
 
     Ok(())
 }
 
+#[instrument(skip(ctx), fields(%ptr_assign))]
+fn walk_ptr_assign<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    ptr_assign: &'a PtrAssign,
+) -> Result<MaybeTailCall<'a>> {
+    let expr_data_ref = walk_expr(ctx, &ptr_assign.expr)?.into_data_ref(ctx)?;
+    let target_data_ref = walk_expr(ctx, &ptr_assign.target)?.into_data_ref(ctx)?;
+
+    let DeferedType::ResolvedType(deref_type) = ptr_assign.value_type.clone() else {
+        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+    };
+
+    let width = deref_type.width(ctx.type_checker)?;
+    match (width, deref_type.resolve(ctx.type_checker)?) {
+        (1, Type::Char) => ctx.call_function_like(
+            "write8",
+            vec![target_data_ref, expr_data_ref],
+            ptr_assign.span,
+        ),
+        (0, _) => {
+            return Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into());
+        }
+        (1, _) => {
+            return ctx.call_function_like(
+                "write_native",
+                vec![target_data_ref, expr_data_ref],
+                ptr_assign.span,
+            );
+        }
+        // TODO: emit an unrolled loop that read_natives all width values
+        _ => todo!(),
+    }
+}
+
 #[instrument(skip(ctx), fields(%if_expr))]
-fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<MaybeTailCall<'a>> {
+fn walk_if_expr<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    if_expr: &'a IfExpr,
+) -> Result<MaybeTailCall<'a>> {
     if if_expr.otherwise.is_none() && if_expr.return_type != DeferedType::ResolvedType(Type::Void) {
         return Err(eyre!(
             "Got non exhustive if statement with non void return type ({:?})",
@@ -148,8 +190,8 @@ fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<May
 }
 
 #[instrument(skip_all)]
-fn walk_if_statement_inner<'a>(
-    ctx: &mut CodegenCtx<'a>,
+fn walk_if_statement_inner<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
     if_cases: &'a [IfCase],
     otherwise: Option<&'a Block>,
     mut signature: FunctionSignature<'a>,
@@ -215,30 +257,33 @@ fn walk_if_statement_inner<'a>(
     } else if let Some(otherwise) = otherwise {
         walk_block(ctx, otherwise)
     } else {
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)).into())
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into())
     }
 }
 
 #[instrument(skip(ctx), fields(%expr))]
-fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
+fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
     match expr {
         Expr::Value(value, _span) => {
             let repr = value.as_repr();
             match repr[..] {
-                [] => Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)).into()),
+                [] => Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into()),
                 [number] => Ok(DataReference::Number(number).into()),
                 [..] => {
                     for val in repr {
                         ctx.push_token(ClacToken::Number(val))?;
                     }
-                    Ok(DataReference::Tempoary(ctx.allocate_tempoary(value.compute_type())).into())
+                    Ok(
+                        DataReference::Tempoary(ctx.allocate_tempoary(value.compute_type())?)
+                            .into(),
+                    )
                 }
             }
         }
         Expr::Path(ident, span) => Ok(ctx
-            .lookup_ident_data_ref(ident)
+            .lookup_variable_path_data_ref(ident)
             .map(|it| it.reference)
-            .wrap_err_with(|| format!("Could not find identifier: {ident}"))
+            .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
             .with_section(|| generate_span_error_section(*span))?
             .into()),
         Expr::BinaryOp {
@@ -246,6 +291,8 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
             left,
             right,
             span,
+            left_type,
+            right_type,
         } => {
             let lhs = walk_expr(ctx, left)?.into_data_ref(ctx)?;
             let rhs = walk_expr(ctx, right)?.into_data_ref(ctx)?;
@@ -276,12 +323,41 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
                 .with_section(|| generate_span_error_section(*span))?;
             Ok(ret.into())
         }
-        Expr::UnaryOp { op, operand, span } => {
+        Expr::UnaryOp {
+            op,
+            operand,
+            span,
+            operand_type,
+        } => {
             let value = walk_expr(ctx, operand)?.into_data_ref(ctx)?;
 
             let clac_op = match op {
-                crate::ast::UnaryOp::Negate => ClacOp::Neg { value },
-                crate::ast::UnaryOp::LNot => ClacOp::Not { value },
+                UnaryOp::Negate => ClacOp::Neg { value },
+                UnaryOp::LNot => ClacOp::Not { value },
+                UnaryOp::Cast(_) => return Ok(value.into()),
+                UnaryOp::Dereference => {
+                    let DeferedType::ResolvedType(operand_type) = operand_type else {
+                        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                    };
+
+                    let deref_type = operand_type.dereference(ctx.type_checker)?;
+                    let width = deref_type.width(ctx.type_checker)?;
+                    match (width, deref_type.resolve(ctx.type_checker)?) {
+                        (1, Type::Char) => {
+                            return ctx.call_function_like("read8", vec![value], *span);
+                        }
+                        (0, _) => {
+                            return Ok(
+                                DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into()
+                            );
+                        }
+                        (1, _) => {
+                            return ctx.call_function_like("read_native", vec![value], *span);
+                        }
+                        // TODO: emit an unrolled loop that read_natives all width values
+                        _ => todo!(),
+                    }
+                }
             };
 
             let ret = clac_op

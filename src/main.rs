@@ -15,7 +15,8 @@
 // - Use Skip instead of If for conditionals in code gen
 // - Stanley's syscall extensions
 // - reduce clone/to_string/to_vec/... usage
-// Consider making pointer assignment an expression like C
+// Consider making pointer assignment an expression
+// Pointer arithmetic
 #![feature(try_blocks)]
 
 use std::{
@@ -106,13 +107,13 @@ fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
         .check_and_resolve_types(&mut type_checker)
         .wrap_err("Type Check Program")?;
 
-    let mut codegen = CodegenCtx::default();
+    let mut codegen = CodegenCtx::new(&type_checker);
     let tail_expr = middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
     let tail_data_ref = tail_expr
         .into_data_ref(&mut codegen)
         .wrap_err("Get tail data ref")?;
     codegen
-        .bring_up_references(&[tail_data_ref], return_type.width())
+        .bring_up_references(&[tail_data_ref], return_type.width(&type_checker)?)
         .wrap_err("Bring up tail expr")?;
 
     let mut program = codegen.into_tokens();

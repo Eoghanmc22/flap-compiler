@@ -5,7 +5,7 @@ pub mod post_process;
 
 use color_eyre::{
     Section,
-    eyre::{Context, ContextCompat, Result, bail, eyre},
+    eyre::{Context, ContextCompat, OptionExt, Result, bail, eyre},
 };
 use pest::Span;
 use tracing::{debug, instrument, trace};
@@ -19,13 +19,14 @@ use std::{
 };
 
 use crate::{
-    ast::{FunctionAttribute, IdentRef, Type, Value},
+    ast::{FunctionAttribute, FunctionSignature, IdentRef, Type, Value},
     codegen::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, ClacValue, MangledIdent},
-        ir::{DataReference, FunctionSignature},
+        ir::DataReference,
     },
     middleware::generate_span_error_section,
+    type_check::TypeChecker,
 };
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -64,7 +65,7 @@ pub enum MaybeTailCall<'a> {
 
 impl<'a> MaybeTailCall<'a> {
     #[instrument(skip(ctx))]
-    pub fn into_data_ref(self, ctx: &mut CodegenCtx<'a>) -> Result<DataReference<'a>> {
+    pub fn into_data_ref(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<DataReference<'a>> {
         match self {
             MaybeTailCall::Regular(data_reference) => Ok(data_reference),
             MaybeTailCall::TailCall {
@@ -74,13 +75,16 @@ impl<'a> MaybeTailCall<'a> {
                 call_span,
             } => {
                 let res: Result<_> = try {
-                    ctx.bring_up_references(&parameters, signature.paramater_width())?;
+                    ctx.bring_up_references(
+                        &parameters,
+                        signature.paramater_width(ctx.type_checker)?,
+                    )?;
 
                     for token in tokens.iter() {
                         ctx.push_token(token.clone())?;
                     }
 
-                    DataReference::Tempoary(ctx.allocate_tempoary(signature.return_type.clone()))
+                    DataReference::Tempoary(ctx.allocate_tempoary(signature.return_type.clone())?)
                 };
                 res.wrap_err("Error running tail call")
                     .with_section(|| generate_span_error_section(call_span))
@@ -106,7 +110,9 @@ pub struct ScopeFrame<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CodegenCtx<'a> {
+pub struct CodegenCtx<'a, 'b> {
+    pub type_checker: &'b TypeChecker<'a>,
+
     tokens: Vec<ClacToken>,
     scope_stack: Vec<ScopeFrame<'a>>,
     // Index of one past the top of the stack
@@ -116,9 +122,11 @@ pub struct CodegenCtx<'a> {
     id_counter: Arc<AtomicU64>,
 }
 
-impl Default for CodegenCtx<'_> {
-    fn default() -> Self {
+// FIXME: Many of these functions should be private
+impl<'a, 'b> CodegenCtx<'a, 'b> {
+    pub fn new(type_checker: &'b TypeChecker<'a>) -> Self {
         let mut ctx = Self {
+            type_checker,
             tokens: Default::default(),
             scope_stack: Default::default(),
             cursor: Default::default(),
@@ -130,27 +138,28 @@ impl Default for CodegenCtx<'_> {
         }
 
         // Allocates the first stack frame
-        // Necessary to gurantee that the first stack frame starts at 0
+        // Necessary to guarantee that the first stack frame starts at 0
         ctx.top_scope_frame();
 
         ctx
     }
-}
 
-// FIXME: Many of these functions should be private
-impl<'a> CodegenCtx<'a> {
     pub fn into_tokens(self) -> ClacProgram {
         ClacProgram(self.tokens)
     }
 
-    fn push_scope_frame(&mut self, attributes: &HashSet<FunctionAttribute>) -> &mut ScopeFrame<'a> {
-        self.scope_stack.push_mut(ScopeFrame {
+    fn make_scope_frame(&self, attributes: &HashSet<FunctionAttribute>) -> ScopeFrame<'a> {
+        ScopeFrame {
             frame_start: self.cursor,
             locals: Default::default(),
             temporaries: Default::default(),
             definitions: Default::default(),
             allow_underflow: attributes.contains(&FunctionAttribute::AllowUnderflow),
-        })
+        }
+    }
+
+    fn push_scope_frame(&mut self, frame: ScopeFrame<'a>) -> &mut ScopeFrame<'a> {
+        self.scope_stack.push_mut(frame)
     }
 
     fn pop_scope_frame(&mut self) -> Option<ScopeFrame<'a>> {
@@ -159,17 +168,21 @@ impl<'a> CodegenCtx<'a> {
 
     fn top_scope_frame(&mut self) -> &mut ScopeFrame<'a> {
         if self.scope_stack.is_empty() {
-            self.push_scope_frame(&Default::default())
+            self.push_scope_frame(self.make_scope_frame(&Default::default()))
         } else {
             self.scope_stack.last_mut().unwrap()
         }
     }
 
-    pub fn allocate_tempoary(&mut self, var_type: Type<'a>) -> TempoaryIdent {
-        let ident = TempoaryIdent(self.id_counter.fetch_add(1, Ordering::Relaxed));
+    pub fn allocate_tempoary(&mut self, var_type: Type<'a>) -> Result<TempoaryIdent> {
+        assert!(self.cursor >= var_type.width(self.type_checker)?);
+        let offset = Offset(self.cursor - var_type.width(self.type_checker)?);
 
-        assert!(self.cursor >= var_type.width());
-        let offset = Offset(self.cursor - var_type.width());
+        Ok(self.allocate_tempoary_at(var_type, offset))
+    }
+
+    fn allocate_tempoary_at(&mut self, var_type: Type<'a>, offset: Offset) -> TempoaryIdent {
+        let ident = TempoaryIdent(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
         self.top_scope_frame()
             .temporaries
@@ -213,16 +226,13 @@ impl<'a> CodegenCtx<'a> {
 
         let signature = Arc::new(signature);
 
-        self.top_scope_frame().definitions.insert(
-            StoredDefinitionIdent(def_ident),
-            (
-                vec![ClacToken::Call {
-                    mangled_ident: mangled.clone(),
-                    stack_delta: signature.stack_delta(),
-                }],
-                signature.clone(),
-            ),
-        );
+        let call = vec![ClacToken::Call {
+            mangled_ident: mangled.clone(),
+            stack_delta: signature.stack_delta(self.type_checker)?,
+        }];
+        self.top_scope_frame()
+            .definitions
+            .insert(StoredDefinitionIdent(def_ident), (call, signature.clone()));
 
         let original_cursor = self.cursor;
         self.push_token(ClacToken::StartDef {
@@ -231,15 +241,14 @@ impl<'a> CodegenCtx<'a> {
         .unwrap();
 
         {
-            self.push_scope_frame(&attributes);
-            self.cursor += signature.paramater_width();
+            let mut frame = self.make_scope_frame(&attributes);
+            self.cursor += signature.paramater_width(self.type_checker)?;
 
             let id_counter = self.id_counter.clone();
-            let frame = self.top_scope_frame();
             let mut offset = 0;
             for (var_type, ident) in &signature.arguements {
                 let cur_offset = Offset(frame.frame_start + offset);
-                offset += var_type.width();
+                offset += var_type.width(self.type_checker)?;
 
                 // Name arg as a tempoary
                 let tempoary = TempoaryIdent(id_counter.fetch_add(1, Ordering::Relaxed));
@@ -262,14 +271,18 @@ impl<'a> CodegenCtx<'a> {
             }
 
             debug!("Start function frame '{ident}': {frame:#?}");
+            self.push_scope_frame(frame);
 
             let return_data_ref = (scope)(self)?;
 
             let (retain_width, tail_call) = match return_data_ref {
                 MaybeTailCall::Regular(data_reference) => {
-                    self.bring_up_references(&[data_reference], signature.return_width())?;
+                    self.bring_up_references(
+                        &[data_reference],
+                        signature.return_width(self.type_checker)?,
+                    )?;
 
-                    (signature.return_width(), None)
+                    (signature.return_width(self.type_checker)?, None)
                 }
                 // MaybeTailCall::TailCall {
                 //     signature: ref tail_call_sig,
@@ -293,11 +306,17 @@ impl<'a> CodegenCtx<'a> {
                         )).with_section(|| generate_span_error_section(call_span));
                     }
 
-                    self.bring_up_references(&parameters, tail_call_sig.paramater_width())
-                        .wrap_err("COMPILER BUG: error bringing up references for tail call")
-                        .with_section(|| generate_span_error_section(call_span))?;
+                    self.bring_up_references(
+                        &parameters,
+                        tail_call_sig.paramater_width(self.type_checker)?,
+                    )
+                    .wrap_err("COMPILER BUG: error bringing up references for tail call")
+                    .with_section(|| generate_span_error_section(call_span))?;
 
-                    (tail_call_sig.paramater_width(), Some(tokens))
+                    (
+                        tail_call_sig.paramater_width(self.type_checker)?,
+                        Some(tokens),
+                    )
                 }
             };
 
@@ -425,7 +444,7 @@ impl<'a> CodegenCtx<'a> {
                     } = self.lookup_local(ident).wrap_err("Bring up valid local")?;
 
                     trace!("recursing to bring up local reference '{ident}'",);
-                    self.bring_up_references(&[reference], data_type.width())?;
+                    self.bring_up_references(&[reference], data_type.width(self.type_checker)?)?;
                 }
                 DataReference::Tempoary(ident) => {
                     let (var_type, offset) = self
@@ -441,7 +460,7 @@ impl<'a> CodegenCtx<'a> {
                         "bring up reference '{reference:?}', cursor: {}, offset: {}, rel_offset: {}",
                         self.cursor, offset.0, rel_offset
                     );
-                    for _ in 0..var_type.width() {
+                    for _ in 0..var_type.width(self.type_checker)? {
                         if rel_offset <= 0 {
                             bail!("Got rel_offset {rel_offset} < 0");
                         }
@@ -496,6 +515,7 @@ impl<'a> CodegenCtx<'a> {
         Ok(MaybeTailCall::TailCall {
             parameters,
             signature: sig,
+            // TODO: Why is this making a new arc????
             tokens: Arc::new(func_impl.to_vec()),
             call_span,
         })
@@ -548,21 +568,58 @@ impl<'a> CodegenCtx<'a> {
         None
     }
 
-    pub fn lookup_ident_data_ref(&self, ident: IdentRef<'a>) -> Option<AnnotatedDataRef<'a>> {
-        if let Some(local) = self.lookup_local(ident) {
-            Some(local)
+    pub fn lookup_variable_path_data_ref(
+        &mut self,
+        mut var_path: &[IdentRef<'a>],
+    ) -> Result<AnnotatedDataRef<'a>> {
+        let Some(var) = var_path.split_off_first() else {
+            return Err(eyre!("Can not look up empty variable path"));
+        };
+
+        let mut lookup = None;
+        if let Some(local) = self.lookup_local(var) {
+            lookup = Some(local)
         } else {
             for frame in self.scope_stack.iter().rev() {
-                if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(ident)) {
-                    return Some(AnnotatedDataRef {
-                        reference: DataReference::Const(ident),
+                if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(var)) {
+                    lookup = Some(AnnotatedDataRef {
+                        reference: DataReference::Const(var),
                         data_type: sig.return_type.clone(),
                     });
+                    break;
                 }
             }
-
-            None
         }
+
+        let Some(mut lookup) = lookup else {
+            return Err(eyre!("Variable {var}.{var_path:?} is not in scope"));
+        };
+
+        while let [next, ..] = var_path {
+            let (next_type, delta) = lookup
+                .data_type
+                .member_and_offset(self.type_checker, next)?;
+
+            match self.dereference_data_ref(lookup.reference)? {
+                DataReference::Tempoary(tempoary_ident) => {
+                    let (_type, offset) = self
+                        .lookup_temporary(tempoary_ident)
+                        .ok_or_eyre("Bad tempoary")?;
+
+                    lookup.data_type = next_type.clone();
+                    lookup.reference = DataReference::Tempoary(
+                        self.allocate_tempoary_at(next_type, Offset(offset.0 + delta)),
+                    );
+                }
+                _ => {
+                    return Err(eyre!(
+                        "UNIMPLEMENTED: Can not access membors of a value that is not a temporary"
+                    ));
+                }
+            }
+        }
+
+        Ok(lookup)
     }
 
     pub fn dereference_data_ref(&self, data_ref: DataReference<'a>) -> Result<DataReference<'a>> {

@@ -13,10 +13,10 @@ use tracing::instrument;
 use crate::{
     ast::{
         AsSpan, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType, Expr,
-        FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation,
-        Statement, Type, Typedef, UnaryOp, Value,
+        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
+        PtrAssign, Punctuation, Statement, Type, Typedef, UnaryOp, Value,
     },
-    codegen::{builtins::clac_builtins, ir::FunctionSignature},
+    codegen::builtins::clac_builtins,
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
 };
 
@@ -168,26 +168,36 @@ impl<'a> TypeChecker<'a> {
         None
     }
 
-    pub fn lookup_variable(&mut self, ident: IdentRef<'a>) -> Option<Type<'a>> {
+    pub fn lookup_variable_path(&mut self, mut var_path: &[IdentRef<'a>]) -> Result<Type<'a>> {
+        let Some(var) = var_path.split_off_first() else {
+            return Err(eyre!("Can not look up empty variable path"));
+        };
+
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
-            if let Some((var_type, kind)) = frame.variables.get(ident).cloned() {
+            if let Some((var_type, kind)) = frame.variables.get(var).cloned() {
+                let mut leaf_type = var_type.clone();
+                while let [next, ..] = var_path {
+                    leaf_type = leaf_type.member(self, next)?;
+                }
+
+                // TODO: Should this capture the outer most var or inner most?
                 for frame in self.scope_stack.iter_mut().rev().take(idx) {
                     match kind {
                         VariableKind::Local | VariableKind::Capture => {
                             let prev = frame
                                 .variables
-                                .insert(ident, (var_type.clone(), VariableKind::Capture));
+                                .insert(var, (var_type.clone(), VariableKind::Capture));
                             assert!(prev.is_none());
                         }
                         VariableKind::Constant => {}
                     }
                 }
 
-                return Some(var_type);
+                return Ok(leaf_type);
             }
         }
 
-        None
+        Err(eyre!("Variable {var}.{var_path:?} is not in scope"))
     }
 }
 
@@ -212,8 +222,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 .with_section(|| generate_span_error_section(*span)),
             Expr::Path(ident, span) => {
                 let var_type = ctx
-                    .lookup_variable(ident)
-                    .wrap_err_with(|| format!("Could not find identifier: `{ident}`"))
+                    .lookup_variable_path(ident)
+                    .wrap_err_with(|| format!("Could not find identifier: `{ident:?}`"))
                     .with_section(|| generate_span_error_section(*span))?;
 
                 Ok(var_type)
@@ -223,20 +233,28 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 left,
                 right,
                 span,
+                left_type,
+                right_type,
             } => {
-                let left_type = left.check_and_resolve_types(ctx)?;
-                let right_type = right.check_and_resolve_types(ctx)?;
+                let left_type_computed = left.check_and_resolve_types(ctx)?;
+                let right_type_computed = right.check_and_resolve_types(ctx)?;
 
-                if left_type != right_type {
+                *left_type = DeferedType::ResolvedType(left_type_computed.clone());
+                *right_type = DeferedType::ResolvedType(right_type_computed.clone());
+
+                if left_type_computed != right_type_computed {
                     return Err(eyre!("Binary op has differing left and right types")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
                                 *span,
                                 &[
-                                    (left.as_span(), &format!("has the type `{left_type:?}`")),
+                                    (
+                                        left.as_span(),
+                                        &format!("has the type `{left_type_computed:?}`"),
+                                    ),
                                     (
                                         right.as_span(),
-                                        &format!("has differing type `{right_type:?}`"),
+                                        &format!("has differing type `{right_type_computed:?}`"),
                                     ),
                                 ],
                             )
@@ -263,13 +281,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     BinaryOp::LAnd | BinaryOp::LOr => Type::Bool,
                 };
 
-                if left_type != allowed_type {
+                if left_type_computed != allowed_type {
                     return Err(eyre!("Binary op uses a disallowed type")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
                                 *span,
                                 &[
-                                    (*span, &format!("has the type `{left_type:?}`, but only the type `{allowed_type:?}` is permitted")),
+                                    (*span, &format!("has the type `{left_type_computed:?}`, but only the type `{allowed_type:?}` is permitted")),
                                 ],
                             )
                         }));
@@ -298,37 +316,43 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 Ok(output_type)
             }
-            Expr::UnaryOp { op, operand, span } => {
-                let operand_type = operand.check_and_resolve_types(ctx)?;
+            Expr::UnaryOp {
+                op,
+                operand,
+                span,
+                operand_type,
+            } => {
+                let operand_type_computed = operand.check_and_resolve_types(ctx)?;
+                *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (allowed_type, return_type) = match op {
                     UnaryOp::Negate => (Type::Int, Type::Int),
                     UnaryOp::LNot => (Type::Bool, Type::Bool),
                     UnaryOp::Cast(to) => {
-                        if operand_type.width() == to.width() {
-                            (operand_type, to.clone())
+                        if operand_type_computed.width(ctx)? == to.width(ctx)? {
+                            (operand_type_computed.clone(), to.clone())
                         } else {
                             return Err(eyre!("Can not cast between types of differing width")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
                                 *span,
                                 &[
-                                    (*span, &format!("has the type `{operand_type:?}`, but the cast target type {to:?} is a different width")),
+                                    (*span, &format!("has the type `{operand_type_computed:?}`, but the cast target type {to:?} is a different width")),
                                 ],
                             )
                         }));
                         }
                     }
                     UnaryOp::Dereference => {
-                        if let Type::Pointer(target) = operand_type {
-                            (operand_type, *target)
+                        if let Type::Pointer(target) = operand_type_computed.clone() {
+                            (operand_type_computed.clone(), *target)
                         } else {
                             return Err(eyre!("Can not dereference a non pointer type")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
                                 *span,
                                 &[
-                                    (*span, &format!("has the type `{operand_type:?}`, which is not a pointer type")),
+                                    (*span, &format!("has the type `{operand_type_computed:?}`, which is not a pointer type")),
                                 ],
                             )
                         }));
@@ -336,13 +360,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     }
                 };
 
-                if operand_type != allowed_type {
+                if operand_type_computed != allowed_type {
                     return Err(eyre!("Unary op uses a disallowed type")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
                                 *span,
                                 &[
-                                    (*span, &format!("has the type `{operand_type:?}`, but only the type `{allowed_type:?}` is permitted")),
+                                    (*span, &format!("has the type `{operand_type_computed:?}`, but only the type `{allowed_type:?}` is permitted")),
                                 ],
                             )
                         }));
@@ -404,15 +428,15 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
         let (actual_return_type, frame) = ctx.define_function(
             self.function,
             FunctionSignature {
-                arguements: self.arguements.clone(),
-                return_type: self.return_type.clone(),
+                arguements: self.signature.arguements.clone(),
+                return_type: self.signature.return_type.clone(),
             },
             |ctx| self.contents.check_and_resolve_types(ctx),
         );
 
         let actual_return_type = actual_return_type?;
 
-        if actual_return_type != self.return_type {
+        if actual_return_type != self.signature.return_type {
             return Err(eyre!("Function definition returns the incorrect type")
                 .with_section(|| {
                     generate_span_error_section_with_annotations(
@@ -428,7 +452,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
                                 .unwrap_or_else(|| self.contents.as_span()),
                             &format!(
                                 "has the type `{actual_return_type:?}`, but a `{:?}` is required",
-                                self.return_type
+                                self.signature.return_type
                             ),
                         )],
                     )
@@ -540,6 +564,8 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
                 }),
             );
         }
+
+        self.value_type = DeferedType::ResolvedType(expr_type);
 
         // The pointer assignment it self should not have a return type
         Ok(Type::Void)

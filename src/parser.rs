@@ -15,8 +15,8 @@ use tracing::{instrument, trace};
 use crate::{
     ast::{
         BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr, FunctionAttribute,
-        FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation,
-        Statement, Type, Typedef, UnaryOp, Value,
+        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
+        PtrAssign, Punctuation, Statement, Type, Typedef, UnaryOp, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -154,11 +154,13 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                 Statement::FunctionDef(FunctionDef {
                     attributes,
                     function,
-                    arguements,
                     contents: block
                         .wrap_err("Function def did not contain block")
                         .with_section(|| generate_span_error_section(span))?,
-                    return_type,
+                    signature: FunctionSignature {
+                        arguements,
+                        return_type,
+                    },
                     span,
                     captures: DeferedCaptures::UnresolvedCaptures,
                 })
@@ -212,6 +214,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     expr,
                     span,
                     expr_span,
+                    value_type: DeferedType::UnresolvedType,
                 })
             }
             Rule::typedef => {
@@ -401,6 +404,8 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 left: Box::new(lhs?),
                 right: Box::new(rhs?),
                 span: op.as_span(),
+                left_type: DeferedType::UnresolvedType,
+                right_type: DeferedType::UnresolvedType,
             })
         })
         .map_prefix(|op, rhs| {
@@ -419,6 +424,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 op: un_op,
                 operand: Box::new(rhs?),
                 span: op.as_span(),
+                operand_type: DeferedType::UnresolvedType,
             })
         })
         .parse(pairs)

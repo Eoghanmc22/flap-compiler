@@ -1,11 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    ast::{IdentRef, Type},
-    codegen::{
-        clac::{ClacToken, MangledIdent},
-        ir::FunctionSignature,
-    },
+    ast::{FunctionSignature, IdentRef, Type},
+    codegen::clac::{ClacToken, MangledIdent},
 };
 
 pub struct ClacBuiltin {}
@@ -86,7 +83,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         "write_native",
         (
             ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("writeNative".to_string())),
+                mangled_ident: MangledIdent(Arc::new("write_native".to_string())),
                 stack_delta: -2,
             },
             FunctionSignature {
@@ -114,7 +111,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         "read_native",
         (
             ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("readNative".to_string())),
+                mangled_ident: MangledIdent(Arc::new("read_native".to_string())),
                 stack_delta: 0,
             },
             FunctionSignature {

@@ -1,4 +1,7 @@
-use crate::{codegen::clac::ClacValue, middleware::generate_span_error_section};
+use crate::{
+    codegen::clac::ClacValue, middleware::generate_span_error_section, type_check::TypeChecker,
+};
+use color_eyre::eyre::{Result, eyre};
 use core::fmt;
 use pest::Span;
 use std::{
@@ -91,12 +94,15 @@ pub enum Expr<'a> {
     BinaryOp {
         op: BinaryOp,
         left: Box<Expr<'a>>,
+        left_type: DeferedType<'a>,
         right: Box<Expr<'a>>,
+        right_type: DeferedType<'a>,
         span: Span<'a>,
     },
     UnaryOp {
         op: UnaryOp<'a>,
         operand: Box<Expr<'a>>,
+        operand_type: DeferedType<'a>,
         span: Span<'a>,
     },
     FunctionCall(FunctionCall<'a>),
@@ -213,6 +219,90 @@ impl Display for Type<'_> {
     }
 }
 
+impl<'a> Type<'a> {
+    pub fn resolve(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
+        match self {
+            Type::Typedef(ident) => ctx
+                .typedefs
+                .get(ident)
+                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .and_then(|it| it.resolve(ctx)),
+            _ => Ok(self.clone()),
+        }
+    }
+
+    pub fn dereference(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
+        match self {
+            Type::Typedef(ident) => ctx
+                .typedefs
+                .get(ident)
+                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .and_then(|it| it.dereference(ctx)),
+            Type::Pointer(target) => Ok((**target).clone()),
+            _ => Err(eyre!("Can not dereference type `{self}`")),
+        }
+    }
+
+    pub fn member(&self, ctx: &TypeChecker<'a>, ident: IdentRef<'a>) -> Result<Type<'a>> {
+        match self {
+            Type::Typedef(ident) => ctx
+                .typedefs
+                .get(ident)
+                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .and_then(|it| it.member(ctx, ident)),
+            Type::Struct(map) => map
+                .get(ident)
+                .ok_or_else(|| eyre!("Type `{self}` has no member with name {ident}"))
+                .cloned(),
+            _ => Err(eyre!("Type `{self}` has no members")),
+        }
+    }
+
+    pub fn member_and_offset(
+        &self,
+        ctx: &TypeChecker<'a>,
+        ident: IdentRef<'a>,
+    ) -> Result<(Type<'a>, ClacValue)> {
+        match self {
+            Type::Typedef(ident) => ctx
+                .typedefs
+                .get(ident)
+                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .and_then(|it| it.member_and_offset(ctx, ident)),
+            Type::Struct(map) => {
+                let mut offset = 0;
+
+                for (field_name, field_type) in map {
+                    if *field_name == ident {
+                        return Ok((field_type.clone(), offset));
+                    }
+
+                    offset += field_type.width(ctx)?;
+                }
+
+                Err(eyre!("Type `{self}` has no member with name {ident}"))
+            }
+            _ => Err(eyre!("Type `{self}` has no members")),
+        }
+    }
+
+    pub fn width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
+        match self {
+            Type::Typedef(ident) => ctx
+                .typedefs
+                .get(ident)
+                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .and_then(|it| it.width(ctx)),
+            Type::Struct(map) => map
+                .values()
+                .map(|it| it.width(ctx))
+                .sum::<Result<ClacValue>>(),
+            Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => Ok(1),
+            Type::Void => Ok(0),
+        }
+    }
+}
+
 // TODO: This is a kinda hacky solution
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum DeferedType<'a> {
@@ -240,17 +330,6 @@ impl<'a> DeferedType<'a> {
 
     pub fn unwrap(self) -> Type<'a> {
         self.to_option().unwrap()
-    }
-}
-
-impl Type<'_> {
-    pub fn width(&self) -> ClacValue {
-        match self {
-            Type::Typedef(_) => todo!(),
-            Type::Struct(map) => map.values().map(Type::width).sum::<ClacValue>(),
-            Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => 1,
-            Type::Void => 0,
-        }
     }
 }
 
@@ -304,11 +383,10 @@ pub enum FunctionAttribute {
 pub struct FunctionDef<'a> {
     pub attributes: HashSet<FunctionAttribute>,
     pub function: IdentRef<'a>,
-    pub arguements: Vec<(Type<'a>, IdentRef<'a>)>,
     pub captures: DeferedCaptures<'a>,
     pub contents: Block<'a>,
-    pub return_type: Type<'a>,
     pub span: Span<'a>,
+    pub signature: FunctionSignature<'a>,
 }
 
 impl AsSpan for FunctionDef<'_> {
@@ -317,20 +395,29 @@ impl AsSpan for FunctionDef<'_> {
     }
 }
 
-impl FunctionDef<'_> {
-    pub fn paramater_width(&self) -> ClacValue {
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FunctionSignature<'a> {
+    pub arguements: Vec<(Type<'a>, IdentRef<'a>)>,
+    pub return_type: Type<'a>,
+}
+
+impl<'a> FunctionSignature<'a> {
+    pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
         self.arguements
             .iter()
-            .map(|(var_type, _)| var_type.width())
-            .sum::<ClacValue>()
+            .map(|(var_type, _)| var_type.width(ctx))
+            .sum::<Result<ClacValue>>()
     }
 
-    pub fn return_width(&self) -> ClacValue {
-        self.return_type.width()
+    pub fn return_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
+        self.return_type.width(ctx)
     }
 
-    pub fn stack_delta(&self) -> ClacValue {
-        self.return_width() - self.paramater_width()
+    pub fn stack_delta(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
+        self.return_width(ctx).and_then(|ret_width| {
+            self.paramater_width(ctx)
+                .map(|parm_width| ret_width - parm_width)
+        })
     }
 }
 
@@ -389,6 +476,7 @@ pub struct PtrAssign<'a> {
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,
+    pub value_type: DeferedType<'a>,
 }
 
 impl AsSpan for PtrAssign<'_> {
