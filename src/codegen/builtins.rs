@@ -73,7 +73,10 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
                 stack_delta: -2,
             },
             FunctionSignature {
-                arguements: vec![(Type::Int, "addr"), (Type::Int, "val")],
+                arguements: vec![
+                    (Type::Pointer(Type::Char.into()), "addr"),
+                    (Type::Char, "val"),
+                ],
                 return_type: Type::Void,
             },
         ),
@@ -87,7 +90,10 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
                 stack_delta: -2,
             },
             FunctionSignature {
-                arguements: vec![(Type::Int, "addr"), (Type::Int, "val")],
+                arguements: vec![
+                    (Type::Pointer(Type::Int.into()), "addr"),
+                    (Type::Int, "val"),
+                ],
                 return_type: Type::Void,
             },
         ),
@@ -101,8 +107,8 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
                 stack_delta: 0,
             },
             FunctionSignature {
-                arguements: vec![(Type::Int, "addr")],
-                return_type: Type::Int,
+                arguements: vec![(Type::Pointer(Type::Char.into()), "addr")],
+                return_type: Type::Char,
             },
         ),
     );
@@ -115,7 +121,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
                 stack_delta: 0,
             },
             FunctionSignature {
-                arguements: vec![(Type::Int, "addr")],
+                arguements: vec![(Type::Pointer(Type::Int.into()), "addr")],
                 return_type: Type::Int,
             },
         ),

@@ -298,9 +298,11 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     tokens,
                     call_span,
                 } => {
-                    if signature.return_type != tail_call_sig.return_type {
+                    if signature.return_type.width(self.type_checker)?
+                        != tail_call_sig.return_type.width(self.type_checker)?
+                    {
                         return Err(eyre!(
-                            "Attempted to tail call `{ident}` but it returns a {:?}, and the calling runction returns a {:?}",
+                            "Attempted to tail call `{ident}` but it returns a {:?}, and the calling runction returns a {:?}, and these types differ in width",
                             tail_call_sig.return_type,
                             signature.return_type
                         )).with_section(|| generate_span_error_section(call_span));

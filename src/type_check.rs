@@ -242,7 +242,9 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *left_type = DeferedType::ResolvedType(left_type_computed.clone());
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
 
-                if left_type_computed != right_type_computed {
+                if left_type_computed != right_type_computed
+                    && left_type_computed != Type::Pointer(Type::Char.into())
+                {
                     return Err(eyre!("Binary op has differing left and right types")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
@@ -250,11 +252,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                                 &[
                                     (
                                         left.as_span(),
-                                        &format!("has the type `{left_type_computed:?}`"),
+                                        &format!("LHS has the type `{left_type_computed:?}`"),
                                     ),
                                     (
                                         right.as_span(),
-                                        &format!("has differing type `{right_type_computed:?}`"),
+                                        &format!(
+                                            "RHS has differing type `{right_type_computed:?}`"
+                                        ),
                                     ),
                                 ],
                             )
@@ -281,7 +285,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     BinaryOp::LAnd | BinaryOp::LOr => Type::Bool,
                 };
 
-                if left_type_computed != allowed_type {
+                if right_type_computed != allowed_type {
                     return Err(eyre!("Binary op uses a disallowed type")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
@@ -302,7 +306,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     | BinaryOp::Pow
                     | BinaryOp::BShr
                     | BinaryOp::BShl
-                    | BinaryOp::BAnd => Type::Int,
+                    | BinaryOp::BAnd => left_type_computed,
 
                     BinaryOp::Eq
                     | BinaryOp::Ne
@@ -634,7 +638,7 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
                                     .unwrap_or_else(|| case.contents.as_span()),
                                 &format!(
                                     "has the type `{case_return_type:?}`, but a `{:?}` is required",
-                                    Type::Bool
+                                    expected_type
                                 ),
                             )],
                         )

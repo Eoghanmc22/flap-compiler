@@ -329,12 +329,16 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             span,
             operand_type,
         } => {
-            let value = walk_expr(ctx, operand)?.into_data_ref(ctx)?;
+            let value = walk_expr(ctx, operand)?;
 
             let clac_op = match op {
-                UnaryOp::Negate => ClacOp::Neg { value },
-                UnaryOp::LNot => ClacOp::Not { value },
-                UnaryOp::Cast(_) => return Ok(value.into()),
+                UnaryOp::Negate => ClacOp::Neg {
+                    value: value.into_data_ref(ctx)?,
+                },
+                UnaryOp::LNot => ClacOp::Not {
+                    value: value.into_data_ref(ctx)?,
+                },
+                UnaryOp::Cast(_) => return Ok(value),
                 UnaryOp::Dereference => {
                     let DeferedType::ResolvedType(operand_type) = operand_type else {
                         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
@@ -344,6 +348,8 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                     let width = deref_type.width(ctx.type_checker)?;
                     match (width, deref_type.resolve(ctx.type_checker)?) {
                         (1, Type::Char) => {
+                            let value = value.into_data_ref(ctx)?;
+
                             return ctx.call_function_like("read8", vec![value], *span);
                         }
                         (0, _) => {
@@ -352,6 +358,8 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                             );
                         }
                         (1, _) => {
+                            let value = value.into_data_ref(ctx)?;
+
                             return ctx.call_function_like("read_native", vec![value], *span);
                         }
                         // TODO: emit an unrolled loop that read_natives all width values
