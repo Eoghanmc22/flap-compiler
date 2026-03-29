@@ -13,8 +13,8 @@ use tracing::instrument;
 use crate::{
     ast::{
         AsSpan, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType, Expr,
-        FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement,
-        Type, UnaryOp, Value,
+        FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation,
+        Statement, Type, Typedef, UnaryOp, Value,
     },
     codegen::{builtins::clac_builtins, ir::FunctionSignature},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
@@ -29,7 +29,7 @@ pub enum VariableKind {
 
 #[derive(Debug, Clone, Default)]
 pub struct TypeCheckerFrame<'a> {
-    pub variables: HashMap<IdentRef<'a>, (Type, VariableKind)>,
+    pub variables: HashMap<IdentRef<'a>, (Type<'a>, VariableKind)>,
     pub functions: HashMap<IdentRef<'a>, Arc<FunctionSignature<'a>>>,
 }
 
@@ -49,6 +49,7 @@ impl<'a> TypeCheckerFrame<'a> {
 #[derive(Debug, Clone)]
 pub struct TypeChecker<'a> {
     pub scope_stack: Vec<TypeCheckerFrame<'a>>,
+    pub typedefs: HashMap<IdentRef<'a>, Type<'a>>,
 }
 
 impl Display for TypeChecker<'_> {
@@ -71,7 +72,8 @@ impl Display for TypeChecker<'_> {
 impl Default for TypeChecker<'_> {
     fn default() -> Self {
         let mut type_checker = Self {
-            scope_stack: vec![],
+            scope_stack: Vec::default(),
+            typedefs: HashMap::default(),
         };
 
         for (ident, (_code, sig)) in clac_builtins() {
@@ -141,10 +143,19 @@ impl<'a> TypeChecker<'a> {
         (ret, frame)
     }
 
-    pub fn define_variable(&mut self, ident: IdentRef<'a>, var_type: Type, kind: VariableKind) {
+    pub fn define_variable(&mut self, ident: IdentRef<'a>, var_type: Type<'a>, kind: VariableKind) {
         self.top_scope_frame()
             .variables
             .insert(ident, (var_type, kind));
+    }
+
+    pub fn define_type(&mut self, ident: IdentRef<'a>, type_alias: Type<'a>) -> Result<()> {
+        let res = self.typedefs.insert(ident, type_alias);
+
+        match res {
+            Some(_) => Err(eyre!("Type `{ident}` is defined multiple times")),
+            None => Ok(()),
+        }
     }
 
     pub fn lookup_function(&mut self, ident: IdentRef<'a>) -> Option<Arc<FunctionSignature<'a>>> {
@@ -157,7 +168,7 @@ impl<'a> TypeChecker<'a> {
         None
     }
 
-    pub fn lookup_variable(&mut self, ident: IdentRef<'a>) -> Option<Type> {
+    pub fn lookup_variable(&mut self, ident: IdentRef<'a>) -> Option<Type<'a>> {
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
             if let Some((var_type, kind)) = frame.variables.get(ident).cloned() {
                 for frame in self.scope_stack.iter_mut().rev().take(idx) {
@@ -181,25 +192,25 @@ impl<'a> TypeChecker<'a> {
 }
 
 pub trait TypeCheck<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type>;
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>>;
 }
 
-impl TypeCheck<'_> for Value {
+impl<'a> TypeCheck<'a> for Value<'a> {
     #[instrument(name = "typecheck_value", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'a>> {
         Ok(self.compute_type())
     }
 }
 
 impl<'a> TypeCheck<'a> for Expr<'a> {
     #[instrument(name = "typecheck_expr", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)
                 .wrap_err("Could not type check expr value")
                 .with_section(|| generate_span_error_section(*span)),
-            Expr::Ident(ident, span) => {
+            Expr::Path(ident, span) => {
                 let var_type = ctx
                     .lookup_variable(ident)
                     .wrap_err_with(|| format!("Could not find identifier: `{ident}`"))
@@ -290,9 +301,39 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
             Expr::UnaryOp { op, operand, span } => {
                 let operand_type = operand.check_and_resolve_types(ctx)?;
 
-                let allowed_type = match op {
-                    UnaryOp::Negate => Type::Int,
-                    UnaryOp::LNot => Type::Bool,
+                let (allowed_type, return_type) = match op {
+                    UnaryOp::Negate => (Type::Int, Type::Int),
+                    UnaryOp::LNot => (Type::Bool, Type::Bool),
+                    UnaryOp::Cast(to) => {
+                        if operand_type.width() == to.width() {
+                            (operand_type, to.clone())
+                        } else {
+                            return Err(eyre!("Can not cast between types of differing width")
+                        .with_section(|| {
+                            generate_span_error_section_with_annotations(
+                                *span,
+                                &[
+                                    (*span, &format!("has the type `{operand_type:?}`, but the cast target type {to:?} is a different width")),
+                                ],
+                            )
+                        }));
+                        }
+                    }
+                    UnaryOp::Dereference => {
+                        if let Type::Pointer(target) = operand_type {
+                            (operand_type, *target)
+                        } else {
+                            return Err(eyre!("Can not dereference a non pointer type")
+                        .with_section(|| {
+                            generate_span_error_section_with_annotations(
+                                *span,
+                                &[
+                                    (*span, &format!("has the type `{operand_type:?}`, which is not a pointer type")),
+                                ],
+                            )
+                        }));
+                        }
+                    }
                 };
 
                 if operand_type != allowed_type {
@@ -307,7 +348,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         }));
                 }
 
-                Ok(operand_type)
+                Ok(return_type)
             }
             Expr::FunctionCall(func_call) => func_call.check_and_resolve_types(ctx),
             Expr::If(if_expr) => if_expr.check_and_resolve_types(ctx),
@@ -317,7 +358,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionCall<'a> {
     #[instrument(name = "typecheck_func_call", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let sig = ctx
             .lookup_function(self.function)
             .wrap_err_with(|| format!("Could not find function: {}", self.function))
@@ -359,7 +400,7 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     #[instrument(name = "typecheck_func_def", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let (actual_return_type, frame) = ctx.define_function(
             self.function,
             FunctionSignature {
@@ -406,7 +447,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     #[instrument(name = "typecheck_const_def", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?;
         if actual_type != self.var_type {
             return Err(
@@ -429,14 +470,14 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
         // recursively defined. (We arent trying to impl nix lol)
         ctx.define_variable(self.name, self.var_type.clone(), VariableKind::Constant);
 
-        // The const definition it self should not have a retuen type
+        // The const definition it self should not have a return type
         Ok(Type::Void)
     }
 }
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
     #[instrument(name = "typecheck_local_def", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?;
         if actual_type != self.var_type {
             return Err(
@@ -459,14 +500,65 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
         // recursively defined. (We arent trying to impl nix lol)
         ctx.define_variable(self.name, self.var_type.clone(), VariableKind::Local);
 
-        // The Local Definition it self should not have a rrtuen type
+        // The Local Definition it self should not have a return type
+        Ok(Type::Void)
+    }
+}
+
+impl<'a> TypeCheck<'a> for PtrAssign<'a> {
+    #[instrument(name = "typecheck_ptr_assign", fields(%self, %ctx))]
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        let expr_type = self.expr.check_and_resolve_types(ctx)?;
+        let target_type = self.target.check_and_resolve_types(ctx)?;
+
+        let Type::Pointer(target_type) = target_type else {
+            return Err(
+                eyre!("Assignment only support pointer types").with_section(|| {
+                    generate_span_error_section_with_annotations(
+                        self.span,
+                        &[(
+                            self.expr.as_span(),
+                            &format!("the type `{target_type:?}`, is not a pointer type",),
+                        )],
+                    )
+                }),
+            );
+        };
+
+        if *target_type != expr_type {
+            return Err(
+                eyre!("Pointer assignment mismatching types").with_section(|| {
+                    generate_span_error_section_with_annotations(
+                        self.span,
+                        &[(
+                            self.expr.as_span(),
+                            &format!(
+                                "the type `{expr_type:?}`, can not be assigned to a pointer of type a `{target_type:?}`",
+                            ),
+                        )],
+                    )
+                }),
+            );
+        }
+
+        // The pointer assignment it self should not have a return type
+        Ok(Type::Void)
+    }
+}
+
+impl<'a> TypeCheck<'a> for Typedef<'a> {
+    #[instrument(name = "typecheck_type_def", fields(%self, %ctx))]
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        ctx.define_type(self.name, self.type_alias.clone())?;
+
+        // A typedef does not produce a value
         Ok(Type::Void)
     }
 }
 
 impl<'a> TypeCheck<'a> for IfCase<'a> {
     #[instrument(name = "typecheck_if_case", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let case_type = self.condition.check_and_resolve_types(ctx)?;
         if case_type != Type::Bool {
             return Err(
@@ -493,7 +585,7 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
 
 impl<'a> TypeCheck<'a> for IfExpr<'a> {
     #[instrument(name = "typecheck_if_expr", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let expected_type = self
             .cases
             .first_mut()
@@ -561,7 +653,7 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
 
 impl<'a> TypeCheck<'a> for Statement<'a> {
     #[instrument(name = "typecheck_statement", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Statement::FunctionDef(function_def) => function_def.check_and_resolve_types(ctx),
             Statement::Const(const_def) => const_def.check_and_resolve_types(ctx),
@@ -571,13 +663,15 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
                 expr.check_and_resolve_types(ctx)?;
                 Ok(Type::Void)
             }
+            Statement::PtrAssign(ptr_assign) => ptr_assign.check_and_resolve_types(ctx),
+            Statement::Typedef(typedef) => typedef.check_and_resolve_types(ctx),
         }
     }
 }
 
 impl<'a> TypeCheck<'a> for Block<'a> {
     #[instrument(name = "typecheck_block", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let mut actual_return_type = Type::Void;
 
         let (res, frame) = ctx.define_scope::<Result<_>, _>(|ctx| {

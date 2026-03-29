@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use color_eyre::{
     Section,
@@ -15,8 +15,8 @@ use tracing::{instrument, trace};
 use crate::{
     ast::{
         BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr, FunctionAttribute,
-        FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, Punctuation, Statement,
-        Type, UnaryOp, Value,
+        FunctionCall, FunctionDef, IdentRef, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation,
+        Statement, Type, Typedef, UnaryOp, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -38,8 +38,9 @@ lazy_static::lazy_static! {
             .op(Op::infix(power, Right))               // ^ ** (right-associative)
             .op(Op::infix(shl, Left) | Op::infix(shr, Left))
             .op(Op::infix(bit_and, Left))
+            .op(Op::prefix(cast))
             // Highest precedence
-            .op(Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
+            .op(Op::prefix(pointer_type) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
     };
 }
 
@@ -196,6 +197,34 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     expr_span,
                 })
             }
+            Rule::pointer_assign => {
+                let mut inner = target.into_inner();
+
+                let target_pair = inner.next().unwrap();
+                let target = parse_expr(target_pair.into_inner())?;
+
+                let expr_pair = inner.next().unwrap();
+                let expr_span = expr_pair.as_span();
+                let expr = parse_expr(expr_pair.into_inner())?;
+
+                Statement::PtrAssign(PtrAssign {
+                    target,
+                    expr,
+                    span,
+                    expr_span,
+                })
+            }
+            Rule::typedef => {
+                let mut inner = target.into_inner();
+                let type_alias = parse_type(inner.next().unwrap())?;
+                let name = parse_ident(inner.next().unwrap())?;
+
+                Statement::Typedef(Typedef {
+                    name,
+                    type_alias,
+                    span,
+                })
+            }
             Rule::semicolon => continue,
             Rule::EOI => continue,
             _ => {
@@ -261,17 +290,47 @@ fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
 
 #[instrument]
 fn parse_type(pair: Pair<Rule>) -> Result<Type> {
-    let target = pair.into_inner().next().unwrap();
+    let span = pair.as_span();
+    let mut tokens = pair.into_inner();
+    let type_token = tokens.next().unwrap();
 
-    match target.as_rule() {
-        Rule::int_type => Ok(Type::Int),
-        Rule::bool_type => Ok(Type::Bool),
-        Rule::void_type => Ok(Type::Void),
-        _ => {
-            return Err(eyre!("Unknown type: {:?}", target)
-                .with_section(|| generate_span_error_section(target.as_span())));
+    let parsed_type = match type_token.as_rule() {
+        Rule::char_type => Type::Char,
+        Rule::int_type => Type::Int,
+        Rule::bool_type => Type::Bool,
+        Rule::void_type => Type::Void,
+        Rule::struct_type => {
+            let struct_type_fields = type_token.into_inner();
+            let mut map = BTreeMap::new();
+
+            for struct_type_field in struct_type_fields {
+                let mut field_tokens = struct_type_field.into_inner();
+
+                let field_type = parse_type(field_tokens.next().unwrap())?;
+                let field_name = parse_ident(field_tokens.next().unwrap())?;
+                assert!(field_tokens.next().is_none());
+
+                map.insert(field_name, field_type);
+            }
+
+            Type::Struct(map)
         }
-    }
+        Rule::named_type => Type::Typedef(type_token.as_str()),
+        _ => {
+            return Err(eyre!("Unknown type: {:?}", type_token)
+                .with_section(|| generate_span_error_section(type_token.as_span())));
+        }
+    };
+
+    tokens.fold(Ok(parsed_type), |acc, next| match next.as_rule() {
+        Rule::pointer_type => Ok(Type::Pointer(acc?.into())),
+        _ => {
+            return Err(
+                eyre!("Unknown symbol trailing after type: {:?}", span.as_str())
+                    .with_section(|| generate_span_error_section(span)),
+            );
+        }
+    })
 }
 
 #[instrument]
@@ -293,7 +352,13 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             // Handle primary expressions (atoms)
             match primary.as_rule() {
                 Rule::value => Ok(Expr::Value(parse_value(primary)?, span)),
-                Rule::ident => Ok(Expr::Ident(parse_ident(primary)?, span)),
+                Rule::field_path => Ok(Expr::Path(
+                    primary
+                        .into_inner()
+                        .map(parse_ident)
+                        .collect::<Result<_>>()?,
+                    span,
+                )),
                 Rule::expression => {
                     // Parenthesized expression
                     Ok(parse_expr(primary.into_inner())?)
@@ -341,6 +406,8 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         .map_prefix(|op, rhs| {
             // Handle unary operations
             let un_op = match op.as_rule() {
+                Rule::cast => UnaryOp::Cast(parse_type(op.clone().into_inner().next().unwrap())?),
+                Rule::dereference => UnaryOp::Dereference,
                 Rule::negate => UnaryOp::Negate,
                 Rule::logical_not => UnaryOp::LNot,
                 _ => {
@@ -383,7 +450,7 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .with_section(|| generate_span_error_section(target.as_span()))?,
         )),
         Rule::boolean => Ok(Value::Bool(target.as_str().parse()?)),
-        Rule::char => Ok(Value::Int(
+        Rule::char => Ok(Value::Char(
             target
                 .as_str()
                 .replace("\\n", "\n")
@@ -392,6 +459,22 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .nth(1)
                 .context("char")? as ClacValue,
         )),
+        Rule::struct_value => {
+            let struct_value_fields = target.into_inner();
+            let mut map = BTreeMap::new();
+
+            for struct_value_field in struct_value_fields {
+                let mut field_tokens = struct_value_field.into_inner();
+
+                let field_name = parse_ident(field_tokens.next().unwrap())?;
+                let field_value = parse_value(field_tokens.next().unwrap())?;
+                assert!(field_tokens.next().is_none());
+
+                map.insert(field_name, field_value);
+            }
+
+            Ok(Value::Struct(map))
+        }
         _ => {
             return Err(eyre!("Unexpected value: {:?}", target)
                 .with_section(|| generate_span_error_section(target.as_span())));

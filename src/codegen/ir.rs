@@ -54,8 +54,8 @@ pub enum DataReference<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FunctionSignature<'a> {
-    pub arguements: Vec<(Type, IdentRef<'a>)>,
-    pub return_type: Type,
+    pub arguements: Vec<(Type<'a>, IdentRef<'a>)>,
+    pub return_type: Type<'a>,
 }
 
 impl FunctionSignature<'_> {
@@ -212,7 +212,7 @@ impl<'a> ClacOp<'a> {
     }
 
     #[instrument(skip(out))]
-    pub fn execute<C: TokenConsumer<'a>>(&self, mut out: C) -> Result<Type> {
+    pub fn execute<C: TokenConsumer<'a>>(&self, mut out: C) -> Result<Type<'a>> {
         let return_type = match self {
             ClacOp::Print { .. } => {
                 out.consume(ClacToken::Print)?;

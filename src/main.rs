@@ -14,6 +14,8 @@
 // - Add data flow analysis and instruction reordering
 // - Use Skip instead of If for conditionals in code gen
 // - Stanley's syscall extensions
+// - reduce clone/to_string/to_vec/... usage
+// Consider making pointer assignment an expression like C
 #![feature(try_blocks)]
 
 use std::{

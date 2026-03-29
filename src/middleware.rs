@@ -235,7 +235,7 @@ fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCa
                 }
             }
         }
-        Expr::Ident(ident, span) => Ok(ctx
+        Expr::Path(ident, span) => Ok(ctx
             .lookup_ident_data_ref(ident)
             .map(|it| it.reference)
             .wrap_err_with(|| format!("Could not find identifier: {ident}"))

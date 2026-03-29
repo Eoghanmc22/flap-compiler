@@ -1,4 +1,4 @@
-// TODO: Structs, Arrays, Tuples
+// TODO: Structs, Arrays, Tuples, Loops, Pointers
 
 multiline_comment  = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
@@ -10,16 +10,29 @@ true    =  { "true" }
 false   =  { "false" }
 boolean = @{ true | false }
 char    = @{ "'" ~ ("\\n" | "\\t" | ASCII) ~ "'" }
-value   =  { number | boolean | char }
+value   =  { number | boolean | char | struct_value }
 
 ident_start_chars =  { ASCII_ALPHA | "_" }
 ident_chars       =  { ASCII_ALPHANUMERIC | "_" }
 ident             = @{ ident_start_chars+ ~ ident_chars* }
 
-int_type  = { "int" }
-bool_type = { "bool" }
-void_type = { "void" }
-var_type  = { int_type | bool_type | void_type }
+field_path = { ident ~ ("." ~ ident)* }
+
+struct_type_field  = { var_type ~ ident ~ ";" }
+struct_type        = { "struct" ~ "{" ~ struct_type_field* ~ "}" }
+struct_value_field = { ident ~ "=" ~ expression ~ ";" }
+struct_value       = { "struct" ~ "{" ~ struct_value_field* ~ "}" }
+
+char_type    = { "char" }
+int_type     = { "int" }
+bool_type    = { "bool" }
+void_type    = { "void" }
+named_type   = { ident }
+pointer_type = { "*" }
+var_type     = { (char_type | int_type | bool_type | void_type | struct_type | named_type) ~ pointer_type* }
+
+// TODO:
+typedef = { "typedef" ~ var_type ~ ident ~ ";" }
 
 // Arithmetic operators
 add      = { "+" }
@@ -50,14 +63,19 @@ shr     = { ">>" }
 shl     = { "<<" }
 bit_and = { "&" }
 
+// Pointer Operators
+dereference = { "*" }
+cast        = { "(" ~ var_type ~ ")" }
+
 binary_op  = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
-unary_op   = _{ negate | logical_not }
-atom       = _{ if_statement | function_call | value | ident | ("(" ~ expression ~ ")") }
+unary_op   = _{ negate | logical_not | dereference | cast }
+atom       = _{ if_statement | function_call | value | field_path | ("(" ~ expression ~ ")") }
 expression =  { unary_op? ~ atom ~ (binary_op ~ unary_op? ~ atom)* }
 
 // A const_var can only take on the value of a literal
-const_var = { "const" ~ var_type ~ ident ~ "=" ~ expression }
-local_var = { var_type ~ ident ~ "=" ~ expression }
+const_var      = { "const" ~ var_type ~ ident ~ "=" ~ expression }
+local_var      = { var_type ~ ident ~ "=" ~ expression }
+pointer_assign = { "*" ~ expression ~ "=" ~ expression }
 
 function_parameters = _{ (expression ~ ("," ~ expression)*)? }
 function_call       =  { ident ~ "(" ~ function_parameters ~ ")" }
@@ -68,7 +86,7 @@ else_block    =  { "else" ~ block }
 if_statement  =  { if_block ~ if_else_block* ~ else_block? }
 
 semicolon =  { ";" }
-statement = _{ ((const_var | local_var | expression) ~ semicolon) | function_def | if_statement }
+statement = _{ ((const_var | local_var | pointer_assign | expression) ~ semicolon) | function_def | if_statement | typedef }
 
 no_mangle               =  { "no_mangle" }
 function_attr           =  { no_mangle }

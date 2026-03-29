@@ -38,17 +38,19 @@ pub trait AsSpan {
 }
 
 #[derive(Debug, Clone)]
-pub enum Value {
-    Struct(BTreeMap<Ident, Value>),
+pub enum Value<'a> {
+    Struct(BTreeMap<IdentRef<'a>, Value<'a>>),
     Int(ClacValue),
+    Char(ClacValue),
     Bool(bool),
 }
 
-impl Value {
+impl<'a> Value<'a> {
     pub fn as_repr(&self) -> Vec<ClacValue> {
         match self {
             Value::Struct(s) => s.values().flat_map(|it| it.as_repr()).collect(),
             Value::Int(int) => vec![*int],
+            Value::Char(int) => vec![*int],
             Value::Bool(bool) => vec![*bool as _],
         }
     }
@@ -57,7 +59,7 @@ impl Value {
         self.as_repr().into_iter().fold(0, BitOr::bitor) != 0
     }
 
-    pub fn compute_type(&self) -> Type {
+    pub fn compute_type(&self) -> Type<'a> {
         match self.clone() {
             Value::Struct(map) => Type::Struct(
                 map.into_iter()
@@ -65,16 +67,18 @@ impl Value {
                     .collect(),
             ),
             Value::Int(_) => Type::Int,
+            Value::Char(_) => Type::Char,
             Value::Bool(_) => Type::Bool,
         }
     }
 }
 
-impl Display for Value {
+impl Display for Value<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Struct(map) => <BTreeMap<_, _> as Debug>::fmt(map, f),
             Value::Int(int) => <ClacValue as Display>::fmt(int, f),
+            Value::Char(int) => <ClacValue as Display>::fmt(int, f),
             Value::Bool(bool) => <bool as Display>::fmt(bool, f),
         }
     }
@@ -82,8 +86,8 @@ impl Display for Value {
 
 #[derive(Debug, Clone)]
 pub enum Expr<'a> {
-    Value(Value, Span<'a>),
-    Ident(IdentRef<'a>, Span<'a>),
+    Value(Value<'a>, Span<'a>),
+    Path(Vec<IdentRef<'a>>, Span<'a>),
     BinaryOp {
         op: BinaryOp,
         left: Box<Expr<'a>>,
@@ -91,7 +95,7 @@ pub enum Expr<'a> {
         span: Span<'a>,
     },
     UnaryOp {
-        op: UnaryOp,
+        op: UnaryOp<'a>,
         operand: Box<Expr<'a>>,
         span: Span<'a>,
     },
@@ -103,7 +107,7 @@ impl AsSpan for Expr<'_> {
     fn as_span(&self) -> Span<'_> {
         match self {
             Expr::Value(_, span)
-            | Expr::Ident(_, span)
+            | Expr::Path(_, span)
             | Expr::BinaryOp { span, .. }
             | Expr::UnaryOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
@@ -113,14 +117,18 @@ impl AsSpan for Expr<'_> {
 }
 
 #[derive(Debug, Clone)]
-pub enum UnaryOp {
+pub enum UnaryOp<'a> {
+    Cast(Type<'a>),
+    Dereference,
     Negate,
     LNot,
 }
 
-impl Display for UnaryOp {
+impl Display for UnaryOp<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            UnaryOp::Cast(to) => write!(f, "({to})"),
+            UnaryOp::Dereference => write!(f, "*"),
             UnaryOp::Negate => write!(f, "-"),
             UnaryOp::LNot => write!(f, "!"),
         }
@@ -180,19 +188,25 @@ impl Display for BinaryOp {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum Type {
-    Struct(BTreeMap<Ident, Type>),
+pub enum Type<'a> {
+    Typedef(IdentRef<'a>),
+    Struct(BTreeMap<IdentRef<'a>, Type<'a>>),
+    Pointer(Box<Type<'a>>),
     Int,
+    Char,
     Bool,
     #[default]
     Void,
 }
 
-impl Display for Type {
+impl Display for Type<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Type::Typedef(name) => write!(f, "{name}"),
             Type::Struct(map) => write!(f, "struct {map:?}"),
+            Type::Pointer(target) => write!(f, "{target}*"),
             Type::Int => write!(f, "int"),
+            Type::Char => write!(f, "char"),
             Type::Bool => write!(f, "bool"),
             Type::Void => write!(f, "void"),
         }
@@ -201,13 +215,13 @@ impl Display for Type {
 
 // TODO: This is a kinda hacky solution
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum DeferedType {
-    ResolvedType(Type),
+pub enum DeferedType<'a> {
+    ResolvedType(Type<'a>),
     #[default]
     UnresolvedType,
 }
 
-impl Display for DeferedType {
+impl Display for DeferedType<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DeferedType::ResolvedType(t) => <Type as Display>::fmt(t, f),
@@ -216,24 +230,25 @@ impl Display for DeferedType {
     }
 }
 
-impl DeferedType {
-    pub fn to_option(self) -> Option<Type> {
+impl<'a> DeferedType<'a> {
+    pub fn to_option(self) -> Option<Type<'a>> {
         match self {
             DeferedType::ResolvedType(var_type) => Some(var_type),
             DeferedType::UnresolvedType => None,
         }
     }
 
-    pub fn unwrap(self) -> Type {
+    pub fn unwrap(self) -> Type<'a> {
         self.to_option().unwrap()
     }
 }
 
-impl Type {
+impl Type<'_> {
     pub fn width(&self) -> ClacValue {
         match self {
+            Type::Typedef(_) => todo!(),
             Type::Struct(map) => map.values().map(Type::width).sum::<ClacValue>(),
-            Type::Int | Type::Bool => 1,
+            Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => 1,
             Type::Void => 0,
         }
     }
@@ -241,7 +256,7 @@ impl Type {
 
 #[derive(Debug, Clone, Default)]
 pub struct Captures<'a> {
-    pub captures: BTreeMap<IdentRef<'a>, Type>,
+    pub captures: BTreeMap<IdentRef<'a>, Type<'a>>,
 }
 
 // TODO: This is a kinda hacky solution
@@ -289,10 +304,10 @@ pub enum FunctionAttribute {
 pub struct FunctionDef<'a> {
     pub attributes: HashSet<FunctionAttribute>,
     pub function: IdentRef<'a>,
-    pub arguements: Vec<(Type, IdentRef<'a>)>,
+    pub arguements: Vec<(Type<'a>, IdentRef<'a>)>,
     pub captures: DeferedCaptures<'a>,
     pub contents: Block<'a>,
-    pub return_type: Type,
+    pub return_type: Type<'a>,
     pub span: Span<'a>,
 }
 
@@ -322,7 +337,7 @@ impl FunctionDef<'_> {
 #[derive(Debug, Clone)]
 pub struct ConstDef<'a> {
     pub name: IdentRef<'a>,
-    pub var_type: Type,
+    pub var_type: Type<'a>,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,
@@ -350,7 +365,7 @@ impl AsSpan for IfCase<'_> {
 #[derive(Debug, Clone)]
 pub struct LocalDef<'a> {
     pub name: IdentRef<'a>,
-    pub var_type: Type,
+    pub var_type: Type<'a>,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,
@@ -369,11 +384,50 @@ impl Display for LocalDef<'_> {
 }
 
 #[derive(Debug, Clone)]
+pub struct PtrAssign<'a> {
+    pub target: Expr<'a>,
+    pub expr: Expr<'a>,
+    pub span: Span<'a>,
+    pub expr_span: Span<'a>,
+}
+
+impl AsSpan for PtrAssign<'_> {
+    fn as_span(&self) -> Span<'_> {
+        self.span
+    }
+}
+
+impl Display for PtrAssign<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n{}", self.as_span().as_str())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Typedef<'a> {
+    pub type_alias: Type<'a>,
+    pub name: IdentRef<'a>,
+    pub span: Span<'a>,
+}
+
+impl AsSpan for Typedef<'_> {
+    fn as_span(&self) -> Span<'_> {
+        self.span
+    }
+}
+
+impl Display for Typedef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n{}", self.as_span().as_str())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct IfExpr<'a> {
     pub cases: Vec<IfCase<'a>>,
     pub otherwise: Option<Block<'a>>,
     pub captures: DeferedCaptures<'a>,
-    pub return_type: DeferedType,
+    pub return_type: DeferedType<'a>,
     pub span: Span<'a>,
 }
 
@@ -395,6 +449,8 @@ pub enum Statement<'a> {
     FunctionDef(FunctionDef<'a>),
     Const(ConstDef<'a>),
     Local(LocalDef<'a>),
+    PtrAssign(PtrAssign<'a>),
+    Typedef(Typedef<'a>),
 }
 
 impl AsSpan for Statement<'_> {
@@ -404,6 +460,8 @@ impl AsSpan for Statement<'_> {
             Statement::FunctionDef(function_def) => function_def.as_span(),
             Statement::Const(const_def) => const_def.as_span(),
             Statement::Local(local_def) => local_def.as_span(),
+            Statement::PtrAssign(ptr_assign) => ptr_assign.as_span(),
+            Statement::Typedef(typedef) => typedef.as_span(),
         }
     }
 }

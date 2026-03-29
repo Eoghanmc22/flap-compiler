@@ -48,7 +48,7 @@ pub struct Offset(pub ClacValue);
 #[derive(Debug, Clone)]
 pub struct AnnotatedDataRef<'a> {
     pub reference: DataReference<'a>,
-    pub data_type: Type,
+    pub data_type: Type<'a>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,7 +99,7 @@ impl<'a> From<DataReference<'a>> for MaybeTailCall<'a> {
 pub struct ScopeFrame<'a> {
     frame_start: ClacValue,
     locals: HashMap<IdentRef<'a>, AnnotatedDataRef<'a>>,
-    temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
+    temporaries: HashMap<TempoaryIdent, (Type<'a>, Offset)>,
     definitions: HashMap<StoredDefinitionIdent<'a>, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
 
     allow_underflow: bool,
@@ -165,7 +165,7 @@ impl<'a> CodegenCtx<'a> {
         }
     }
 
-    pub fn allocate_tempoary(&mut self, var_type: Type) -> TempoaryIdent {
+    pub fn allocate_tempoary(&mut self, var_type: Type<'a>) -> TempoaryIdent {
         let ident = TempoaryIdent(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
         assert!(self.cursor >= var_type.width());
@@ -182,7 +182,7 @@ impl<'a> CodegenCtx<'a> {
         &mut self,
         data_ref: DataReference<'a>,
         ident: IdentRef<'a>,
-        var_type: Type,
+        var_type: Type<'a>,
     ) {
         self.top_scope_frame().locals.insert(
             ident,
@@ -351,7 +351,7 @@ impl<'a> CodegenCtx<'a> {
     pub fn define_const(
         &mut self,
         ident: IdentRef<'a>,
-        var_type: Type,
+        var_type: Type<'a>,
         value: Value,
     ) -> Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Const(ident);
@@ -538,7 +538,7 @@ impl<'a> CodegenCtx<'a> {
             .cloned()
     }
 
-    pub fn lookup_temporary(&self, ident: TempoaryIdent) -> Option<(Type, Offset)> {
+    pub fn lookup_temporary(&self, ident: TempoaryIdent) -> Option<(Type<'a>, Offset)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((var_type, offset)) = frame.temporaries.get(&ident) {
                 return Some((var_type.clone(), *offset));
