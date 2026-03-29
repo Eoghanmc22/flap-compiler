@@ -1,0 +1,66 @@
+const int PROT_EXEC = 4;
+const int PROT_READ = 1;
+const int PROT_WRITE = 2;
+const int PROT_NONE = 0;
+
+const int MAP_PRIVATE = 2;
+const int MAP_ANON = 32;
+
+const int STDIN = 0;
+const int STDOUT = 1;
+const int STDERR = 2;
+
+const int NULL = 0;
+
+int mmap(int addr, int length, int prot, int flags, int fd, int pgoffset) {
+  syscall(0x09, addr, length, prot, flags, fd, pgoffset)
+}
+
+int read(int fd, int buf, int count) { syscall(0, fd, buf, count, 0, 0, 0) }
+
+int write(int fd, int buf, int count) { syscall(1, fd, buf, count, 0, 0, 0) }
+
+int open(int name, int flags, int mode) {
+  syscall(2, name, flags, mode, 0, 0, 0)
+}
+
+int close(int fd) { syscall(3, fd, 0, 0, 0, 0, 0) }
+
+int read_all(int fd, int buf, int count) {
+  int new = read(fd, buf, count);
+
+  if (new != 0) {
+    new + read_all(fd, buf + new, count - new)
+  } else {
+    0
+  }
+}
+
+int write_all(int fd, int buf, int count) {
+  int new = write(fd, buf, count);
+
+  if (new != 0) {
+    new + write_all(fd, buf + new, count - new)
+  } else {
+    0
+  }
+}
+
+void copy_all(int buf, int buf_len, int src_fd, int dst_fd) {
+  int in = read_all(src_fd, buf, buf_len);
+
+  if (in > 0) {
+    write_all(dst_fd, buf, in);
+    copy_all(buf, buf_len, src_fd, dst_fd);
+  }
+}
+
+int len = 4096;
+int page =
+    mmap(NULL, len, PROT_READ + PROT_WRITE, MAP_PRIVATE + MAP_ANON, -1, 0);
+
+int count = read_all(STDIN, page, len);
+write8(page + count, 0);
+
+int fd = open(page, 0, 0);
+copy_all(page, len, fd, STDOUT);

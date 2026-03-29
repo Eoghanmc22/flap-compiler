@@ -1,0 +1,98 @@
+const int PROT_EXEC = 4;
+const int PROT_READ = 1;
+const int PROT_WRITE = 2;
+const int PROT_NONE = 0;
+
+const int MAP_PRIVATE = 2;
+const int MAP_ANON = 32;
+
+const int STDIN = 0;
+const int STDOUT = 1;
+const int STDERR = 2;
+
+const int NULL = 0;
+
+int mmap(int addr, int length, int prot, int flags, int fd, int pgoffset) {
+  syscall(0x09, addr, length, prot, flags, fd, pgoffset)
+}
+
+int read(int fd, int buf, int count) { syscall(0, fd, buf, count, 0, 0, 0) }
+
+int write(int fd, int buf, int count) { syscall(1, fd, buf, count, 0, 0, 0) }
+
+int open(int name, int flags, int mode) {
+  syscall(2, name, flags, mode, 0, 0, 0)
+}
+
+int close(int fd) { syscall(3, fd, 0, 0, 0, 0, 0) }
+
+int read_all(int fd, int buf, int count) {
+  int new = read(fd, buf, count);
+
+  if (new != 0) {
+    new + read_all(fd, buf + new, count - new)
+  } else {
+    0
+  }
+}
+
+int write_all(int fd, int buf, int count) {
+  int new = write(fd, buf, count);
+
+  if (new != 0) {
+    new + write_all(fd, buf + new, count - new)
+  } else {
+    0
+  }
+}
+
+void copy_all(int buf, int buf_len, int src_fd, int dst_fd) {
+  int in = read_all(src_fd, buf, buf_len);
+
+  if (in > 0) {
+    write_all(dst_fd, buf, in);
+    copy_all(buf, buf_len, src_fd, dst_fd);
+  }
+}
+
+int get_last_arg(int buf, int last_ptr, int len) {
+  if (len == 0) {
+    last_ptr
+  } else if (read8(buf) == 0) {
+    get_last_arg(buf + 1, buf + 1, len - 1)
+  } else {
+    get_last_arg(buf + 1, last_ptr, len - 1)
+  }
+}
+
+int len = 4096;
+int page =
+    mmap(NULL, len, PROT_READ + PROT_WRITE, MAP_PRIVATE + MAP_ANON, -1, 0);
+
+// Put /proc/self/cmdline into page
+write8(page + 0, '/');
+write8(page + 1, 'p');
+write8(page + 2, 'r');
+write8(page + 3, 'o');
+write8(page + 4, 'c');
+write8(page + 5, '/');
+write8(page + 6, 's');
+write8(page + 7, 'e');
+write8(page + 8, 'l');
+write8(page + 9, 'f');
+write8(page + 10, '/');
+write8(page + 11, 'c');
+write8(page + 12, 'm');
+write8(page + 13, 'd');
+write8(page + 14, 'l');
+write8(page + 15, 'i');
+write8(page + 16, 'n');
+write8(page + 17, 'e');
+write8(page + 18, 0);
+
+int cmdline_fd = open(page, 0, 0);
+int cmdline_len = read_all(cmdline_fd, page, len);
+int arg = get_last_arg(page, page, cmdline_len - 1);
+
+int file_fd = open(arg, 0, 0);
+copy_all(page, len, file_fd, STDOUT);
