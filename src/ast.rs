@@ -1,8 +1,10 @@
 use crate::{codegen::clac::ClacValue, middleware::generate_span_error_section};
 use core::fmt;
+use pest::Span;
 use std::{
     collections::{BTreeMap, HashSet},
-    fmt::Display,
+    fmt::{Debug, Display},
+    ops::BitOr,
 };
 
 macro_rules! impl_display {
@@ -28,8 +30,6 @@ impl_display! {
     Block<'_>
 }
 
-use pest::Span;
-
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
@@ -37,30 +37,45 @@ pub trait AsSpan {
     fn as_span(&self) -> Span<'_>;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Value {
+    Struct(BTreeMap<Ident, Value>),
     Int(ClacValue),
     Bool(bool),
 }
 
 impl Value {
-    pub fn as_repr(&self) -> ClacValue {
+    pub fn as_repr(&self) -> Vec<ClacValue> {
         match self {
-            Value::Int(int) => *int,
-            Value::Bool(bool) => *bool as _,
+            Value::Struct(s) => s.values().flat_map(|it| it.as_repr()).collect(),
+            Value::Int(int) => vec![*int],
+            Value::Bool(bool) => vec![*bool as _],
         }
     }
 
     pub fn truthy(&self) -> bool {
-        self.as_repr() != 0
+        self.as_repr().into_iter().fold(0, BitOr::bitor) != 0
+    }
+
+    pub fn compute_type(&self) -> Type {
+        match self.clone() {
+            Value::Struct(map) => Type::Struct(
+                map.into_iter()
+                    .map(|(key, value)| (key, value.compute_type()))
+                    .collect(),
+            ),
+            Value::Int(_) => Type::Int,
+            Value::Bool(_) => Type::Bool,
+        }
     }
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Int(int) => int.fmt(f),
-            Value::Bool(bool) => bool.fmt(f),
+            Value::Struct(map) => <BTreeMap<_, _> as Debug>::fmt(map, f),
+            Value::Int(int) => <ClacValue as Display>::fmt(int, f),
+            Value::Bool(bool) => <bool as Display>::fmt(bool, f),
         }
     }
 }
@@ -164,8 +179,9 @@ impl Display for BinaryOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Type {
+    Struct(BTreeMap<Ident, Type>),
     Int,
     Bool,
     #[default]
@@ -175,6 +191,7 @@ pub enum Type {
 impl Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Type::Struct(map) => write!(f, "struct {map:?}"),
             Type::Int => write!(f, "int"),
             Type::Bool => write!(f, "bool"),
             Type::Void => write!(f, "void"),
@@ -183,7 +200,7 @@ impl Display for Type {
 }
 
 // TODO: This is a kinda hacky solution
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum DeferedType {
     ResolvedType(Type),
     #[default]
@@ -193,21 +210,21 @@ pub enum DeferedType {
 impl Display for DeferedType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeferedType::ResolvedType(t) => t.fmt(f),
+            DeferedType::ResolvedType(t) => <Type as Display>::fmt(t, f),
             DeferedType::UnresolvedType => write!(f, "unresolved"),
         }
     }
 }
 
 impl DeferedType {
-    pub fn to_option(&self) -> Option<Type> {
-        match *self {
+    pub fn to_option(self) -> Option<Type> {
+        match self {
             DeferedType::ResolvedType(var_type) => Some(var_type),
             DeferedType::UnresolvedType => None,
         }
     }
 
-    pub fn unwrap(&self) -> Type {
+    pub fn unwrap(self) -> Type {
         self.to_option().unwrap()
     }
 }
@@ -215,6 +232,7 @@ impl DeferedType {
 impl Type {
     pub fn width(&self) -> ClacValue {
         match self {
+            Type::Struct(map) => map.values().map(Type::width).sum::<ClacValue>(),
             Type::Int | Type::Bool => 1,
             Type::Void => 0,
         }

@@ -45,7 +45,7 @@ pub struct BranchIdent(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Offset(pub ClacValue);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct AnnotatedDataRef<'a> {
     pub reference: DataReference<'a>,
     pub data_type: Type,
@@ -80,7 +80,7 @@ impl<'a> MaybeTailCall<'a> {
                         ctx.push_token(token.clone())?;
                     }
 
-                    DataReference::Tempoary(ctx.allocate_tempoary(signature.return_type))
+                    DataReference::Tempoary(ctx.allocate_tempoary(signature.return_type.clone()))
                 };
                 res.wrap_err("Error running tail call")
                     .with_section(|| generate_span_error_section(call_span))
@@ -100,7 +100,7 @@ pub struct ScopeFrame<'a> {
     frame_start: ClacValue,
     locals: HashMap<IdentRef<'a>, AnnotatedDataRef<'a>>,
     temporaries: HashMap<TempoaryIdent, (Type, Offset)>,
-    definitions: HashMap<StoredDefinitionIdent<'a>, (ClacToken, Arc<FunctionSignature<'a>>)>,
+    definitions: HashMap<StoredDefinitionIdent<'a>, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
 
     allow_underflow: bool,
 }
@@ -126,7 +126,7 @@ impl Default for CodegenCtx<'_> {
         };
 
         for (ident, (code, sig)) in clac_builtins() {
-            ctx.define_inline(&ident, sig, code);
+            ctx.define_inline(&ident, sig, vec![code]);
         }
 
         // Allocates the first stack frame
@@ -168,8 +168,8 @@ impl<'a> CodegenCtx<'a> {
     pub fn allocate_tempoary(&mut self, var_type: Type) -> TempoaryIdent {
         let ident = TempoaryIdent(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
-        assert!(var_type.width() == 0 || self.cursor > 0);
-        let offset = Offset(self.cursor - 1);
+        assert!(self.cursor > var_type.width());
+        let offset = Offset(self.cursor - var_type.width());
 
         self.top_scope_frame()
             .temporaries
@@ -216,10 +216,10 @@ impl<'a> CodegenCtx<'a> {
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
             (
-                ClacToken::Call {
+                vec![ClacToken::Call {
                     mangled_ident: mangled.clone(),
                     stack_delta: signature.stack_delta(),
-                },
+                }],
                 signature.clone(),
             ),
         );
@@ -243,7 +243,9 @@ impl<'a> CodegenCtx<'a> {
 
                 // Name arg as a tempoary
                 let tempoary = TempoaryIdent(id_counter.fetch_add(1, Ordering::Relaxed));
-                frame.temporaries.insert(tempoary, (*var_type, cur_offset));
+                frame
+                    .temporaries
+                    .insert(tempoary, (var_type.clone(), cur_offset));
                 assert!(
                     frame
                         .locals
@@ -251,7 +253,7 @@ impl<'a> CodegenCtx<'a> {
                             ident,
                             AnnotatedDataRef {
                                 reference: DataReference::Tempoary(tempoary),
-                                data_type: *var_type,
+                                data_type: var_type.clone(),
                             },
                         )
                         .is_none(),
@@ -361,7 +363,10 @@ impl<'a> CodegenCtx<'a> {
 
         self.top_scope_frame().definitions.insert(
             StoredDefinitionIdent(def_ident),
-            (ClacToken::Number(value.as_repr()), signature),
+            (
+                value.as_repr().into_iter().map(ClacToken::Number).collect(),
+                signature,
+            ),
         );
 
         Ok(def_ident)
@@ -371,13 +376,13 @@ impl<'a> CodegenCtx<'a> {
         &mut self,
         ident: IdentRef<'a>,
         sig: FunctionSignature<'a>,
-        token: ClacToken,
+        tokens: Vec<ClacToken>,
     ) -> DefinitionIdent<'a> {
         let def_ident = DefinitionIdent::Inline(ident);
 
         self.top_scope_frame()
             .definitions
-            .insert(StoredDefinitionIdent(def_ident), (token, Arc::new(sig)));
+            .insert(StoredDefinitionIdent(def_ident), (tokens, Arc::new(sig)));
 
         def_ident
     }
@@ -409,7 +414,9 @@ impl<'a> CodegenCtx<'a> {
                         bail!("Constant '{ident}' has a non zero number of arguements: {sig:?}");
                     }
 
-                    self.push_token(func_impl)?;
+                    for token in func_impl.to_vec() {
+                        self.push_token(token)?;
+                    }
                 }
                 DataReference::Local(ident) => {
                     let AnnotatedDataRef {
@@ -486,7 +493,7 @@ impl<'a> CodegenCtx<'a> {
         Ok(MaybeTailCall::TailCall {
             parameters,
             signature: sig,
-            tokens: Arc::new(vec![func_impl]),
+            tokens: Arc::new(func_impl.to_vec()),
             call_span,
         })
     }
@@ -494,7 +501,7 @@ impl<'a> CodegenCtx<'a> {
     pub fn lookup_function_like_signature(
         &self,
         ident: IdentRef<'a>,
-    ) -> Option<(ClacToken, Arc<FunctionSignature<'a>>)> {
+    ) -> Option<(Vec<ClacToken>, Arc<FunctionSignature<'a>>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((func_impl, sig)) = frame.definitions.get(&DefinitionIdent::Inline(ident)) {
                 return Some((func_impl.clone(), sig.clone()));
@@ -511,7 +518,7 @@ impl<'a> CodegenCtx<'a> {
     pub fn lookup_definition(
         &self,
         ident: DefinitionIdent<'a>,
-    ) -> Option<(ClacToken, Arc<FunctionSignature<'a>>)> {
+    ) -> Option<(Vec<ClacToken>, Arc<FunctionSignature<'a>>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((func_impl, sig)) = frame.definitions.get(&ident) {
                 return Some((func_impl.clone(), sig.clone()));
@@ -525,13 +532,13 @@ impl<'a> CodegenCtx<'a> {
         self.scope_stack
             .last()
             .and_then(|it| it.locals.get(ident))
-            .copied()
+            .cloned()
     }
 
     pub fn lookup_temporary(&self, ident: TempoaryIdent) -> Option<(Type, Offset)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((var_type, offset)) = frame.temporaries.get(&ident) {
-                return Some((*var_type, *offset));
+                return Some((var_type.clone(), *offset));
             }
         }
 
@@ -546,7 +553,7 @@ impl<'a> CodegenCtx<'a> {
                 if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(ident)) {
                     return Some(AnnotatedDataRef {
                         reference: DataReference::Const(ident),
-                        data_type: sig.return_type,
+                        data_type: sig.return_type.clone(),
                     });
                 }
             }
@@ -567,15 +574,15 @@ impl<'a> CodegenCtx<'a> {
                     .reference,
             ),
             DataReference::Const(constant) => {
-                let (token, _sig) = self.lookup_definition(DefinitionIdent::Const(constant))
+                let (tokens, _sig) = self.lookup_definition(DefinitionIdent::Const(constant))
                     .ok_or_else(|| {
                         eyre!(
                             "Attempted to deref a data reference pointing to a non existant constant"
                         )
                     })?;
 
-                if let ClacToken::Number(num) = token {
-                    Ok(DataReference::Number(num))
+                if let [ClacToken::Number(num)] = &tokens[..] {
+                    Ok(DataReference::Number(*num))
                 } else {
                     Ok(DataReference::Const(constant))
                 }

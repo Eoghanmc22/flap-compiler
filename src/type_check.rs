@@ -40,7 +40,7 @@ impl<'a> TypeCheckerFrame<'a> {
                 .variables
                 .iter()
                 .filter(|(_, (_, kind))| *kind == VariableKind::Capture)
-                .map(|(ident, (data_type, _))| (*ident, *data_type))
+                .map(|(ident, (data_type, _))| (*ident, data_type.clone()))
                 .collect(),
         }
     }
@@ -123,7 +123,7 @@ impl<'a> TypeChecker<'a> {
 
         self.define_scope(|ctx| {
             for (var_type, ident) in &signature.arguements {
-                ctx.define_variable(ident, *var_type, VariableKind::Local);
+                ctx.define_variable(ident, var_type.clone(), VariableKind::Local);
             }
 
             (scope)(ctx)
@@ -159,13 +159,13 @@ impl<'a> TypeChecker<'a> {
 
     pub fn lookup_variable(&mut self, ident: IdentRef<'a>) -> Option<Type> {
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
-            if let Some((var_type, kind)) = frame.variables.get(ident).copied() {
+            if let Some((var_type, kind)) = frame.variables.get(ident).cloned() {
                 for frame in self.scope_stack.iter_mut().rev().take(idx) {
                     match kind {
                         VariableKind::Local | VariableKind::Capture => {
                             let prev = frame
                                 .variables
-                                .insert(ident, (var_type, VariableKind::Capture));
+                                .insert(ident, (var_type.clone(), VariableKind::Capture));
                             assert!(prev.is_none());
                         }
                         VariableKind::Constant => {}
@@ -187,10 +187,7 @@ pub trait TypeCheck<'a> {
 impl TypeCheck<'_> for Value {
     #[instrument(name = "typecheck_value", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type> {
-        match self {
-            Value::Int(_) => Ok(Type::Int),
-            Value::Bool(_) => Ok(Type::Bool),
-        }
+        Ok(self.compute_type())
     }
 }
 
@@ -356,7 +353,7 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             }
         }
 
-        Ok(sig.return_type)
+        Ok(sig.return_type.clone())
     }
 }
 
@@ -367,7 +364,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
             self.function,
             FunctionSignature {
                 arguements: self.arguements.clone(),
-                return_type: self.return_type,
+                return_type: self.return_type.clone(),
             },
             |ctx| self.contents.check_and_resolve_types(ctx),
         );
@@ -430,7 +427,7 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        ctx.define_variable(self.name, self.var_type, VariableKind::Constant);
+        ctx.define_variable(self.name, self.var_type.clone(), VariableKind::Constant);
 
         // The const definition it self should not have a retuen type
         Ok(Type::Void)
@@ -460,7 +457,7 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        ctx.define_variable(self.name, self.var_type, VariableKind::Local);
+        ctx.define_variable(self.name, self.var_type.clone(), VariableKind::Local);
 
         // The Local Definition it self should not have a rrtuen type
         Ok(Type::Void)
@@ -555,10 +552,10 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
             Ok(())
         });
 
-        self.return_type = DeferedType::ResolvedType(expected_type);
+        self.return_type = DeferedType::ResolvedType(expected_type.clone());
         self.captures = DeferedCaptures::ResolvedCaptures(frame.get_captures());
 
-        rst.map(|()| expected_type)
+        rst.map(|_| expected_type)
     }
 }
 

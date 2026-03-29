@@ -451,21 +451,63 @@ impl<'a> ClacOp<'a> {
 
                     assert_eq!(def_true, def_false);
 
-                    out.consume(ClacToken::If)?;
-                    out.consume(on_true_impl)?;
-                    out.consume(ClacToken::Number(1))?;
-                    out.consume(ClacToken::Skip)?;
-                    out.consume_silent(on_false_impl)?;
+                    match &on_true_impl[..] {
+                        [] => out.consume(ClacToken::Drop)?,
+                        [true_token] => {
+                            out.consume(ClacToken::If)?;
+                            out.consume(true_token.clone())?;
+                            out.consume(ClacToken::Number(on_false_impl.len() as _))?;
+                            out.consume(ClacToken::Skip)?;
 
-                    def_true.return_type
+                            for token in on_false_impl {
+                                out.consume(token)?;
+                            }
+                        }
+                        [..] => {
+                            out.consume(ClacToken::Number(on_false_impl.len() as ClacValue + 2))?;
+                            out.consume(ClacToken::Mul)?;
+                            out.consume(ClacToken::Skip)?;
+
+                            for token in on_false_impl {
+                                out.consume(token)?;
+                            }
+
+                            out.consume(ClacToken::Number(on_true_impl.len() as _))?;
+                            out.consume(ClacToken::Skip)?;
+
+                            for token in on_true_impl {
+                                out.consume(token)?;
+                            }
+                        }
+                    }
+
+                    def_true.return_type.clone()
                 } else {
                     assert!(def_true.stack_delta() <= 0);
                     assert!(def_true.return_width() == 0);
 
-                    out.consume(ClacToken::If)?;
-                    out.consume(on_true_impl)?;
-                    out.consume(ClacToken::Number(-def_true.stack_delta()))?;
-                    out.consume(ClacToken::Skip)?;
+                    match &on_true_impl[..] {
+                        [] => out.consume(ClacToken::Drop)?,
+                        [true_token] => {
+                            out.consume(ClacToken::If)?;
+                            out.consume(true_token.clone())?;
+                            out.consume(ClacToken::Number(-def_true.stack_delta()))?;
+                            out.consume(ClacToken::Skip)?;
+                        }
+                        [..] => {
+                            out.consume(ClacToken::Number(1));
+                            out.consume(ClacToken::Swap);
+                            out.consume(ClacToken::Sub);
+
+                            out.consume(ClacToken::Number(on_true_impl.len() as _))?;
+                            out.consume(ClacToken::Mul)?;
+                            out.consume(ClacToken::Skip)?;
+
+                            for token in on_true_impl {
+                                out.consume(token)?;
+                            }
+                        }
+                    }
 
                     for _ in 0..-def_true.stack_delta() {
                         out.consume_silent(ClacToken::Drop)?;
@@ -479,11 +521,12 @@ impl<'a> ClacOp<'a> {
                     .ctx()
                     .lookup_definition(*name)
                     .expect("Call valid definition");
-                let return_type = def.return_type;
 
-                out.consume(func_impl)?;
+                for token in func_impl {
+                    out.consume(token)?;
+                }
 
-                return_type
+                def.return_type.clone()
             }
             ClacOp::Inline {
                 tokens, signature, ..
@@ -492,7 +535,7 @@ impl<'a> ClacOp<'a> {
                     out.consume(token.clone())?;
                 }
 
-                signature.return_type
+                signature.return_type.clone()
             }
         };
 

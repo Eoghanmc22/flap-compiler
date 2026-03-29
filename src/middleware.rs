@@ -13,9 +13,10 @@ use crate::{
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall,
-        clac::ClacProgram,
-        ir::{ClacOp, DataReference, FunctionSignature},
+        clac::{ClacProgram, ClacToken},
+        ir::{ClacOp, DataReference, FunctionSignature, TokenConsumer},
     },
+    type_check::TypeCheck,
 };
 
 #[instrument(skip(ctx), fields(%block))]
@@ -75,9 +76,9 @@ fn walk_function_def<'a>(ctx: &mut CodegenCtx<'a>, func_def: &'a FunctionDef) ->
             arguements: func_def
                 .arguements
                 .iter()
-                .map(|(var_type, ident)| (*var_type, *ident))
+                .map(|(var_type, ident)| (var_type.clone(), *ident))
                 .collect(),
-            return_type: func_def.return_type,
+            return_type: func_def.return_type.clone(),
         },
         &func_def.attributes,
         move |ctx| walk_block(ctx, &func_def.contents),
@@ -108,7 +109,7 @@ fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Resu
     };
 
     // TODO: this wont be okay once we have wide types
-    ctx.define_const(name, *var_type, Value::Int(expr_value))?;
+    ctx.define_const(name, var_type.clone(), Value::Int(expr_value))?;
 
     Ok(())
 }
@@ -116,7 +117,7 @@ fn walk_const_def<'a>(ctx: &mut CodegenCtx<'a>, const_def: &'a ConstDef) -> Resu
 #[instrument(skip(ctx), fields(%local_def))]
 fn walk_local_def<'a>(ctx: &mut CodegenCtx<'a>, local_def: &'a LocalDef) -> Result<()> {
     let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
-    ctx.promote_to_local(data_ref, local_def.name, local_def.var_type);
+    ctx.promote_to_local(data_ref, local_def.name, local_def.var_type.clone());
 
     Ok(())
 }
@@ -137,9 +138,9 @@ fn walk_if_expr<'a>(ctx: &mut CodegenCtx<'a>, if_expr: &'a IfExpr) -> Result<May
             .unwrap()
             .captures
             .iter()
-            .map(|(a, b)| (*b, *a))
+            .map(|(a, b)| (b.clone(), *a))
             .collect(),
-        return_type: if_expr.return_type.unwrap(),
+        return_type: if_expr.return_type.clone().unwrap(),
     };
 
     trace!("if signature: {sig:?}");
@@ -222,7 +223,19 @@ fn walk_if_statement_inner<'a>(
 #[instrument(skip(ctx), fields(%expr))]
 fn walk_expr<'a>(ctx: &mut CodegenCtx<'a>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
     match expr {
-        Expr::Value(value, _span) => Ok(DataReference::Number(value.as_repr()).into()),
+        Expr::Value(value, _span) => {
+            let repr = value.as_repr();
+            match repr[..] {
+                [] => Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)).into()),
+                [number] => Ok(DataReference::Number(number).into()),
+                [..] => {
+                    for val in repr {
+                        ctx.push_token(ClacToken::Number(val))?;
+                    }
+                    Ok(DataReference::Tempoary(ctx.allocate_tempoary(value.compute_type())).into())
+                }
+            }
+        }
         Expr::Ident(ident, span) => Ok(ctx
             .lookup_ident_data_ref(ident)
             .map(|it| it.reference)
