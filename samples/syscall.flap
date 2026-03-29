@@ -17,18 +17,18 @@ int write(int fd, int buf, int count) {
 }
 
 int page = mmap(NULL, 4096, PROT_READ + PROT_WRITE, MAP_PRIVATE + MAP_ANON, -1, 0);
-write8(page, 104);
-write8(page+1, 101);
-write8(page+2, 108);
-write8(page+3, 108);
-write8(page+4, 111);
-write8(page+5, 32);
-write8(page+6, 119);
-write8(page+7, 111);
-write8(page+8, 114);
-write8(page+9, 108);
-write8(page+10, 100);
-write8(page+11, 33);
-write8(page+12, 10);
+write8(page, 'h');
+write8(page+1, 'e');
+write8(page+2, 'l');
+write8(page+3, 'l');
+write8(page+4, 'o');
+write8(page+5, ' ');
+write8(page+6, 'w');
+write8(page+7, 'o');
+write8(page+8, 'r');
+write8(page+9, 'l');
+write8(page+10, 'd');
+write8(page+11, '!');
+write8(page+12, '\n');
 
 write(1, page, 13);

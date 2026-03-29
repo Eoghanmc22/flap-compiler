@@ -9,7 +9,8 @@ number = @{ ("0x" ~ (ASCII_HEX_DIGIT | "_")+) | ("0b" ~ (ASCII_BIN_DIGIT | "_")+
 true = { "true" }
 false = { "false" }
 boolean = @{ true | false }
-value = { number | boolean }
+char = @{ "'" ~ ("\\n" | "\\t" | ASCII) ~ "'" }
+value = { number | boolean | char }
 
 ident_start_chars = { ASCII_ALPHA | "_" }
 ident_chars = { ASCII_ALPHANUMERIC | "_" }

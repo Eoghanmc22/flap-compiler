@@ -124,5 +124,19 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         ),
     );
 
+    map.insert(
+        "width_native",
+        (
+            ClacToken::Call {
+                mangled_ident: MangledIdent(Arc::new("width_native".to_string())),
+                stack_delta: 1,
+            },
+            FunctionSignature {
+                arguements: vec![],
+                return_type: Type::Int,
+            },
+        ),
+    );
+
     map
 }

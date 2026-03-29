@@ -35,7 +35,7 @@
 : comment Start Definitions ;
 : func-h-0 3 pick 4 3 drop_range ;
 : func-f-4 4 9 16 func-h-0 ;
-: func-test1-6 func-f-4 1 pick print drop ;
+: func-test1-5 func-f-4 1 pick print drop ;
 
 : comment Start Main ;
-func-test1-6 func-f-4 1 pick print
+func-test1-5 func-f-4 1 pick print

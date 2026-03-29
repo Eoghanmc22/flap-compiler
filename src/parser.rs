@@ -382,6 +382,15 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .with_section(|| generate_span_error_section(target.as_span()))?,
         )),
         Rule::boolean => Ok(Value::Bool(target.as_str().parse()?)),
+        Rule::char => Ok(Value::Int(
+            target
+                .as_str()
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .chars()
+                .nth(1)
+                .context("char")? as i32,
+        )),
         _ => {
             return Err(eyre!("Unexpected value: {:?}", target)
                 .with_section(|| generate_span_error_section(target.as_span())));

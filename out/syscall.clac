@@ -20,26 +20,26 @@
     }
     
     int page = mmap(NULL, 4096, PROT_READ + PROT_WRITE, MAP_PRIVATE + MAP_ANON, -1, 0);
-    write8(page, 104);
-    write8(page+1, 101);
-    write8(page+2, 108);
-    write8(page+3, 108);
-    write8(page+4, 111);
-    write8(page+5, 32);
-    write8(page+6, 119);
-    write8(page+7, 111);
-    write8(page+8, 114);
-    write8(page+9, 108);
-    write8(page+10, 100);
-    write8(page+11, 33);
-    write8(page+12, 10);
+    write8(page, 'h');
+    write8(page+1, 'e');
+    write8(page+2, 'l');
+    write8(page+3, 'l');
+    write8(page+4, 'o');
+    write8(page+5, ' ');
+    write8(page+6, 'w');
+    write8(page+7, 'o');
+    write8(page+8, 'r');
+    write8(page+9, 'l');
+    write8(page+10, 'd');
+    write8(page+11, '!');
+    write8(page+12, '\n');
     
     write(1, page, 13);
 ;
 
 : comment Start Definitions ;
-: func-mmap-0 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 7 6 drop_range ;
-: func-write-8 1 4 pick 4 pick 4 pick 0 0 0 syscall 4 3 drop_range ;
+: func-mmap-0 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick 13 6 drop_range syscall ;
+: func-write-7 1 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
 
 : comment Start Main ;
-0 4096 3 34 -1 0 func-mmap-0 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 1 14 pick 13 func-write-8
+0 4096 3 34 -1 0 func-mmap-0 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 1 14 pick 13 func-write-7
