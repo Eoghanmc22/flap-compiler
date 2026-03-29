@@ -1,80 +1,82 @@
 // TODO: Structs, Arrays, Tuples
 
-multiline_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+multiline_comment  = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
-COMMENT = _{ multiline_comment | singleline_comment }
-WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT            = _{ multiline_comment | singleline_comment }
+WHITESPACE         = _{ " " | "\t" | "\r" | "\n" }
 
-number = @{ ("0x" ~ (ASCII_HEX_DIGIT | "_")+) | ("0b" ~ (ASCII_BIN_DIGIT | "_")+) | ("0o" ~ (ASCII_OCT_DIGIT | "_")+) | (ASCII_DIGIT | "_")+  }
-true = { "true" }
-false = { "false" }
+number  = @{ ("0x" ~ (ASCII_HEX_DIGIT | "_")+) | ("0b" ~ (ASCII_BIN_DIGIT | "_")+) | ("0o" ~ (ASCII_OCT_DIGIT | "_")+) | (ASCII_DIGIT | "_")+ }
+true    =  { "true" }
+false   =  { "false" }
 boolean = @{ true | false }
-char = @{ "'" ~ ("\\n" | "\\t" | ASCII) ~ "'" }
-value = { number | boolean | char }
+char    = @{ "'" ~ ("\\n" | "\\t" | ASCII) ~ "'" }
+value   =  { number | boolean | char }
 
-ident_start_chars = { ASCII_ALPHA | "_" }
-ident_chars = { ASCII_ALPHANUMERIC | "_" }
-ident = @{ ident_start_chars+ ~ ident_chars* }
+ident_start_chars =  { ASCII_ALPHA | "_" }
+ident_chars       =  { ASCII_ALPHANUMERIC | "_" }
+ident             = @{ ident_start_chars+ ~ ident_chars* }
 
-int_type = { "int" }
+int_type  = { "int" }
 bool_type = { "bool" }
 void_type = { "void" }
-var_type = { int_type | bool_type | void_type }
+var_type  = { int_type | bool_type | void_type }
 
 // Arithmetic operators
-add = { "+" }
+add      = { "+" }
 subtract = { "-" }
-negate = { "-" }
+negate   = { "-" }
 multiply = { "*" }
-divide = { "/" }
-modulo = { "%" }
-power = { "**" }
+divide   = { "/" }
+modulo   = { "%" }
+power    = { "**" }
 
 // Comparison operators
 eq = { "==" }
 ne = { "!=" }
-le = { "<=" }  // Must come before "<" to avoid tokenizing "<=" as "<" + "="
-ge = { ">=" }  // Must come before ">" to avoid tokenizing ">=" as ">" + "="
+le = { "<=" }
+// Must come before "<" to avoid tokenizing "<=" as "<" + "="
+ge = { ">=" }
+// Must come before ">" to avoid tokenizing ">=" as ">" + "="
 lt = { "<" }
 gt = { ">" }
 
 // Logical operators
 logical_and = { "&&" }
-logical_or = { "||" }
+logical_or  = { "||" }
 logical_not = { "!" }
 
 // Bit operators
-shr = { ">>" }
-shl = { "<<" }
+shr     = { ">>" }
+shl     = { "<<" }
 bit_and = { "&" }
 
-binary_op = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
-unary_op = _{ negate | logical_not }
-atom = _{ if_statement | function_call | value | ident | ( "(" ~ expression ~ ")") }
-expression = { unary_op? ~ atom ~ (binary_op ~ unary_op? ~atom)* }
+binary_op  = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
+unary_op   = _{ negate | logical_not }
+atom       = _{ if_statement | function_call | value | ident | ("(" ~ expression ~ ")") }
+expression =  { unary_op? ~ atom ~ (binary_op ~ unary_op? ~ atom)* }
 
 // A const_var can only take on the value of a literal
 const_var = { "const" ~ var_type ~ ident ~ "=" ~ expression }
 local_var = { var_type ~ ident ~ "=" ~ expression }
 
-function_parameters = _{ ( expression ~ ("," ~ expression)* )? }
-function_call = { ident ~ "(" ~ function_parameters ~ ")"  }
+function_parameters = _{ (expression ~ ("," ~ expression)*)? }
+function_call       =  { ident ~ "(" ~ function_parameters ~ ")" }
 
-if_block = { "if" ~ "(" ~ expression ~ ")" ~ block }
+if_block      =  { "if" ~ "(" ~ expression ~ ")" ~ block }
 if_else_block = _{ "else" ~ if_block }
-else_block = { "else" ~ block }
-if_statement = { if_block ~ if_else_block* ~ else_block? }
+else_block    =  { "else" ~ block }
+if_statement  =  { if_block ~ if_else_block* ~ else_block? }
 
-semicolon = { ";" }
+semicolon =  { ";" }
 statement = _{ ((const_var | local_var | expression) ~ semicolon) | function_def | if_statement }
 
-no_mangle = { "no_mangle" }
-function_attr = { no_mangle }
-function_attrs = _{ ("#" ~ "[" ~ function_attr ~ "]")* }
-function_parameters_def = _{ ( var_type ~ ident ~ ("," ~ var_type ~ ident)* )? }
-function_def = { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
+no_mangle               =  { "no_mangle" }
+function_attr           =  { no_mangle }
+function_attrs          = _{ ("#" ~ "[" ~ function_attr ~ "]")* }
+function_parameters_def = _{ (var_type ~ ident ~ ("," ~ var_type ~ ident)*)? }
+function_def            =  { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
 
-block = { "{" ~ code ~ "}" | statement | expression }
-code = _{ statement* ~ expression? }
+block =  { "{" ~ code ~ "}" | statement | expression }
+code  = _{ statement* ~ expression? }
 
 program = { SOI ~ code ~ EOI }
