@@ -72,7 +72,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         "write8",
         (
             ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("syscall".to_string())),
+                mangled_ident: MangledIdent(Arc::new("write8".to_string())),
                 stack_delta: -2,
             },
             FunctionSignature {
@@ -86,7 +86,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         "writeNative",
         (
             ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("syscall".to_string())),
+                mangled_ident: MangledIdent(Arc::new("writeNative".to_string())),
                 stack_delta: -2,
             },
             FunctionSignature {
@@ -100,7 +100,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         "read8",
         (
             ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("syscall".to_string())),
+                mangled_ident: MangledIdent(Arc::new("read8".to_string())),
                 stack_delta: 0,
             },
             FunctionSignature {
@@ -114,7 +114,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         "readNative",
         (
             ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("syscall".to_string())),
+                mangled_ident: MangledIdent(Arc::new("readNative".to_string())),
                 stack_delta: 0,
             },
             FunctionSignature {
