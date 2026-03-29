@@ -460,7 +460,7 @@ impl<'a> ClacOp<'a> {
                             out.consume(ClacToken::Skip)?;
 
                             for token in on_false_impl {
-                                out.consume(token)?;
+                                out.consume_silent(token)?;
                             }
                         }
                         [..] => {
@@ -476,7 +476,7 @@ impl<'a> ClacOp<'a> {
                             out.consume(ClacToken::Skip)?;
 
                             for token in on_true_impl {
-                                out.consume(token)?;
+                                out.consume_silent(token)?;
                             }
                         }
                     }
@@ -495,9 +495,9 @@ impl<'a> ClacOp<'a> {
                             out.consume(ClacToken::Skip)?;
                         }
                         [..] => {
-                            out.consume(ClacToken::Number(1));
-                            out.consume(ClacToken::Swap);
-                            out.consume(ClacToken::Sub);
+                            out.consume(ClacToken::Number(1))?;
+                            out.consume(ClacToken::Swap)?;
+                            out.consume(ClacToken::Sub)?;
 
                             out.consume(ClacToken::Number(on_true_impl.len() as _))?;
                             out.consume(ClacToken::Mul)?;

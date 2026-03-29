@@ -14,9 +14,8 @@ use crate::{
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall,
         clac::{ClacProgram, ClacToken},
-        ir::{ClacOp, DataReference, FunctionSignature, TokenConsumer},
+        ir::{ClacOp, DataReference, FunctionSignature},
     },
-    type_check::TypeCheck,
 };
 
 #[instrument(skip(ctx), fields(%block))]

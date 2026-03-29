@@ -11,7 +11,7 @@
 ;
 
 : comment Start Definitions ;
-: func-test-0 -1217910897 ;
+: func-test-0 3077056399 ;
 
 : comment Start Main ;
 func-test-0 1 pick

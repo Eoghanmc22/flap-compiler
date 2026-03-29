@@ -168,7 +168,7 @@ impl<'a> CodegenCtx<'a> {
     pub fn allocate_tempoary(&mut self, var_type: Type) -> TempoaryIdent {
         let ident = TempoaryIdent(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
-        assert!(self.cursor > var_type.width());
+        assert!(self.cursor >= var_type.width());
         let offset = Offset(self.cursor - var_type.width());
 
         self.top_scope_frame()
@@ -467,9 +467,12 @@ impl<'a> CodegenCtx<'a> {
 
         if !self.top_scope_frame().allow_underflow {
             // Sanity check
+            let frame_start = self.top_scope_frame().frame_start;
             assert!(
-                self.cursor >= self.top_scope_frame().frame_start,
-                "COMPILER BUG: underflowed stack frame on token `{token:?}`"
+                self.cursor >= frame_start,
+                "COMPILER BUG: underflowed stack frame on token `{token:?}`, cursor: {}, frame_start: {}",
+                self.cursor,
+                frame_start
             );
         }
 

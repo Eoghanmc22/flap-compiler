@@ -14,7 +14,7 @@
 // - Add data flow analysis and instruction reordering
 // - Use Skip instead of If for conditionals in code gen
 // - Stanley's syscall extensions
-#![feature(push_mut, try_blocks)]
+#![feature(try_blocks)]
 
 use std::{
     ffi::OsStr,
