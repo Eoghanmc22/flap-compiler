@@ -206,9 +206,9 @@ pub trait TypeCheck<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>>;
 }
 
-impl TypeCheck<'_> for Value {
+impl<'a> TypeCheck<'a> for Value<'a> {
     #[instrument(name = "typecheck_value", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'static>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'a>> {
         Ok(self.compute_type())
     }
 }
@@ -565,7 +565,7 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
         };
 
         let mismatched_type = match (&*target_type, &expr_type) {
-            (Type::Char, Type::String(_)) => false,
+            (target_type, Type::Array(array_type, _len)) => target_type != &**array_type,
             (target_type, expr_type) => target_type != expr_type,
         };
 
@@ -585,7 +585,7 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
             );
         }
 
-        self.value_type = DeferedType::ResolvedType(expr_type);
+        self.value_type = DeferedType::ResolvedType((*target_type).clone());
 
         // The pointer assignment it self should not have a return type
         Ok(Type::Void)

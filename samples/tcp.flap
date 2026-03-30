@@ -102,29 +102,7 @@ char *malloc(int size) {
 char *scratch = malloc(BUFFER_SIZE);
 char *buf = malloc(BUFFER_SIZE);
 
-*(buf + 0) = 'h';
-*(buf + 1) = 'i';
-*(buf + 2) = ' ';
-*(buf + 3) = 'f';
-*(buf + 4) = 'r';
-*(buf + 5) = 'o';
-*(buf + 6) = 'm';
-*(buf + 7) = ' ';
-*(buf + 8) = 'c';
-*(buf + 9) = 'l';
-*(buf + 10) = 'a';
-*(buf + 11) = 'c';
-*(buf + 12) = ' ';
-*(buf + 13) = 'o';
-*(buf + 14) = 'v';
-*(buf + 15) = 'e';
-*(buf + 16) = 'r';
-*(buf + 17) = ' ';
-*(buf + 18) = 'T';
-*(buf + 19) = 'C';
-*(buf + 20) = 'P';
-*(buf + 21) = '!';
-*(buf + 22) = '\n';
+*buf = "hi from clac over TCP!\n";
 
 // Create Socket
 int server_fd = socket(AF_INET, SOCK_STREAM, 0);

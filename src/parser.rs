@@ -318,6 +318,15 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
 
             Type::Struct(map)
         }
+        Rule::array_type => {
+            let mut array_type = type_token.into_inner();
+
+            let field_type = parse_type(array_type.next().unwrap())?;
+            let field_count = parse_number(array_type.next().unwrap())?;
+            assert!(array_type.next().is_none());
+
+            Type::Array(field_type.into(), field_count)
+        }
         Rule::named_type => Type::Typedef(type_token.as_str()),
         _ => {
             return Err(eyre!("Unknown type: {:?}", type_token)
@@ -463,14 +472,16 @@ fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
 }
 
 #[instrument]
+fn parse_number(pair: Pair<Rule>) -> Result<ClacValue> {
+    parse_int::parse(pair.as_str()).with_section(|| generate_span_error_section(pair.as_span()))
+}
+
+#[instrument]
 fn parse_value(pair: Pair<Rule>) -> Result<Value> {
     let target = pair.into_inner().next().unwrap();
 
     match target.as_rule() {
-        Rule::number => Ok(Value::Int(
-            parse_int::parse(target.as_str())
-                .with_section(|| generate_span_error_section(target.as_span()))?,
-        )),
+        Rule::number => Ok(Value::Int(parse_number(target)?)),
         Rule::boolean => Ok(Value::Bool(target.as_str().parse()?)),
         Rule::char => Ok(Value::Char(
             target
@@ -491,7 +502,7 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .replace("\\n", "\n")
                 .replace("\\t", "\t")
                 .replace("\\0", "\0")
-                .to_string(),
+                .into(),
         )),
         _ => {
             return Err(eyre!("Unexpected value: {:?}", target)

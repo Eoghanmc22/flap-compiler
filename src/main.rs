@@ -38,8 +38,8 @@ use crate::{
     codegen::{
         CodegenCtx,
         post_process::{
-            AttributionPostProcessor, ExtractDefinitionsPostProcessor, PostProcesser,
-            SourceCodeCommentPostProcessor,
+            AttributionPostProcessor, CheckNativeWidth, ExtractDefinitionsPostProcessor,
+            PostProcesser, SourceCodeCommentPostProcessor,
         },
     },
     type_check::{TypeCheck, TypeChecker},
@@ -120,6 +120,7 @@ fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
 
     let post_processors: [&mut dyn PostProcesser; _] = [
         &mut ExtractDefinitionsPostProcessor,
+        // &mut CheckNativeWidth,
         &mut SourceCodeCommentPostProcessor(&source_code),
         &mut AttributionPostProcessor,
     ];

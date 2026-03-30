@@ -5,6 +5,7 @@ use color_eyre::eyre::{Result, eyre};
 use core::fmt;
 use pest::Span;
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashSet},
     fmt::{Debug, Display},
     ops::BitOr,
@@ -44,20 +45,25 @@ pub trait AsSpan {
 }
 
 #[derive(Debug, Clone)]
-pub enum Value {
-    String(String),
+pub enum Value<'a> {
+    String(Cow<'a, str>),
+    Array(Type<'a>, Vec<Value<'a>>),
     Int(ClacValue),
     Char(ClacValue),
     Bool(bool),
 }
 
-impl Value {
+impl<'a> Value<'a> {
     pub fn as_repr(&self) -> Vec<ClacValue> {
         match self {
             Value::Int(int) => vec![*int],
             Value::Char(int) => vec![*int],
             Value::Bool(bool) => vec![*bool as _],
             Value::String(items) => items.bytes().map(|it| it as ClacValue).collect(),
+            Value::Array(_, items) => items
+                .iter()
+                .flat_map(|it| it.as_repr().into_iter())
+                .collect(),
         }
     }
 
@@ -65,30 +71,40 @@ impl Value {
         self.as_repr().into_iter().fold(0, BitOr::bitor) != 0
     }
 
-    pub fn compute_type(&self) -> Type<'static> {
+    pub fn compute_type(&self) -> Type<'a> {
         match self.clone() {
             Value::Int(_) => Type::Int,
             Value::Char(_) => Type::Char,
             Value::Bool(_) => Type::Bool,
-            Value::String(items) => Type::String(items.len() as ClacValue),
+            Value::String(items) => Type::Array(Type::Char.into(), items.len() as ClacValue),
+            Value::Array(inner_type, items) => {
+                Type::Array(inner_type.into(), items.len() as ClacValue)
+            }
         }
     }
 }
 
-impl Display for Value {
+impl<'a> Display for Value<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Int(int) => <ClacValue as Display>::fmt(int, f),
             Value::Char(char) => <ClacValue as Display>::fmt(char, f),
             Value::Bool(bool) => <bool as Display>::fmt(bool, f),
-            Value::String(data) => <String as Display>::fmt(data, f),
+            Value::String(data) => <Cow<'a, str> as Display>::fmt(data, f),
+            Value::Array(_, values) => {
+                write!(f, "[")?;
+                for value in values {
+                    write!(f, "{value},")?;
+                }
+                write!(f, "]")
+            }
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Expr<'a> {
-    Value(Value, Span<'a>),
+    Value(Value<'a>, Span<'a>),
     Path(Vec<IdentRef<'a>>, Span<'a>),
     Struct(BTreeMap<IdentRef<'a>, Expr<'a>>, DeferedType<'a>, Span<'a>),
     BinaryOp {
@@ -194,12 +210,18 @@ impl Display for BinaryOp {
     }
 }
 
+pub enum Stride {
+    Native,
+    Byte,
+    ZST,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Type<'a> {
     Typedef(IdentRef<'a>),
     Struct(BTreeMap<IdentRef<'a>, Type<'a>>),
     Pointer(Box<Type<'a>>),
-    String(ClacValue),
+    Array(Box<Type<'a>>, ClacValue),
     Int,
     Char,
     Bool,
@@ -217,7 +239,7 @@ impl Display for Type<'_> {
             Type::Char => write!(f, "char"),
             Type::Bool => write!(f, "bool"),
             Type::Void => write!(f, "void"),
-            Type::String(len) => write!(f, "string[{len}]"),
+            Type::Array(inner_type, len) => write!(f, "[{inner_type}, {len}]"),
         }
     }
 }
@@ -302,7 +324,21 @@ impl<'a> Type<'a> {
                 .sum::<Result<ClacValue>>(),
             Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => Ok(1),
             Type::Void => Ok(0),
-            Type::String(len) => Ok(*len),
+            Type::Array(inner_type, len) => Ok(inner_type.width(ctx)? * *len),
+        }
+    }
+
+    pub fn stride(&self, ctx: &TypeChecker<'a>) -> Result<Stride> {
+        match self {
+            Type::Typedef(ident) => ctx
+                .typedefs
+                .get(ident)
+                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .and_then(|it| it.stride(ctx)),
+            Type::Char => Ok(Stride::Byte),
+            Type::Void => Ok(Stride::ZST),
+            // Type::Array(inner_type, _len) => inner_type.stride(ctx),
+            _ => Ok(Stride::Native),
         }
     }
 }

@@ -9,8 +9,8 @@ use tracing::{instrument, trace};
 use crate::{
     ast::{
         AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef,
-        FunctionSignature, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation, Statement, Type,
-        Typedef, UnaryOp, Value,
+        FunctionSignature, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation, Statement, Stride,
+        Type, Typedef, UnaryOp, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -139,47 +139,75 @@ fn walk_ptr_assign<'a, 'b>(
     };
 
     let width = deref_type.width(ctx.type_checker)?;
-    match (width, deref_type.resolve(ctx.type_checker)?) {
-        (1, Type::Char) => ctx.call_function_like(
-            "write8",
-            vec![target_data_ref, expr_data_ref],
-            ptr_assign.span,
-        ),
-        (0, _) => {
-            return Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into());
+    let stride = deref_type.stride(ctx.type_checker)?;
+    match (width, stride) {
+        (0, _) => {}
+        (_, Stride::ZST) => unreachable!(),
+        (1, Stride::Byte) => {
+            ctx.call_function_like(
+                "write8",
+                vec![target_data_ref, expr_data_ref],
+                ptr_assign.span,
+            )?
+            .into_data_ref(ctx)?;
         }
-        (1, _) => {
-            return ctx.call_function_like(
+        (1, Stride::Native) => {
+            ctx.call_function_like(
                 "write_native",
                 vec![target_data_ref, expr_data_ref],
                 ptr_assign.span,
-            );
+            )?
+            .into_data_ref(ctx)?;
         }
-        (width, Type::String(len)) => {
-            assert_eq!(width, len);
-
-            for idx in 0..len {
+        (width, Stride::Byte) => {
+            for idx in 0..width {
                 let char = DataReference::Tempoary(ctx.allocate_tempoary_relative(
                     Type::Char,
                     expr_data_ref,
                     Offset(idx),
                 )?);
 
-                let target_char = ClacOp::Add {
-                    lhs: target_data_ref,
-                    rhs: DataReference::Number(idx as ClacValue),
-                }
-                .append_into(ctx)?;
+                let target_char = if idx != 0 {
+                    ClacOp::Add {
+                        lhs: target_data_ref,
+                        rhs: DataReference::Number(idx as ClacValue),
+                    }
+                    .append_into(ctx)?
+                } else {
+                    target_data_ref
+                };
 
                 ctx.call_function_like("write8", vec![target_char, char], ptr_assign.span)?
                     .into_data_ref(ctx)?;
             }
-
-            return Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into());
         }
-        // TODO: emit an unrolled loop that read_natives all width values
-        _ => todo!(),
+        (width, Stride::Native) => {
+            for idx in 0..width {
+                let int = DataReference::Tempoary(ctx.allocate_tempoary_relative(
+                    Type::Int,
+                    expr_data_ref,
+                    Offset(idx),
+                )?);
+
+                let target_int = if idx != 0 {
+                    ClacOp::Add {
+                        lhs: target_data_ref,
+                        rhs: DataReference::Number(
+                            idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
+                        ),
+                    }
+                    .append_into(ctx)?
+                } else {
+                    target_data_ref
+                };
+
+                ctx.call_function_like("write_native", vec![target_int, int], ptr_assign.span)?
+                    .into_data_ref(ctx)?;
+            }
+        }
     }
+
+    return Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into());
 }
 
 #[instrument(skip(ctx), fields(%if_expr))]
@@ -381,27 +409,66 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
                     };
 
+                    // TODO: make this support the MaybeTailCall infra so that it wont get compiled
+                    // if it is never used.
                     let deref_type = operand_type.dereference(ctx.type_checker)?;
                     let width = deref_type.width(ctx.type_checker)?;
-                    match (width, deref_type.resolve(ctx.type_checker)?) {
-                        (1, Type::Char) => {
-                            let value = value.into_data_ref(ctx)?;
+                    let stride = deref_type.stride(ctx.type_checker)?;
+                    match (width, stride) {
+                        (0, _) => {}
+                        (_, Stride::ZST) => unreachable!(),
+                        (1, Stride::Byte) => {
+                            let target_data_ref = value.into_data_ref(ctx)?;
+                            ctx.call_function_like("read8", vec![target_data_ref], *span)?
+                                .into_data_ref(ctx)?;
+                        }
+                        (1, Stride::Native) => {
+                            let target_data_ref = value.into_data_ref(ctx)?;
 
-                            return ctx.call_function_like("read8", vec![value], *span);
+                            ctx.call_function_like("read_native", vec![target_data_ref], *span)?
+                                .into_data_ref(ctx)?;
                         }
-                        (0, _) => {
-                            return Ok(
-                                DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into()
-                            );
-                        }
-                        (1, _) => {
-                            let value = value.into_data_ref(ctx)?;
+                        (width, Stride::Byte) => {
+                            let target_data_ref = value.into_data_ref(ctx)?;
 
-                            return ctx.call_function_like("read_native", vec![value], *span);
+                            for idx in 0..width {
+                                let target_char = if idx != 0 {
+                                    ClacOp::Add {
+                                        lhs: target_data_ref,
+                                        rhs: DataReference::Number(idx as ClacValue),
+                                    }
+                                    .append_into(ctx)?
+                                } else {
+                                    target_data_ref
+                                };
+
+                                ctx.call_function_like("read8", vec![target_char], *span)?
+                                    .into_data_ref(ctx)?;
+                            }
                         }
-                        // TODO: emit an unrolled loop that read_natives all width values
-                        _ => todo!(),
+                        (width, Stride::Native) => {
+                            let target_data_ref = value.into_data_ref(ctx)?;
+
+                            for idx in 0..width {
+                                let target_int = if idx != 0 {
+                                    ClacOp::Add {
+                                        lhs: target_data_ref,
+                                        rhs: DataReference::Number(
+                                            idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
+                                        ),
+                                    }
+                                    .append_into(ctx)?
+                                } else {
+                                    target_data_ref
+                                };
+
+                                ctx.call_function_like("read_native", vec![target_int], *span)?
+                                    .into_data_ref(ctx)?;
+                            }
+                        }
                     }
+
+                    return Ok(DataReference::Tempoary(ctx.allocate_tempoary(deref_type)?).into());
                 }
             };
 

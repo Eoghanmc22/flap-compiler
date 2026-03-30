@@ -32,9 +32,10 @@ char_type    = { "char" }
 int_type     = { "int" }
 bool_type    = { "bool" }
 void_type    = { "void" }
+array_type    = { "[" ~ var_type ~ ";" ~ number ~ "]" }
 named_type   = { ident }
 pointer_type = { "*" }
-var_type     = { (char_type | int_type | bool_type | void_type | struct_type | named_type) ~ pointer_type* }
+var_type     = { (char_type | int_type | bool_type | void_type | struct_type | array_type | named_type) ~ pointer_type* }
 
 typedef = { "typedef" ~ var_type ~ ident ~ ";" }
 

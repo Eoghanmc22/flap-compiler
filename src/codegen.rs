@@ -189,7 +189,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     ) -> Result<TempoaryIdent> {
         let DataReference::Tempoary(base) = self.dereference_data_ref(base)? else {
             return Err(eyre!(
-                "UNIMPLEMENTED: Can only allocate a tempoary relative to another tempoary"
+                "UNIMPLEMENTED: Can only allocate a tempoary relative to another tempoary, attempted: {base:?}"
             ));
         };
 

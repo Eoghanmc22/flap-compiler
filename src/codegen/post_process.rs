@@ -1,6 +1,6 @@
 use std::mem;
 
-use crate::codegen::clac::{ClacProgram, ClacToken};
+use crate::codegen::clac::{ClacProgram, ClacToken, ClacValue, MangledIdent};
 
 pub trait PostProcesser {
     fn process(&mut self, program: &mut ClacProgram);
@@ -105,6 +105,29 @@ impl PostProcesser for SourceCodeCommentPostProcessor<'_> {
         // program.0.push(ClacToken::Comment(self.0.to_string()));
 
         program.0.push(ClacToken::NewLine);
+        program.0.extend_from_slice(&original);
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct CheckNativeWidth;
+
+impl PostProcesser for CheckNativeWidth {
+    fn process(&mut self, program: &mut ClacProgram) {
+        let original = mem::take(program).0;
+
+        program
+            .0
+            .push(ClacToken::Number(ClacValue::BITS as ClacValue / 8));
+        program.0.push(ClacToken::Call {
+            mangled_ident: MangledIdent("width_native".to_string().into()),
+            stack_delta: 1,
+        });
+        program.0.push(ClacToken::Sub);
+        program.0.push(ClacToken::If);
+        program.0.push(ClacToken::Number(-1));
+        program.0.push(ClacToken::Print);
+        program.0.push(ClacToken::Quit);
         program.0.extend_from_slice(&original);
     }
 }
