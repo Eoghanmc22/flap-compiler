@@ -19,13 +19,16 @@ code for more details.
 Make sure the Rust programming language is installed
 
 ```sh $ cargo +nightly install --git
-https://github.com/Eoghanmc22/flap-compiler.git --locked ```
+https://github.com/Eoghanmc22/flap-compiler.git --locked
+```
 
 ## Usage
 
 The compile subcommand takes a list of files to compile
 
-```sh $ flap-compiler compile [files to compile...] ```
+```sh
+$ flap-compiler compile [files to compile...]
+```
 
 ## Architecture
 

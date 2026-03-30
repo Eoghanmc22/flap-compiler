@@ -31,7 +31,6 @@ named_type   = { ident }
 pointer_type = { "*" }
 var_type     = { (char_type | int_type | bool_type | void_type | struct_type | named_type) ~ pointer_type* }
 
-// TODO:
 typedef = { "typedef" ~ var_type ~ ident ~ ";" }
 
 // Arithmetic operators
