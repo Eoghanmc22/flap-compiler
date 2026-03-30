@@ -30,7 +30,10 @@ impl_display! {
     FunctionDef<'_>,
     FunctionCall<'_>,
     IfExpr<'_>,
-    Block<'_>
+    Block<'_>,
+    LocalDef<'_>,
+    Typedef<'_>,
+    PtrAssign<'_>
 }
 
 pub type Ident = String;
@@ -458,12 +461,6 @@ impl AsSpan for LocalDef<'_> {
     }
 }
 
-impl Display for LocalDef<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\n{}", self.as_span().as_str())
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct PtrAssign<'a> {
     pub target: Expr<'a>,
@@ -479,12 +476,6 @@ impl AsSpan for PtrAssign<'_> {
     }
 }
 
-impl Display for PtrAssign<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\n{}", self.as_span().as_str())
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Typedef<'a> {
     pub type_alias: Type<'a>,
@@ -495,12 +486,6 @@ pub struct Typedef<'a> {
 impl AsSpan for Typedef<'_> {
     fn as_span(&self) -> Span<'_> {
         self.span
-    }
-}
-
-impl Display for Typedef<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\n{}", self.as_span().as_str())
     }
 }
 
