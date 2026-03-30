@@ -120,7 +120,7 @@ fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
 
     let post_processors: [&mut dyn PostProcesser; _] = [
         &mut ExtractDefinitionsPostProcessor,
-        // &mut CheckNativeWidth,
+        &mut CheckNativeWidth,
         &mut SourceCodeCommentPostProcessor(&source_code),
         &mut AttributionPostProcessor,
     ];
