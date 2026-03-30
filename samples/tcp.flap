@@ -59,7 +59,6 @@ int setsockopt(int sockfd, int level, int optname, char *optvalue, int optlen) {
 
 typedef void sockaddr;
 int bind(int sockfd, sockaddr *addr_struct, int addr_struct_len) {
-  print((int)addr_struct);
   handle_error(
       syscall(0x31, sockfd, (int)addr_struct, addr_struct_len, 0, 0, 0))
 }
@@ -69,7 +68,6 @@ int listen(int sockfd, int backlog) {
 }
 
 int accept(int sockfd, sockaddr *addr_struct, int *addr_struct_len) {
-  print((int)addr_struct);
   handle_error(
       syscall(0x2b, sockfd, (int)addr_struct, (int)addr_struct_len, 0, 0, 0))
 }
@@ -101,11 +99,8 @@ char *malloc(int size) {
   mmap((char *)NULL, size, prot, flags, -1, 0)
 }
 
-print(0);
-
-char *scratch = malloc(4096);
-char *buf = malloc(4096);
-print(1);
+char *scratch = malloc(BUFFER_SIZE);
+char *buf = malloc(BUFFER_SIZE);
 
 *(buf + 0) = 'h';
 *(buf + 1) = 'i';
@@ -133,12 +128,10 @@ print(1);
 
 // Create Socket
 int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-print(2);
 
 // Allow Socket Reuse
 *((int *)scratch) = 1;
 setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, int_width());
-print(3);
 
 // Configure server address
 *(scratch + 0) = (char)AF_INET;
@@ -159,15 +152,12 @@ print(3);
 *(scratch + 15) = (char)0;
 
 bind(server_fd, (sockaddr *)scratch, 16);
-print(4);
 listen(server_fd, 3);
-print(5);
 
 void loop(int server_fd, char *scratch, char *buf) {
   int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
-  print(6);
 
-  write(client_fd, buf, 23);
+  write_all(client_fd, buf, 23);
   close(client_fd);
 
   loop(server_fd, scratch, buf);

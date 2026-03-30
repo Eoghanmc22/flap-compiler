@@ -6,7 +6,6 @@ const int SOCK_STREAM = 1;
 const int SOL_SOCKET = 1;
 const int SO_REUSEADDR = 2;
 const int INADDR_ANY = 0;
-const int SEEK_SET = 0;
 
 const int PROT_EXEC = 4;
 const int PROT_READ = 1;
@@ -44,10 +43,6 @@ int write(int fd, char *buf, int count) {
   handle_error(syscall(0x01, fd, (int)buf, count, 0, 0, 0))
 }
 
-int lseak(int fd, int offset, int whence) {
-  handle_error(syscall(0x08, fd, offset, whence, 0, 0, 0))
-}
-
 int open(char *name, int flags, int mode) {
   handle_error(syscall(0x02, (int)name, flags, mode, 0, 0, 0))
 }
@@ -77,6 +72,8 @@ int accept(int sockfd, sockaddr *addr_struct, int *addr_struct_len) {
       syscall(0x2b, sockfd, (int)addr_struct, (int)addr_struct_len, 0, 0, 0))
 }
 
+int fork() { handle_error(syscall(0x39, 0, 0, 0, 0, 0, 0)) }
+
 int read_all(int fd, char *buf, int count) {
   int new = read(fd, buf, count);
 
@@ -97,6 +94,17 @@ int write_all(int fd, char *buf, int count) {
   }
 }
 
+int copy_all(char *buf, int buf_len, int src_fd, int dst_fd) {
+  int in = read(src_fd, buf, buf_len);
+
+  if (in > 0) {
+    write_all(dst_fd, buf, in);
+    in + copy_all(buf, buf_len, src_fd, dst_fd)
+  } else {
+    0
+  }
+}
+
 char *malloc(int size) {
   const int prot = PROT_READ + PROT_WRITE;
   const int flags = MAP_PRIVATE + MAP_ANON;
@@ -106,22 +114,6 @@ char *malloc(int size) {
 
 char *scratch = malloc(BUFFER_SIZE);
 char *buf = malloc(BUFFER_SIZE);
-
-*(buf + 0) = '.';
-*(buf + 1) = '/';
-*(buf + 2) = 't';
-*(buf + 3) = 'e';
-*(buf + 4) = 's';
-*(buf + 5) = 't';
-*(buf + 6) = '.';
-*(buf + 7) = 'h';
-*(buf + 8) = 't';
-*(buf + 9) = 't';
-*(buf + 10) = 'p';
-*(buf + 11) = (char)0;
-
-int content_fd = open(buf, 0, 0);
-int content_len = read_all(content_fd, buf, BUFFER_SIZE);
 
 // Create Socket
 int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -151,13 +143,36 @@ setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, int_width());
 bind(server_fd, (sockaddr *)scratch, 16);
 listen(server_fd, 3);
 
-void loop(int server_fd, char *scratch, char *buf, int content_len) {
-  int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
-
-  write_all(client_fd, buf, content_len);
-  close(client_fd);
-
-  loop(server_fd, scratch, buf, content_len);
+void client_loop(int client_fd, char *buf) {
+  if (copy_all(buf, BUFFER_SIZE, client_fd, client_fd) != 0) {
+    client_loop(client_fd, buf);
+  }
 }
 
-loop(server_fd, scratch, buf, content_len);
+void loop(int server_fd, char *buf) {
+  int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
+
+  if (fork() == 0) {
+    print(12345);
+    client_loop(client_fd, buf);
+    print(99999);
+    close(client_fd);
+
+    quit();
+    print(67);
+    quit();
+    print(67);
+    quit();
+    print(67);
+    quit();
+    print(67);
+    quit();
+    print(42);
+  }
+
+  close(client_fd);
+
+  loop(server_fd, buf);
+}
+
+loop(server_fd, buf);
