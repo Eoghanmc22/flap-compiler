@@ -1,0 +1,205 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    const int BUFFER_SIZE = 4096;
+    const int PORT = 8080;
+    
+    const int AF_INET = 2;
+    const int SOCK_STREAM = 1;
+    const int SOL_SOCKET = 1;
+    const int SO_REUSEADDR = 2;
+    const int INADDR_ANY = 0;
+    
+    const int PROT_EXEC = 4;
+    const int PROT_READ = 1;
+    const int PROT_WRITE = 2;
+    const int PROT_NONE = 0;
+    
+    const int MAP_PRIVATE = 2;
+    const int MAP_ANON = 32;
+    
+    const int STDIN = 0;
+    const int STDOUT = 1;
+    const int STDERR = 2;
+    
+    const int NULL = 0;
+    
+    int handle_error(int res) {
+      if (res == -1) {
+        print(67676767);
+        quit();
+      }
+    
+      res
+    }
+    
+    char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
+      (char *)handle_error(
+          syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
+    }
+    
+    int read(int fd, char *buf, int count) {
+      handle_error(syscall(0x00, fd, (int)buf, count, 0, 0, 0))
+    }
+    
+    int write(int fd, char *buf, int count) {
+      handle_error(syscall(0x01, fd, (int)buf, count, 0, 0, 0))
+    }
+    
+    int open(char *name, int flags, int mode) {
+      handle_error(syscall(0x02, (int)name, flags, mode, 0, 0, 0))
+    }
+    
+    int close(int fd) { handle_error(syscall(0x03, fd, 0, 0, 0, 0, 0)) }
+    
+    int socket(int domain, int type, int protocol) {
+      handle_error(syscall(0x29, (int)domain, type, protocol, 0, 0, 0))
+    }
+    
+    int setsockopt(int sockfd, int level, int optname, char *optvalue, int optlen) {
+      handle_error(syscall(0x36, sockfd, level, optname, (int)optvalue, optlen, 0))
+    }
+    
+    typedef void sockaddr;
+    int bind(int sockfd, sockaddr *addr_struct, int addr_struct_len) {
+      print((int)addr_struct);
+      handle_error(
+          syscall(0x31, sockfd, (int)addr_struct, addr_struct_len, 0, 0, 0))
+    }
+    
+    int listen(int sockfd, int backlog) {
+      handle_error(syscall(0x32, sockfd, backlog, 0, 0, 0, 0))
+    }
+    
+    int accept(int sockfd, sockaddr *addr_struct, int *addr_struct_len) {
+      print((int)addr_struct);
+      handle_error(
+          syscall(0x2b, sockfd, (int)addr_struct, (int)addr_struct_len, 0, 0, 0))
+    }
+    
+    int read_all(int fd, char *buf, int count) {
+      int new = read(fd, buf, count);
+    
+      if (new != 0) {
+        new + read_all(fd, buf + new, count - new)
+      } else {
+        0
+      }
+    }
+    
+    int write_all(int fd, char *buf, int count) {
+      int new = write(fd, buf, count);
+    
+      if (new != 0) {
+        new + write_all(fd, buf + new, count - new)
+      } else {
+        0
+      }
+    }
+    
+    char *malloc(int size) {
+      const int prot = PROT_READ + PROT_WRITE;
+      const int flags = MAP_PRIVATE + MAP_ANON;
+    
+      mmap((char *)NULL, size, prot, flags, -1, 0)
+    }
+    
+    print(0);
+    
+    char *scratch = malloc(4096);
+    char *buf = malloc(4096);
+    print(1);
+    
+    *(buf + 0) = 'h';
+    *(buf + 1) = 'i';
+    *(buf + 2) = ' ';
+    *(buf + 3) = 'f';
+    *(buf + 4) = 'r';
+    *(buf + 5) = 'o';
+    *(buf + 6) = 'm';
+    *(buf + 7) = ' ';
+    *(buf + 8) = 'c';
+    *(buf + 9) = 'l';
+    *(buf + 10) = 'a';
+    *(buf + 11) = 'c';
+    *(buf + 12) = ' ';
+    *(buf + 13) = 'o';
+    *(buf + 14) = 'v';
+    *(buf + 15) = 'e';
+    *(buf + 16) = 'r';
+    *(buf + 17) = ' ';
+    *(buf + 18) = 'T';
+    *(buf + 19) = 'C';
+    *(buf + 20) = 'P';
+    *(buf + 21) = '!';
+    *(buf + 22) = '\n';
+    
+    // Create Socket
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    print(2);
+    
+    // Allow Socket Reuse
+    *((int *)scratch) = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, int_width());
+    print(3);
+    
+    // Configure server address
+    *(scratch + 0) = (char)AF_INET;
+    *(scratch + 1) = (char)0;
+    *(scratch + 2) = (char)(PORT >> 8);
+    *(scratch + 3) = (char)(PORT & 0xFF);
+    *(scratch + 4) = (char)0;
+    *(scratch + 5) = (char)0;
+    *(scratch + 6) = (char)0;
+    *(scratch + 7) = (char)0;
+    *(scratch + 8) = (char)0;
+    *(scratch + 9) = (char)0;
+    *(scratch + 10) = (char)0;
+    *(scratch + 11) = (char)0;
+    *(scratch + 12) = (char)0;
+    *(scratch + 13) = (char)0;
+    *(scratch + 14) = (char)0;
+    *(scratch + 15) = (char)0;
+    
+    bind(server_fd, (sockaddr *)scratch, 16);
+    print(4);
+    listen(server_fd, 3);
+    print(5);
+    
+    void loop(int server_fd, char *scratch, char *buf) {
+      int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
+      print(6);
+    
+      write(client_fd, buf, 23);
+      close(client_fd);
+    
+      loop(server_fd, scratch, buf);
+    }
+    
+    loop(server_fd, scratch, buf);
+;
+
+: comment Start Definitions ;
+: func-on_true-3 67676767 print quit drop ;
+: func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
+: func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
+: func-read-17 0 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-write-22 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-open-27 2 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-close-32 3 2 pick 0 0 0 0 0 syscall 1 pick 3 2 drop_range func-handle_error-0 ;
+: func-socket-35 41 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-setsockopt-40 54 6 pick 6 pick 6 pick 6 pick 6 pick 0 syscall 1 pick 7 6 drop_range func-handle_error-0 ;
+: func-bind-47 2 pick print 49 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-listen-53 50 3 pick 3 pick 0 0 0 0 syscall 1 pick 4 3 drop_range func-handle_error-0 ;
+: func-accept-57 2 pick print 43 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-on_true-69 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-read_all-63 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-78 0 5 4 drop_range ;
+: func-read_all-63 3 pick 3 pick 3 pick func-read-17 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-69 1 skip func-on_false-78 ;
+: func-on_true-89 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-83 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-98 0 5 4 drop_range ;
+: func-write_all-83 3 pick 3 pick 3 pick func-write-22 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-89 1 skip func-on_false-98 ;
+: func-malloc-103 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
+: func-loop-197 3 pick 0 0 func-accept-57 6 print 1 pick 3 pick 23 func-write-22 2 pick func-close-32 6 pick 6 pick 6 pick func-loop-197 6 6 drop_range ;
+
+: comment Start Main ;
+0 print 4096 func-malloc-103 4096 func-malloc-103 1 print 1 pick 0 + 1 pick 104 write8 2 pick 1 + 1 pick 105 write8 3 pick 2 + 1 pick 32 write8 4 pick 3 + 1 pick 102 write8 5 pick 4 + 1 pick 114 write8 6 pick 5 + 1 pick 111 write8 7 pick 6 + 1 pick 109 write8 8 pick 7 + 1 pick 32 write8 9 pick 8 + 1 pick 99 write8 10 pick 9 + 1 pick 108 write8 11 pick 10 + 1 pick 97 write8 12 pick 11 + 1 pick 99 write8 13 pick 12 + 1 pick 32 write8 14 pick 13 + 1 pick 111 write8 15 pick 14 + 1 pick 118 write8 16 pick 15 + 1 pick 101 write8 17 pick 16 + 1 pick 114 write8 18 pick 17 + 1 pick 32 write8 19 pick 18 + 1 pick 84 write8 20 pick 19 + 1 pick 67 write8 21 pick 20 + 1 pick 80 write8 22 pick 21 + 1 pick 33 write8 23 pick 22 + 1 pick 10 write8 2 1 0 func-socket-35 2 print 26 pick 1 write_native width_native 2 pick 1 2 30 pick 5 pick func-setsockopt-40 3 print 28 pick 0 + 1 pick 2 write8 29 pick 1 + 1 pick 0 write8 30 pick 2 + 1 pick 31 write8 31 pick 3 + 1 pick 144 write8 32 pick 4 + 1 pick 0 write8 33 pick 5 + 1 pick 0 write8 34 pick 6 + 1 pick 0 write8 35 pick 7 + 1 pick 0 write8 36 pick 8 + 1 pick 0 write8 37 pick 9 + 1 pick 0 write8 38 pick 10 + 1 pick 0 write8 39 pick 11 + 1 pick 0 write8 40 pick 12 + 1 pick 0 write8 41 pick 13 + 1 pick 0 write8 42 pick 14 + 1 pick 0 write8 43 pick 15 + 1 pick 0 write8 19 pick 45 pick 16 func-bind-47 4 print 20 pick 3 func-listen-53 5 print 21 pick 47 pick 47 pick func-loop-197
