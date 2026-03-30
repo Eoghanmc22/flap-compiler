@@ -24,7 +24,7 @@ person dude = struct {
 
 person make_dude() {
   struct {
-    age = 5;
+    age = 10;
     inner = struct {
       brain_cells = 2;
       job = struct {

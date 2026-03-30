@@ -27,7 +27,7 @@
     
     person make_dude() {
       struct {
-        age = 5;
+        age = 10;
         inner = struct {
           brain_cells = 2;
           job = struct {
@@ -49,7 +49,7 @@
 ;
 
 : comment Start Definitions ;
-: func-make_dude-3 100 421888 2 3 pick 3 pick 5 4 pick 4 pick 4 pick 0 5 pick 5 pick 5 pick 5 pick 5 pick 15 10 drop_range ;
+: func-make_dude-3 100 421888 2 3 pick 3 pick 10 4 pick 4 pick 4 pick 0 5 pick 5 pick 5 pick 5 pick 5 pick 15 10 drop_range ;
 
 : comment Start Main ;
 100 421888 2 3 pick 3 pick 5 4 pick 4 pick 4 pick 0 5 pick print 3 pick print func-make_dude-3 5 pick print 3 pick print
