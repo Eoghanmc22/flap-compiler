@@ -463,11 +463,11 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     assert!(def_true.stack_delta(out.ctx().type_checker)? <= 0);
                     assert!(def_true.return_width(out.ctx().type_checker)? == 0);
 
+                    let true_delta = def_true.stack_delta(out.ctx().type_checker)?;
+
                     match &on_true_impl[..] {
                         [] => out.consume(ClacToken::Drop)?,
                         [true_token] => {
-                            let true_delta = def_true.stack_delta(out.ctx().type_checker)?;
-
                             out.consume(ClacToken::If)?;
                             out.consume(true_token.clone())?;
                             out.consume(ClacToken::Number(-true_delta))?;
@@ -478,13 +478,15 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                             out.consume(ClacToken::Swap)?;
                             out.consume(ClacToken::Sub)?;
 
-                            out.consume(ClacToken::Number(on_true_impl.len() as _))?;
+                            out.consume(ClacToken::Number(on_true_impl.len() as ClacValue + 2))?;
                             out.consume(ClacToken::Mul)?;
                             out.consume(ClacToken::Skip)?;
 
                             for token in on_true_impl {
                                 out.consume(token)?;
                             }
+                            out.consume(ClacToken::Number(-true_delta))?;
+                            out.consume(ClacToken::Skip)?;
                         }
                     }
 
