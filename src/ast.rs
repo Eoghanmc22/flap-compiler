@@ -40,14 +40,14 @@ impl_display! {
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
-pub trait AsSpan {
-    fn as_span(&self) -> Span<'_>;
+pub trait AsSpan<'a> {
+    fn as_span(&self) -> Span<'a>;
 }
 
 #[derive(Debug, Clone)]
 pub enum Value<'a> {
     String(Cow<'a, str>),
-    Array(Type<'a>, Vec<Value<'a>>),
+    // Array(Type<'a>, Vec<Value<'a>>),
     Int(ClacValue),
     Char(ClacValue),
     Bool(bool),
@@ -60,10 +60,7 @@ impl<'a> Value<'a> {
             Value::Char(int) => vec![*int],
             Value::Bool(bool) => vec![*bool as _],
             Value::String(items) => items.bytes().map(|it| it as ClacValue).collect(),
-            Value::Array(_, items) => items
-                .iter()
-                .flat_map(|it| it.as_repr().into_iter())
-                .collect(),
+            // Value::Array(_, items) => items .iter() .flat_map(|it| it.as_repr().into_iter()) .collect(),
         }
     }
 
@@ -77,9 +74,7 @@ impl<'a> Value<'a> {
             Value::Char(_) => Type::Char,
             Value::Bool(_) => Type::Bool,
             Value::String(items) => Type::Array(Type::Char.into(), items.len() as ClacValue),
-            Value::Array(inner_type, items) => {
-                Type::Array(inner_type.into(), items.len() as ClacValue)
-            }
+            // Value::Array(inner_type, items) => { Type::Array(inner_type.into(), items.len() as ClacValue) }
         }
     }
 }
@@ -91,13 +86,7 @@ impl<'a> Display for Value<'a> {
             Value::Char(char) => <ClacValue as Display>::fmt(char, f),
             Value::Bool(bool) => <bool as Display>::fmt(bool, f),
             Value::String(data) => <Cow<'a, str> as Display>::fmt(data, f),
-            Value::Array(_, values) => {
-                write!(f, "[")?;
-                for value in values {
-                    write!(f, "{value},")?;
-                }
-                write!(f, "]")
-            }
+            // Value::Array(_, values) => { write!(f, "[")?; for value in values { write!(f, "{value},")?; } write!(f, "]") }
         }
     }
 }
@@ -107,6 +96,7 @@ pub enum Expr<'a> {
     Value(Value<'a>, Span<'a>),
     Path(Vec<IdentRef<'a>>, Span<'a>),
     Struct(BTreeMap<IdentRef<'a>, Expr<'a>>, DeferedType<'a>, Span<'a>),
+    Array(Vec<Expr<'a>>, DeferedType<'a>, Span<'a>),
     BinaryOp {
         op: BinaryOp,
         left: Box<Expr<'a>>,
@@ -125,12 +115,13 @@ pub enum Expr<'a> {
     If(IfExpr<'a>),
 }
 
-impl AsSpan for Expr<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for Expr<'a> {
+    fn as_span(&self) -> Span<'a> {
         match self {
             Expr::Value(_, span)
             | Expr::Path(_, span)
             | Expr::Struct(_, _, span)
+            | Expr::Array(_, _, span)
             | Expr::BinaryOp { span, .. }
             | Expr::UnaryOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
@@ -406,8 +397,8 @@ pub struct FunctionCall<'a> {
     pub span: Span<'a>,
 }
 
-impl AsSpan for FunctionCall<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for FunctionCall<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -429,8 +420,8 @@ pub struct FunctionDef<'a> {
     pub signature: FunctionSignature<'a>,
 }
 
-impl AsSpan for FunctionDef<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for FunctionDef<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -470,8 +461,8 @@ pub struct ConstDef<'a> {
     pub expr_span: Span<'a>,
 }
 
-impl AsSpan for ConstDef<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for ConstDef<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -483,8 +474,8 @@ pub struct IfCase<'a> {
     pub span: Span<'a>,
 }
 
-impl AsSpan for IfCase<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for IfCase<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -498,8 +489,8 @@ pub struct LocalDef<'a> {
     pub expr_span: Span<'a>,
 }
 
-impl AsSpan for LocalDef<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for LocalDef<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -514,8 +505,8 @@ pub struct PtrAssign<'a> {
     pub expr_type: DeferedType<'a>,
 }
 
-impl AsSpan for PtrAssign<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for PtrAssign<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -527,8 +518,8 @@ pub struct Typedef<'a> {
     pub span: Span<'a>,
 }
 
-impl AsSpan for Typedef<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for Typedef<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -542,8 +533,8 @@ pub struct IfExpr<'a> {
     pub span: Span<'a>,
 }
 
-impl AsSpan for IfExpr<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for IfExpr<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }
@@ -564,8 +555,8 @@ pub enum Statement<'a> {
     Typedef(Typedef<'a>),
 }
 
-impl AsSpan for Statement<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for Statement<'a> {
+    fn as_span(&self) -> Span<'a> {
         match self {
             Statement::Expr(expr, _) => expr.as_span(),
             Statement::FunctionDef(function_def) => function_def.as_span(),
@@ -585,8 +576,8 @@ pub struct Block<'a> {
     pub span: Span<'a>,
 }
 
-impl AsSpan for Block<'_> {
-    fn as_span(&self) -> Span<'_> {
+impl<'a> AsSpan<'a> for Block<'a> {
+    fn as_span(&self) -> Span<'a> {
         self.span
     }
 }

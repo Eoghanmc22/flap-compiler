@@ -355,6 +355,22 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
 
             Ok(DataReference::Tempoary(ctx.allocate_tempoary(struct_type.clone())?).into())
         }
+        Expr::Array(exprs, array_type, _span) => {
+            let DeferedType::ResolvedType(array_type) = array_type else {
+                // TODO: I think empty arrays will hit this
+                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+            };
+
+            let data_refs = exprs
+                .iter()
+                .map(|expr| walk_expr(ctx, expr)?.into_data_ref(ctx))
+                .collect::<Result<Vec<_>>>()?;
+
+            let expected_width = array_type.width(ctx.type_checker)?;
+            ctx.bring_up_references(&data_refs, expected_width)?;
+
+            Ok(DataReference::Tempoary(ctx.allocate_tempoary(array_type.clone())?).into())
+        }
         Expr::BinaryOp {
             op,
             left,

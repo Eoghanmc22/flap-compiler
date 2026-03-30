@@ -5,16 +5,16 @@ singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
 COMMENT            = _{ multiline_comment | singleline_comment }
 WHITESPACE         = _{ " " | "\t" | "\r" | "\n" }
 
-number  = @{ ("0x" ~ (ASCII_HEX_DIGIT | "_")+) | ("0b" ~ (ASCII_BIN_DIGIT | "_")+) | ("0o" ~ (ASCII_OCT_DIGIT | "_")+) | (ASCII_DIGIT | "_")+ }
-true    =  { "true" }
-false   =  { "false" }
-boolean = @{ true | false }
 
 escape       = _{ "\\n" | "\\t" | "\\0" }
 char         = @{ "'" ~ (escape | ASCII) ~ "'" }
 string_inner = @{ (!"\"" ~ ASCII)* }
 string       = ${ "\"" ~ string_inner ~ "\"" }
 
+number  = @{ ("0x" ~ (ASCII_HEX_DIGIT | "_")+) | ("0b" ~ (ASCII_BIN_DIGIT | "_")+) | ("0o" ~ (ASCII_OCT_DIGIT | "_")+) | (ASCII_DIGIT | "_")+ }
+true    =  { "true" }
+false   =  { "false" }
+boolean = @{ true | false }
 value = { number | boolean | char | string }
 
 ident_start_chars =  { ASCII_ALPHA | "_" }
@@ -28,11 +28,13 @@ struct_type       = { "struct" ~ "{" ~ struct_type_field* ~ "}" }
 struct_expr_field = { ident ~ "=" ~ expression ~ ";" }
 struct_expr       = { "struct" ~ "{" ~ struct_expr_field* ~ "}" }
 
+array_type    = { "[" ~ var_type ~ ";" ~ number ~ "]" }
+array_expr    = { "[" ~  (expression ~ ("," ~ expression)*)? ~ "]" }
+
 char_type    = { "char" }
 int_type     = { "int" }
 bool_type    = { "bool" }
 void_type    = { "void" }
-array_type    = { "[" ~ var_type ~ ";" ~ number ~ "]" }
 named_type   = { ident }
 pointer_type = { "*" }
 var_type     = { (char_type | int_type | bool_type | void_type | struct_type | array_type | named_type) ~ pointer_type* }
@@ -74,7 +76,7 @@ cast        = { "(" ~ var_type ~ ")" }
 
 binary_op  = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
 unary_op   = _{ negate | logical_not | dereference | cast }
-atom       = _{ struct_expr | if_statement | function_call | value | field_path | ("(" ~ expression ~ ")") }
+atom       = _{ array_expr | struct_expr | if_statement | function_call | value | field_path | ("(" ~ expression ~ ")") }
 expression =  { unary_op? ~ atom ~ (binary_op ~ unary_op? ~ atom)* }
 
 // A const_var can only take on the value of a literal

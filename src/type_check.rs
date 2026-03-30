@@ -8,6 +8,7 @@ use color_eyre::{
     Section,
     eyre::{Context, ContextCompat, Result, eyre},
 };
+use pest::Span;
 use tracing::instrument;
 
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
         FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
         PtrAssign, Punctuation, Statement, Type, Typedef, UnaryOp, Value,
     },
-    codegen::builtins::clac_builtins,
+    codegen::{builtins::clac_builtins, clac::ClacValue},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
 };
 
@@ -238,6 +239,44 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *defered_type = DeferedType::ResolvedType(Type::Struct(map.clone()));
 
                 Ok(Type::Struct(map))
+            }
+            Expr::Array(exprs, defered_type, span) => {
+                let types = exprs
+                    .into_iter()
+                    .map(|expr| Ok((expr.as_span(), expr.check_and_resolve_types(ctx)?)))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let mut inner_type: Option<(Span, &Type)> = None;
+                for (span, expr_type) in &types {
+                    if let Some((first, inner_type)) = inner_type {
+                        if inner_type != expr_type {
+                            return Err(eyre!("All array elements must be of the same type")
+                                .with_section(|| {
+                                    generate_span_error_section_with_annotations(
+                                        *span,
+                                        &[
+                                            (first, &format!("has the type `{inner_type:?}`")),
+                                            (*span, &format!("has differing type `{expr_type:?}`")),
+                                        ],
+                                    )
+                                }));
+                        }
+                    } else {
+                        inner_type = Some((*span, expr_type));
+                    }
+                }
+
+                if let Some((_, inner_type)) = inner_type {
+                    let arr_typ = Type::Array(inner_type.clone().into(), exprs.len() as ClacValue);
+
+                    *defered_type = DeferedType::ResolvedType(arr_typ.clone());
+                    Ok(arr_typ)
+                } else {
+                    return Err(eyre!(
+                        "Empty arrays are not supported due to type resolution limitations"
+                    )
+                    .with_section(|| generate_span_error_section(*span)));
+                }
             }
             Expr::BinaryOp {
                 op,

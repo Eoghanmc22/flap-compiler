@@ -1,0 +1,11 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    [int; 5] class = [1, 5, 2, 1, 3];
+;
+
+: comment Check that the clac interperter is using the correct native width ;
+8 width_native - if -100 print quit
+
+: comment Start Main ;
+1 5 2 1 3

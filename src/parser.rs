@@ -379,10 +379,10 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 Rule::function_call => Ok(Expr::FunctionCall(parse_function_call(primary)?)),
                 Rule::if_statement => Ok(Expr::If(parse_if_expr(primary)?)),
                 Rule::struct_expr => {
-                    let struct_value_fields = primary.into_inner();
+                    let struct_expr_fields = primary.into_inner();
                     let mut map = BTreeMap::new();
 
-                    for struct_value_field in struct_value_fields {
+                    for struct_value_field in struct_expr_fields {
                         let mut field_tokens = struct_value_field.into_inner();
 
                         let field_name = parse_ident(field_tokens.next().unwrap())?;
@@ -393,6 +393,18 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     }
 
                     Ok(Expr::Struct(map, DeferedType::UnresolvedType, span))
+                }
+                Rule::array_expr => {
+                    let array_value_fields = primary.into_inner();
+                    let mut exprs = Vec::new();
+
+                    for array_value_field in array_value_fields {
+                        let expr = parse_expr(array_value_field.into_inner())?;
+
+                        exprs.push(expr);
+                    }
+
+                    Ok(Expr::Array(exprs, DeferedType::UnresolvedType, span))
                 }
                 _ => {
                     return Err(eyre!("Unexpected primary: {:?}", primary)
