@@ -116,6 +116,10 @@ impl PostProcesser for CheckNativeWidth {
     fn process(&mut self, program: &mut ClacProgram) {
         let original = mem::take(program).0;
 
+        program.0.push(ClacToken::Comment(
+            "Check that the clac interperter is using the correct native width".into(),
+        ));
+
         program
             .0
             .push(ClacToken::Number(ClacValue::BITS as ClacValue / 8));
@@ -125,9 +129,12 @@ impl PostProcesser for CheckNativeWidth {
         });
         program.0.push(ClacToken::Sub);
         program.0.push(ClacToken::If);
-        program.0.push(ClacToken::Number(-1));
+        program.0.push(ClacToken::Number(-100));
         program.0.push(ClacToken::Print);
         program.0.push(ClacToken::Quit);
+        program.0.push(ClacToken::NewLine);
+        program.0.push(ClacToken::NewLine);
+
         program.0.extend_from_slice(&original);
     }
 }

@@ -48,7 +48,10 @@
     print(dude2.inner.job.aura);
 ;
 
-8 width_native - if -1 print quit : comment Start Definitions ;
+: comment Check that the clac interperter is using the correct native width ;
+8 width_native - if -100 print quit
+
+: comment Start Definitions ;
 : func-make_dude-3 100 421888 2 3 pick 3 pick 10 4 pick 4 pick 4 pick 0 5 pick 5 pick 5 pick 5 pick 5 pick 15 10 drop_range ;
 
 : comment Start Main ;

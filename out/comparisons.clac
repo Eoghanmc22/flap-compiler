@@ -21,5 +21,8 @@
     print_bool(1 >= 2);
 ;
 
-8 width_native - if -1 print quit : comment Start Main ;
+: comment Check that the clac interperter is using the correct native width ;
+8 width_native - if -100 print quit
+
+: comment Start Main ;
 1 print 0 print 0 print 0 print 0 print 1 print 0 print 1 print 0 print 1 print 0 print 1 print 0 print 1 print 1 print 1 print 1 print 0 print
