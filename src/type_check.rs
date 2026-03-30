@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::{self, Debug, Display},
     sync::Arc,
 };
@@ -176,8 +176,9 @@ impl<'a> TypeChecker<'a> {
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
             if let Some((var_type, kind)) = frame.variables.get(var).cloned() {
                 let mut leaf_type = var_type.clone();
-                while let [next, ..] = var_path {
+                while let [next, rem @ ..] = var_path {
                     leaf_type = leaf_type.member(self, next)?;
+                    var_path = rem
                 }
 
                 // TODO: Should this capture the outer most var or inner most?
@@ -205,9 +206,9 @@ pub trait TypeCheck<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>>;
 }
 
-impl<'a> TypeCheck<'a> for Value<'a> {
+impl TypeCheck<'_> for Value {
     #[instrument(name = "typecheck_value", fields(%self, %ctx))]
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'static>> {
         Ok(self.compute_type())
     }
 }
@@ -227,6 +228,16 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     .with_section(|| generate_span_error_section(*span))?;
 
                 Ok(var_type)
+            }
+            Expr::Struct(map, defered_type, _span) => {
+                let map = map
+                    .into_iter()
+                    .map(|(key, expr)| Ok((*key, expr.check_and_resolve_types(ctx)?)))
+                    .collect::<Result<BTreeMap<_, _>>>()?;
+
+                *defered_type = DeferedType::ResolvedType(Type::Struct(map.clone()));
+
+                Ok(Type::Struct(map))
             }
             Expr::BinaryOp {
                 op,
@@ -440,7 +451,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
         let actual_return_type = actual_return_type?;
 
-        if actual_return_type != self.signature.return_type {
+        if actual_return_type != self.signature.return_type.resolve(ctx)? {
             return Err(eyre!("Function definition returns the incorrect type")
                 .with_section(|| {
                     generate_span_error_section_with_annotations(
@@ -507,7 +518,7 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
     #[instrument(name = "typecheck_local_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?;
-        if actual_type != self.var_type {
+        if actual_type.resolve(ctx)? != self.var_type.resolve(ctx)? {
             return Err(
                 eyre!("Local definition set to the incorrect type").with_section(|| {
                     generate_span_error_section_with_annotations(

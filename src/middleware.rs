@@ -286,6 +286,21 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
             .with_section(|| generate_span_error_section(*span))?
             .into()),
+        Expr::Struct(map, struct_type, span) => {
+            let DeferedType::ResolvedType(struct_type) = struct_type else {
+                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+            };
+
+            let data_refs = map
+                .values()
+                .map(|expr| walk_expr(ctx, expr)?.into_data_ref(ctx))
+                .collect::<Result<Vec<_>>>()?;
+
+            let expected_width = struct_type.width(ctx.type_checker)?;
+            ctx.bring_up_references(&data_refs, expected_width)?;
+
+            Ok(DataReference::Tempoary(ctx.allocate_tempoary(struct_type.clone())?).into())
+        }
         Expr::BinaryOp {
             op,
             left,

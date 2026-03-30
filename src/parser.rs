@@ -368,6 +368,22 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 }
                 Rule::function_call => Ok(Expr::FunctionCall(parse_function_call(primary)?)),
                 Rule::if_statement => Ok(Expr::If(parse_if_expr(primary)?)),
+                Rule::struct_expr => {
+                    let struct_value_fields = primary.into_inner();
+                    let mut map = BTreeMap::new();
+
+                    for struct_value_field in struct_value_fields {
+                        let mut field_tokens = struct_value_field.into_inner();
+
+                        let field_name = parse_ident(field_tokens.next().unwrap())?;
+                        let field_expr = parse_expr(field_tokens.next().unwrap().into_inner())?;
+                        assert!(field_tokens.next().is_none());
+
+                        map.insert(field_name, field_expr);
+                    }
+
+                    Ok(Expr::Struct(map, DeferedType::UnresolvedType, span))
+                }
                 _ => {
                     return Err(eyre!("Unexpected primary: {:?}", primary)
                         .with_section(|| generate_span_error_section(span)));
@@ -465,22 +481,6 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .nth(1)
                 .context("char")? as ClacValue,
         )),
-        Rule::struct_value => {
-            let struct_value_fields = target.into_inner();
-            let mut map = BTreeMap::new();
-
-            for struct_value_field in struct_value_fields {
-                let mut field_tokens = struct_value_field.into_inner();
-
-                let field_name = parse_ident(field_tokens.next().unwrap())?;
-                let field_value = parse_value(field_tokens.next().unwrap())?;
-                assert!(field_tokens.next().is_none());
-
-                map.insert(field_name, field_value);
-            }
-
-            Ok(Value::Struct(map))
-        }
         _ => {
             return Err(eyre!("Unexpected value: {:?}", target)
                 .with_section(|| generate_span_error_section(target.as_span())));

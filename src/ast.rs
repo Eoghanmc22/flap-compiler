@@ -41,17 +41,15 @@ pub trait AsSpan {
 }
 
 #[derive(Debug, Clone)]
-pub enum Value<'a> {
-    Struct(BTreeMap<IdentRef<'a>, Value<'a>>),
+pub enum Value {
     Int(ClacValue),
     Char(ClacValue),
     Bool(bool),
 }
 
-impl<'a> Value<'a> {
+impl Value {
     pub fn as_repr(&self) -> Vec<ClacValue> {
         match self {
-            Value::Struct(s) => s.values().flat_map(|it| it.as_repr()).collect(),
             Value::Int(int) => vec![*int],
             Value::Char(int) => vec![*int],
             Value::Bool(bool) => vec![*bool as _],
@@ -62,13 +60,8 @@ impl<'a> Value<'a> {
         self.as_repr().into_iter().fold(0, BitOr::bitor) != 0
     }
 
-    pub fn compute_type(&self) -> Type<'a> {
+    pub fn compute_type(&self) -> Type<'static> {
         match self.clone() {
-            Value::Struct(map) => Type::Struct(
-                map.into_iter()
-                    .map(|(key, value)| (key, value.compute_type()))
-                    .collect(),
-            ),
             Value::Int(_) => Type::Int,
             Value::Char(_) => Type::Char,
             Value::Bool(_) => Type::Bool,
@@ -76,10 +69,9 @@ impl<'a> Value<'a> {
     }
 }
 
-impl Display for Value<'_> {
+impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Struct(map) => <BTreeMap<_, _> as Debug>::fmt(map, f),
             Value::Int(int) => <ClacValue as Display>::fmt(int, f),
             Value::Char(int) => <ClacValue as Display>::fmt(int, f),
             Value::Bool(bool) => <bool as Display>::fmt(bool, f),
@@ -89,8 +81,9 @@ impl Display for Value<'_> {
 
 #[derive(Debug, Clone)]
 pub enum Expr<'a> {
-    Value(Value<'a>, Span<'a>),
+    Value(Value, Span<'a>),
     Path(Vec<IdentRef<'a>>, Span<'a>),
+    Struct(BTreeMap<IdentRef<'a>, Expr<'a>>, DeferedType<'a>, Span<'a>),
     BinaryOp {
         op: BinaryOp,
         left: Box<Expr<'a>>,
@@ -114,6 +107,7 @@ impl AsSpan for Expr<'_> {
         match self {
             Expr::Value(_, span)
             | Expr::Path(_, span)
+            | Expr::Struct(_, _, span)
             | Expr::BinaryOp { span, .. }
             | Expr::UnaryOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
@@ -245,9 +239,9 @@ impl<'a> Type<'a> {
 
     pub fn member(&self, ctx: &TypeChecker<'a>, ident: IdentRef<'a>) -> Result<Type<'a>> {
         match self {
-            Type::Typedef(ident) => ctx
+            Type::Typedef(type_def_ident) => ctx
                 .typedefs
-                .get(ident)
+                .get(type_def_ident)
                 .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
                 .and_then(|it| it.member(ctx, ident)),
             Type::Struct(map) => map
@@ -264,9 +258,9 @@ impl<'a> Type<'a> {
         ident: IdentRef<'a>,
     ) -> Result<(Type<'a>, ClacValue)> {
         match self {
-            Type::Typedef(ident) => ctx
+            Type::Typedef(type_def_ident) => ctx
                 .typedefs
-                .get(ident)
+                .get(type_def_ident)
                 .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
                 .and_then(|it| it.member_and_offset(ctx, ident)),
             Type::Struct(map) => {

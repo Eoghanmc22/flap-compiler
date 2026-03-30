@@ -77,25 +77,25 @@
                       MAP_PRIVATE + MAP_ANON, -1, 0);
     
     // Put /proc/self/cmdline into page
-    write8(page + 0, '/');
-    write8(page + 1, 'p');
-    write8(page + 2, 'r');
-    write8(page + 3, 'o');
-    write8(page + 4, 'c');
-    write8(page + 5, '/');
-    write8(page + 6, 's');
-    write8(page + 7, 'e');
-    write8(page + 8, 'l');
-    write8(page + 9, 'f');
-    write8(page + 10, '/');
-    write8(page + 11, 'c');
-    write8(page + 12, 'm');
-    write8(page + 13, 'd');
-    write8(page + 14, 'l');
-    write8(page + 15, 'i');
-    write8(page + 16, 'n');
-    write8(page + 17, 'e');
-    write8(page + 18, (char)0);
+    *(page + 0) = '/';
+    *(page + 1) = 'p';
+    *(page + 2) = 'r';
+    *(page + 3) = 'o';
+    *(page + 4) = 'c';
+    *(page + 5) = '/';
+    *(page + 6) = 's';
+    *(page + 7) = 'e';
+    *(page + 8) = 'l';
+    *(page + 9) = 'f';
+    *(page + 10) = '/';
+    *(page + 11) = 'c';
+    *(page + 12) = 'm';
+    *(page + 13) = 'd';
+    *(page + 14) = 'l';
+    *(page + 15) = 'i';
+    *(page + 16) = 'n';
+    *(page + 17) = 'e';
+    *(page + 18) = (char)0;
     
     int cmdline_fd = open(page, 0, 0);
     int cmdline_len = read_all(cmdline_fd, page, len);

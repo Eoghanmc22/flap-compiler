@@ -1,0 +1,45 @@
+typedef struct {
+  int age;
+  struct {
+    int brain_cells;
+    struct {
+      int salery;
+      int aura;
+    } job;
+  } inner;
+  char *name;
+} person;
+
+person dude = struct {
+  age = 5;
+  inner = struct {
+    brain_cells = 2;
+    job = struct {
+      salery = 0x67_000;
+      aura = 100;
+    };
+  };
+  name = (char *)0;
+};
+
+person make_dude() {
+  struct {
+    age = 5;
+    inner = struct {
+      brain_cells = 2;
+      job = struct {
+        salery = 0x67_000;
+        aura = 100;
+      };
+    };
+    name = (char *)0;
+  }
+}
+
+print(dude.age);
+print(dude.inner.job.aura);
+
+person dude2 = make_dude();
+
+print(dude2.age);
+print(dude2.inner.job.aura);

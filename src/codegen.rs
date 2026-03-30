@@ -597,7 +597,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             return Err(eyre!("Variable {var}.{var_path:?} is not in scope"));
         };
 
-        while let [next, ..] = var_path {
+        while let [next, rem @ ..] = var_path {
             let (next_type, delta) = lookup
                 .data_type
                 .member_and_offset(self.type_checker, next)?;
@@ -619,6 +619,8 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     ));
                 }
             }
+
+            var_path = rem;
         }
 
         Ok(lookup)
