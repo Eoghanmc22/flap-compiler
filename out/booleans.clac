@@ -5,3 +5,4 @@
     bool b = false;
 ;
 
+8 width_native - if -1 print quit

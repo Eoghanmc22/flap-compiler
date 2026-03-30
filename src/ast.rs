@@ -510,7 +510,8 @@ pub struct PtrAssign<'a> {
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,
-    pub value_type: DeferedType<'a>,
+    pub target_type: DeferedType<'a>,
+    pub expr_type: DeferedType<'a>,
 }
 
 impl AsSpan for PtrAssign<'_> {

@@ -10,7 +10,7 @@ use crate::{
     ast::{
         AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef,
         FunctionSignature, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation, Statement, Stride,
-        Type, Typedef, UnaryOp, Value,
+        Type, UnaryOp, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -134,12 +134,16 @@ fn walk_ptr_assign<'a, 'b>(
     let expr_data_ref = walk_expr(ctx, &ptr_assign.expr)?.into_data_ref(ctx)?;
     let target_data_ref = walk_expr(ctx, &ptr_assign.target)?.into_data_ref(ctx)?;
 
-    let DeferedType::ResolvedType(deref_type) = ptr_assign.value_type.clone() else {
+    let DeferedType::ResolvedType(target_type) = ptr_assign.target_type.clone() else {
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
 
-    let width = deref_type.width(ctx.type_checker)?;
-    let stride = deref_type.stride(ctx.type_checker)?;
+    let DeferedType::ResolvedType(expr_type) = ptr_assign.expr_type.clone() else {
+        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+    };
+
+    let width = expr_type.width(ctx.type_checker)?;
+    let stride = target_type.stride(ctx.type_checker)?;
     match (width, stride) {
         (0, _) => {}
         (_, Stride::ZST) => unreachable!(),
@@ -336,7 +340,7 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
             .with_section(|| generate_span_error_section(*span))?
             .into()),
-        Expr::Struct(map, struct_type, span) => {
+        Expr::Struct(map, struct_type, _span) => {
             let DeferedType::ResolvedType(struct_type) = struct_type else {
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
             };
@@ -356,8 +360,8 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             left,
             right,
             span,
-            left_type,
-            right_type,
+            left_type: _,
+            right_type: _,
         } => {
             let lhs = walk_expr(ctx, left)?.into_data_ref(ctx)?;
             let rhs = walk_expr(ctx, right)?.into_data_ref(ctx)?;

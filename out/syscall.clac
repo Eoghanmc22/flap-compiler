@@ -27,7 +27,7 @@
     write(1, page, 13);
 ;
 
-: comment Start Definitions ;
+8 width_native - if -1 print quit : comment Start Definitions ;
 : func-mmap-0 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick 13 6 drop_range syscall ;
 : func-write-7 1 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
 

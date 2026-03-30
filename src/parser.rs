@@ -214,7 +214,8 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     expr,
                     span,
                     expr_span,
-                    value_type: DeferedType::UnresolvedType,
+                    target_type: DeferedType::UnresolvedType,
+                    expr_type: DeferedType::UnresolvedType,
                 })
             }
             Rule::typedef => {

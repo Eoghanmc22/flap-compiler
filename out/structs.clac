@@ -48,7 +48,7 @@
     print(dude2.inner.job.aura);
 ;
 
-: comment Start Definitions ;
+8 width_native - if -1 print quit : comment Start Definitions ;
 : func-make_dude-3 100 421888 2 3 pick 3 pick 10 4 pick 4 pick 4 pick 0 5 pick 5 pick 5 pick 5 pick 5 pick 15 10 drop_range ;
 
 : comment Start Main ;

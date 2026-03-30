@@ -585,7 +585,8 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
             );
         }
 
-        self.value_type = DeferedType::ResolvedType((*target_type).clone());
+        self.expr_type = DeferedType::ResolvedType(expr_type);
+        self.target_type = DeferedType::ResolvedType((*target_type).clone());
 
         // The pointer assignment it self should not have a return type
         Ok(Type::Void)

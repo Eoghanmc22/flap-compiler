@@ -10,7 +10,7 @@
     test()
 ;
 
-: comment Start Definitions ;
+8 width_native - if -1 print quit : comment Start Definitions ;
 : func-test-0 3077056399 ;
 
 : comment Start Main ;

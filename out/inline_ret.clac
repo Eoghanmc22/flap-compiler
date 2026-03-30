@@ -4,5 +4,5 @@
     42
 ;
 
-: comment Start Main ;
+8 width_native - if -1 print quit : comment Start Main ;
 42

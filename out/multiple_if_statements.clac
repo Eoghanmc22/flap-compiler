@@ -18,7 +18,7 @@
     }
 ;
 
-: comment Start Definitions ;
+8 width_native - if -1 print quit : comment Start Definitions ;
 : func-on_true-0 1 print ;
 : func-on_true-2 2 print ;
 : func-on_true-4 3 print ;
