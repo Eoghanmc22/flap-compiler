@@ -153,21 +153,10 @@ void loop(int server_fd, char *buf) {
   int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
 
   if (fork() == 0) {
-    print(12345);
     client_loop(client_fd, buf);
-    print(99999);
     close(client_fd);
 
     quit();
-    print(67);
-    quit();
-    print(67);
-    quit();
-    print(67);
-    quit();
-    print(67);
-    quit();
-    print(42);
   }
 
   close(client_fd);
