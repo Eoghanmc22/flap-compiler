@@ -45,6 +45,7 @@ pub trait AsSpan {
 
 #[derive(Debug, Clone)]
 pub enum Value {
+    String(String),
     Int(ClacValue),
     Char(ClacValue),
     Bool(bool),
@@ -56,6 +57,7 @@ impl Value {
             Value::Int(int) => vec![*int],
             Value::Char(int) => vec![*int],
             Value::Bool(bool) => vec![*bool as _],
+            Value::String(items) => items.bytes().map(|it| it as ClacValue).collect(),
         }
     }
 
@@ -68,6 +70,7 @@ impl Value {
             Value::Int(_) => Type::Int,
             Value::Char(_) => Type::Char,
             Value::Bool(_) => Type::Bool,
+            Value::String(items) => Type::String(items.len() as ClacValue),
         }
     }
 }
@@ -76,8 +79,9 @@ impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Int(int) => <ClacValue as Display>::fmt(int, f),
-            Value::Char(int) => <ClacValue as Display>::fmt(int, f),
+            Value::Char(char) => <ClacValue as Display>::fmt(char, f),
             Value::Bool(bool) => <bool as Display>::fmt(bool, f),
+            Value::String(data) => <String as Display>::fmt(data, f),
         }
     }
 }
@@ -195,6 +199,7 @@ pub enum Type<'a> {
     Typedef(IdentRef<'a>),
     Struct(BTreeMap<IdentRef<'a>, Type<'a>>),
     Pointer(Box<Type<'a>>),
+    String(ClacValue),
     Int,
     Char,
     Bool,
@@ -212,6 +217,7 @@ impl Display for Type<'_> {
             Type::Char => write!(f, "char"),
             Type::Bool => write!(f, "bool"),
             Type::Void => write!(f, "void"),
+            Type::String(len) => write!(f, "string[{len}]"),
         }
     }
 }
@@ -296,6 +302,7 @@ impl<'a> Type<'a> {
                 .sum::<Result<ClacValue>>(),
             Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => Ok(1),
             Type::Void => Ok(0),
+            Type::String(len) => Ok(*len),
         }
     }
 }

@@ -1,0 +1,8 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    "Hello world\0";
+;
+
+: comment Start Main ;
+34 72 101 108 108 111 32 119 111 114 108 100 0 34

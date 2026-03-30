@@ -40,7 +40,7 @@ lazy_static::lazy_static! {
             .op(Op::infix(bit_and, Left))
             .op(Op::prefix(cast))
             // Highest precedence
-            .op(Op::prefix(pointer_type) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
+            .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
     };
 }
 
@@ -477,9 +477,21 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .as_str()
                 .replace("\\n", "\n")
                 .replace("\\t", "\t")
+                .replace("\\0", "\0")
                 .chars()
                 .nth(1)
                 .context("char")? as ClacValue,
+        )),
+        Rule::string => Ok(Value::String(
+            target
+                .into_inner()
+                .next()
+                .unwrap()
+                .as_str()
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace("\\0", "\0")
+                .to_string(),
         )),
         _ => {
             return Err(eyre!("Unexpected value: {:?}", target)

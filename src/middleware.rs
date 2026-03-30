@@ -10,11 +10,11 @@ use crate::{
     ast::{
         AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef,
         FunctionSignature, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation, Statement, Type,
-        UnaryOp, Value,
+        Typedef, UnaryOp, Value,
     },
     codegen::{
-        AnnotatedDataRef, CodegenCtx, MaybeTailCall,
-        clac::{ClacProgram, ClacToken},
+        AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
+        clac::{ClacProgram, ClacToken, ClacValue},
         ir::{ClacOp, DataReference},
     },
 };
@@ -154,6 +154,28 @@ fn walk_ptr_assign<'a, 'b>(
                 vec![target_data_ref, expr_data_ref],
                 ptr_assign.span,
             );
+        }
+        (width, Type::String(len)) => {
+            assert_eq!(width, len);
+
+            for idx in 0..len {
+                let char = DataReference::Tempoary(ctx.allocate_tempoary_relative(
+                    Type::Char,
+                    expr_data_ref,
+                    Offset(idx),
+                )?);
+
+                let target_char = ClacOp::Add {
+                    lhs: target_data_ref,
+                    rhs: DataReference::Number(idx as ClacValue),
+                }
+                .append_into(ctx)?;
+
+                ctx.call_function_like("write8", vec![target_char, char], ptr_assign.span)?
+                    .into_data_ref(ctx)?;
+            }
+
+            return Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into());
         }
         // TODO: emit an unrolled loop that read_natives all width values
         _ => todo!(),

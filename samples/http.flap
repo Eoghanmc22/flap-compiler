@@ -107,18 +107,7 @@ char *malloc(int size) {
 char *scratch = malloc(BUFFER_SIZE);
 char *buf = malloc(BUFFER_SIZE);
 
-*(buf + 0) = '.';
-*(buf + 1) = '/';
-*(buf + 2) = 't';
-*(buf + 3) = 'e';
-*(buf + 4) = 's';
-*(buf + 5) = 't';
-*(buf + 6) = '.';
-*(buf + 7) = 'h';
-*(buf + 8) = 't';
-*(buf + 9) = 't';
-*(buf + 10) = 'p';
-*(buf + 11) = (char)0;
+*buf = "./test.http\0";
 
 int content_fd = open(buf, 0, 0);
 int content_len = read_all(content_fd, buf, BUFFER_SIZE);

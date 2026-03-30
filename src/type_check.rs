@@ -564,7 +564,12 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
             );
         };
 
-        if *target_type != expr_type {
+        let mismatched_type = match (&*target_type, &expr_type) {
+            (Type::Char, Type::String(_)) => false,
+            (target_type, expr_type) => target_type != expr_type,
+        };
+
+        if mismatched_type {
             return Err(
                 eyre!("Pointer assignment mismatching types").with_section(|| {
                     generate_span_error_section_with_annotations(

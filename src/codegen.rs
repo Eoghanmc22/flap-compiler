@@ -42,7 +42,7 @@ pub struct TempoaryIdent(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BranchIdent(pub u64);
 
-/// Repersents an offset from bottom of the stack / start of the program
+/// Represents an offset from bottom of the stack / start of the program
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Offset(pub ClacValue);
 
@@ -178,6 +178,25 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         assert!(self.cursor >= var_type.width(self.type_checker)?);
         let offset = Offset(self.cursor - var_type.width(self.type_checker)?);
 
+        Ok(self.allocate_tempoary_at(var_type, offset))
+    }
+
+    pub fn allocate_tempoary_relative(
+        &mut self,
+        var_type: Type<'a>,
+        base: DataReference<'a>,
+        rel_offset: Offset,
+    ) -> Result<TempoaryIdent> {
+        let DataReference::Tempoary(base) = self.dereference_data_ref(base)? else {
+            return Err(eyre!(
+                "UNIMPLEMENTED: Can only allocate a tempoary relative to another tempoary"
+            ));
+        };
+
+        let (base_type, base_offset) = self.lookup_temporary(base).ok_or_eyre("Bad tempoary")?;
+        assert!(0 <= rel_offset.0 && rel_offset.0 < base_type.width(self.type_checker)?);
+
+        let offset = Offset(base_offset.0 + rel_offset.0);
         Ok(self.allocate_tempoary_at(var_type, offset))
     }
 
@@ -656,7 +675,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     }
 }
 
-// Work arround for a lifetime issue
+// Work around for a lifetime issue
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StoredDefinitionIdent<'a>(pub DefinitionIdent<'a>);
 

@@ -18,18 +18,7 @@ int write(int fd, char *buf, int count) {
 
 char *page = mmap((char *)NULL, 4096, PROT_READ + PROT_WRITE,
                   MAP_PRIVATE + MAP_ANON, -1, 0);
-*(page + 0) = 'h';
-*(page + 1) = 'e';
-*(page + 2) = 'l';
-*(page + 3) = 'l';
-*(page + 4) = 'o';
-*(page + 5) = ' ';
-*(page + 6) = 'w';
-*(page + 7) = 'o';
-*(page + 8) = 'r';
-*(page + 9) = 'l';
-*(page + 10) = 'd';
-*(page + 11) = '!';
-*(page + 12) = '\n';
+
+*page = "hello world!\n";
 
 write(1, page, 13);

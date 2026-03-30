@@ -21,19 +21,8 @@
     
     char *page = mmap((char *)NULL, 4096, PROT_READ + PROT_WRITE,
                       MAP_PRIVATE + MAP_ANON, -1, 0);
-    *(page + 0) = 'h';
-    *(page + 1) = 'e';
-    *(page + 2) = 'l';
-    *(page + 3) = 'l';
-    *(page + 4) = 'o';
-    *(page + 5) = ' ';
-    *(page + 6) = 'w';
-    *(page + 7) = 'o';
-    *(page + 8) = 'r';
-    *(page + 9) = 'l';
-    *(page + 10) = 'd';
-    *(page + 11) = '!';
-    *(page + 12) = '\n';
+    
+    *page = "hello world!\n";
     
     write(1, page, 13);
 ;
@@ -43,4 +32,4 @@
 : func-write-7 1 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
 
 : comment Start Main ;
-0 4096 3 34 -1 0 func-mmap-0 1 pick 0 + 1 pick 104 write8 2 pick 1 + 1 pick 101 write8 3 pick 2 + 1 pick 108 write8 4 pick 3 + 1 pick 108 write8 5 pick 4 + 1 pick 111 write8 6 pick 5 + 1 pick 32 write8 7 pick 6 + 1 pick 119 write8 8 pick 7 + 1 pick 111 write8 9 pick 8 + 1 pick 114 write8 10 pick 9 + 1 pick 108 write8 11 pick 10 + 1 pick 100 write8 12 pick 11 + 1 pick 33 write8 13 pick 12 + 1 pick 10 write8 1 15 pick 13 func-write-7
+0 4096 3 34 -1 0 func-mmap-0 104 101 108 108 111 32 119 111 114 108 100 33 10 14 pick 0 + 1 pick 15 pick write8 15 pick 1 + 1 pick 15 pick write8 16 pick 2 + 1 pick 15 pick write8 17 pick 3 + 1 pick 15 pick write8 18 pick 4 + 1 pick 15 pick write8 19 pick 5 + 1 pick 15 pick write8 20 pick 6 + 1 pick 15 pick write8 21 pick 7 + 1 pick 15 pick write8 22 pick 8 + 1 pick 15 pick write8 23 pick 9 + 1 pick 15 pick write8 24 pick 10 + 1 pick 15 pick write8 25 pick 11 + 1 pick 15 pick write8 26 pick 12 + 1 pick 15 pick write8 1 28 pick 13 func-write-7
