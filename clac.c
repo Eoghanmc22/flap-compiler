@@ -79,12 +79,12 @@ void memcpy(char* dst, char* src, int n) {
 }
 
 // FIXME: add when it gets released
-// void int_memcpy(int* dst, int* src, int n) {
-//   if (n != 0) {
-//     *dst = *src;
-//     int_memcpy(dst+1, src+1, n-1);
-//   }
-// }
+void int_memcpy(int* dst, int* src, int n) {
+  if (n != 0) {
+    *dst = *src;
+    int_memcpy(dst+1, src+1, n-1);
+  }
+}
 
 int strlen(char* q) {
   if ((int)(*q) == 0) {
@@ -145,6 +145,21 @@ typedef struct {
 const int UBA_SIZE = 128;
 const int UBA_PREALLOC = 4096;
 
+void __uba_print_helper(int* val, int len) {
+  if (len != 0) {
+    print(*val);
+    __uba_print_helper(val + 1, len-1);
+  }
+}
+
+void uba_print(uba ub) {
+  __uba_print_helper(ub.values, ub.len);
+}
+
+int uba_len(uba ub) {
+  ub.len
+}
+
 uba uba_new() {
   int* values = (int*)malloc(UBA_PREALLOC);
   int init_capac = UBA_PREALLOC / INT_WIDTH;
@@ -155,6 +170,11 @@ uba uba_new() {
     values = values;
   }
 }
+
+// FIXME -> requires mutation
+// int uba_pop() {
+//   int new_len = 
+// }
 
 uba uba_push(uba ub, int val) {
   // FIXME: use arrow operator when it gets released
@@ -174,7 +194,7 @@ uba uba_push(uba ub, int val) {
 
     int* new_values = malloc(capacity_in_bytes * 2);
 
-    memcpy(new_values, ub.values, capacity_in_bytes);
+    int_memcpy(new_values, ub.values, ub.capacity);
     munmap(ub.values, capacity_in_bytes);
 
     struct {
