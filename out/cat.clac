@@ -88,7 +88,7 @@
 ;
 
 : comment Check that the clac interperter is using the correct native width ;
-8 width_native - if -100 print quit
+64 width_native - if -100 print quit
 
 : comment Start Definitions ;
 : func-mmap-0 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick 13 6 drop_range syscall ;

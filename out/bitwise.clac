@@ -23,7 +23,7 @@
 ;
 
 : comment Check that the clac interperter is using the correct native width ;
-8 width_native - if -100 print quit
+64 width_native - if -100 print quit
 
 : comment Start Definitions ;
 : func-test-0 100 print ;

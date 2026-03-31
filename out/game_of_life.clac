@@ -159,7 +159,7 @@
 ;
 
 : comment Check that the clac interperter is using the correct native width ;
-8 width_native - if -100 print quit
+64 width_native - if -100 print quit
 
 : comment Start Definitions ;
 : func-get_cell_index-0 7 2 pick * 3 pick 2 pick + 1 pick 5 4 drop_range ;
