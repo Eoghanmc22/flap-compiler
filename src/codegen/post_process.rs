@@ -122,7 +122,7 @@ impl PostProcesser for CheckNativeWidth {
 
         program
             .0
-            .push(ClacToken::Number(ClacValue::BITS as ClacValue / 8));
+            .push(ClacToken::Number(ClacValue::BITS as ClacValue));
         program.0.push(ClacToken::Call {
             mangled_ident: MangledIdent("width_native".to_string().into()),
             stack_delta: 1,
