@@ -676,26 +676,39 @@ fn walk_expr<'a, 'b>(
                 PrefixOp::Cast(to) => {
                     let value = walk_expr(ctx, operand)?;
 
-                    return match value {
-                        ExpressionOutput::TailCall(MaybeTailCall::Regular(ref data_reference)) => {
+                    // return match value {
+                    //     ExpressionOutput::TailCall(MaybeTailCall::Regular(ref data_reference)) => {
+                    //         match ctx.dereference_data_ref(data_reference)? {
+                    //             DataReference::Value(value) => {
+                    //                 Ok(DataReference::Value(Value::Cast(to.clone(), value.into()))
+                    //                     .into())
+                    //             }
+                    //             _ => Ok(value),
+                    //         }
+                    //     }
+                    //     tail_call @ ExpressionOutput::TailCall(MaybeTailCall::TailCall {
+                    //         ..
+                    //     }) => Ok(tail_call),
+                    //     ExpressionOutput::Dereference(expr, _expr_type, span) => {
+                    //         Ok(ExpressionOutput::Dereference(
+                    //             expr,
+                    //             Type::Pointer(to.clone().into()),
+                    //             span,
+                    //         ))
+                    //     }
+                    // };
+
+                    return match value.into_tail_call(ctx)? {
+                        MaybeTailCall::Regular(ref data_reference) => {
                             match ctx.dereference_data_ref(data_reference)? {
                                 DataReference::Value(value) => {
                                     Ok(DataReference::Value(Value::Cast(to.clone(), value.into()))
                                         .into())
                                 }
-                                _ => Ok(value),
+                                value => Ok(value.into()),
                             }
                         }
-                        tail_call @ ExpressionOutput::TailCall(MaybeTailCall::TailCall {
-                            ..
-                        }) => Ok(tail_call),
-                        ExpressionOutput::Dereference(expr, _expr_type, span) => {
-                            Ok(ExpressionOutput::Dereference(
-                                expr,
-                                Type::Pointer(to.clone().into()),
-                                span,
-                            ))
-                        }
+                        tail_call @ MaybeTailCall::TailCall { .. } => Ok(tail_call.into()),
                     };
                 }
                 PrefixOp::Dereference => {
