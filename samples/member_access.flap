@@ -1,0 +1,98 @@
+const int PROT_EXEC = 4;
+const int PROT_READ = 1;
+const int PROT_WRITE = 2;
+const int PROT_NONE = 0;
+
+const int MAP_PRIVATE = 2;
+const int MAP_ANON = 32;
+
+const int STDIN = 0;
+const int STDOUT = 1;
+const int STDERR = 2;
+
+const int NULL = 0;
+
+const int PROT_EXEC = 4;
+const int PROT_READ = 1;
+const int PROT_WRITE = 2;
+const int PROT_NONE = 0;
+
+const int MAP_PRIVATE = 2;
+const int MAP_ANON = 32;
+
+const int NULL = 0;
+
+int handle_error(int res) {
+  if (res == -1) {
+    print(67676767);
+    quit();
+  }
+
+  res
+}
+
+int write(int fd, char *buf, int count) {
+  handle_error(syscall(1, fd, (int)buf, count, 0, 0, 0))
+}
+
+char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
+  (char *)handle_error(
+      syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
+}
+
+char *malloc(int size) {
+  const int prot = PROT_READ + PROT_WRITE;
+  const int flags = MAP_PRIVATE + MAP_ANON;
+
+  mmap((char *)NULL, size, prot, flags, -1, 0)
+}
+
+int strlen(char *str) {
+  if (*str == '\0') {
+    0
+  } else {
+    1 + strlen(str + 1)
+  }
+}
+
+typedef struct {
+  int a;
+  char *b;
+
+} inner;
+
+typedef struct {
+  int a;
+  char *b;
+  inner nested;
+} test;
+
+test it = struct {
+  a = 20;
+  b = (char *)NULL;
+  nested = struct {
+    a = 50;
+    b = (char *)NULL;
+  };
+};
+
+test *heap = (test *)malloc(sizeof(it));
+*heap = it;
+
+print(heap->a);        // 20
+print(heap->nested.a); // 50
+
+heap->b = malloc(4096);
+heap->nested.b = malloc(4096);
+
+*(heap->b) = "hello world!\n\0";
+*(heap->nested.b) = "hi from inner!\n\0";
+
+heap->a = 30;
+heap->nested.a = 60;
+
+print(heap->a);        // 30
+print(heap->nested.a); // 60
+
+write(STDOUT, heap->b, strlen(heap->b));               // "hello world!"
+write(STDOUT, heap->nested.b, strlen(heap->nested.b)); // "hi from inner!"

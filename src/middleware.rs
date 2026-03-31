@@ -727,11 +727,24 @@ fn walk_expr<'a, 'b>(
                         operand_type.member_and_offset(ctx.type_checker, ident)?;
 
                     let value = walk_expr(ctx, operand)?;
-                    let data_ref = value.into_data_ref(ctx)?;
+                    match value {
+                        ExpressionOutput::TailCall(maybe_tail_call) => {
+                            let data_ref = maybe_tail_call.into_data_ref(ctx)?;
 
-                    Ok(ctx
-                        .reference_relative(field_type, data_ref, field_offset)?
-                        .into())
+                            Ok(ctx
+                                .reference_relative(field_type, data_ref, field_offset)?
+                                .into())
+                        }
+                        ExpressionOutput::Dereference(expr, expr_type, span) => walk_expr(
+                            ctx,
+                            &Expr::PostfixOp {
+                                op: PostfixOp::MemberDeref(ident),
+                                operand: expr,
+                                operand_type: DeferedType::ResolvedType(expr_type),
+                                span,
+                            },
+                        ),
+                    }
                 }
                 (Type::Pointer(inner), PostfixOp::MemberDeref(ident)) => {
                     let (field_type, field_offset) =
@@ -739,23 +752,29 @@ fn walk_expr<'a, 'b>(
 
                     assert!(field_type.stride(ctx.type_checker)? == Stride::Native);
 
-                    let offset = match (**operand).clone() {
-                        // Try to help out value propagation
-                        Expr::BinaryOp {
-                            op: BinaryOp::Add,
-                            left,
-                            left_type,
-                            right,
-                            right_type,
-                            span,
-                        } => Expr::BinaryOp {
+                    // Try to help out value propagation
+                    let offset = match ((**operand).clone(), field_offset) {
+                        (operand, Offset(0)) => operand,
+                        (
+                            Expr::BinaryOp {
+                                op: BinaryOp::Add,
+                                left,
+                                left_type,
+                                right,
+                                right_type: _,
+                                span,
+                            },
+                            _,
+                        ) => Expr::BinaryOp {
                             op: BinaryOp::Add,
                             left,
                             left_type,
                             right: Expr::BinaryOp {
                                 op: BinaryOp::Add,
                                 left: right,
-                                left_type: right_type,
+                                left_type: DeferedType::ResolvedType(Type::Pointer(
+                                    Type::Int.into(),
+                                )),
                                 right: Expr::Value(Value::Int(field_offset.0), span).into(),
                                 right_type: DeferedType::ResolvedType(Type::Int),
                                 span,
@@ -767,7 +786,7 @@ fn walk_expr<'a, 'b>(
                         _ => Expr::BinaryOp {
                             op: BinaryOp::Add,
                             left: operand.clone(),
-                            left_type: DeferedType::ResolvedType(operand_type.clone()),
+                            left_type: DeferedType::ResolvedType(Type::Pointer(Type::Int.into())),
                             right: Expr::Value(Value::Int(field_offset.0), *span).into(),
                             right_type: DeferedType::ResolvedType(Type::Int),
                             span: *span,

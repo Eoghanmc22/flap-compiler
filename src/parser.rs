@@ -41,7 +41,7 @@ lazy_static::lazy_static! {
             .op(Op::prefix(cast))
             .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
             // Highest precedence
-            .op(Op::postfix(member) | Op::prefix(member_deref) | Op::prefix(array_idx))
+            .op(Op::postfix(member) | Op::postfix(member_deref) | Op::postfix(array_idx))
     };
 }
 
