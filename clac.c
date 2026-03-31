@@ -31,6 +31,10 @@ char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
   (char *)handle_error(syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
 }
 
+int munmap(char* addr, int length) {
+  handle_error(syscall(0x0b, (int)addr, length, 0, 0, 0, 0))
+}
+  
 char *malloc(int size) {
   const int prot = PROT_READ + PROT_WRITE;
   const int flags = MAP_PRIVATE + MAP_ANON;
@@ -104,6 +108,47 @@ int readline(str inp_buf) {
     0
   }
 }
+
+typedef struct {
+  int capacity;
+  int len;
+  int* values;
+} uba;
+// FIXME: use sizeof if it's added
+const int UBA_SIZE = 128;
+const int UBA_PREALLOC = 4096;
+
+uba* uba_new() {
+  uba* alloc = (uba*)malloc(UBA_SIZE);
+  int* values = (int*)malloc(UBA_PREALLOC);
+
+  int init_capac = UBA_PREALLOC /(int_width()/8);
+
+  *alloc = struct {
+    capacity = init_capac;
+    len = 0;
+    values = values;
+  };
+
+  alloc
+}
+
+void assert(bool x) {
+  if (!x) {
+    quit()
+  }
+}
+
+void uba_free(uba* ub) {
+  munmap((*ub).values, (*ub).capacity);
+  munmap(ub, UBA_SIZE);
+}
+
+void uba_push() {
+  
+}
+
+
 
 void repl(str inp_buf, str prompt) {
   write_all(STDOUT, prompt.dat, prompt.len);
