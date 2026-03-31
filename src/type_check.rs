@@ -13,9 +13,9 @@ use tracing::instrument;
 
 use crate::{
     ast::{
-        AsSpan, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType, Expr,
-        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
-        PostfixOp, PrefixOp, PtrAssign, Punctuation, Statement, Type, Typedef, Value,
+        AsSpan, Assignment, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType,
+        Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
+        PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
@@ -689,40 +689,26 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
     }
 }
 
-impl<'a> TypeCheck<'a> for PtrAssign<'a> {
-    #[instrument(name = "typecheck_ptr_assign", fields(%self, %ctx))]
+impl<'a> TypeCheck<'a> for Assignment<'a> {
+    #[instrument(name = "typecheck_assignment", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let expr_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         let target_type = self.target.check_and_resolve_types(ctx)?.resolve(ctx)?;
 
-        let Type::Pointer(target_type) = target_type else {
-            return Err(
-                eyre!("Assignment only support pointer types").with_section(|| {
-                    generate_span_error_section_with_annotations(
-                        self.span,
-                        &[(
-                            self.expr.as_span(),
-                            &format!("the type `{target_type:?}`, is not a pointer type",),
-                        )],
-                    )
-                }),
-            );
-        };
-
         let mismatched_type = match (&target_type, &expr_type) {
-            (target_type, Type::Array(array_type, _len)) => target_type != array_type,
-            (target_type, expr_type) => &**target_type != expr_type,
+            (target_type, Type::Array(array_type, _len)) => target_type != &**array_type,
+            (target_type, expr_type) => target_type != expr_type,
         };
 
         if mismatched_type {
             return Err(
-                eyre!("Pointer assignment mismatching types").with_section(|| {
+                eyre!("Assignment mismatching types").with_section(|| {
                     generate_span_error_section_with_annotations(
                         self.span,
                         &[(
                             self.expr.as_span(),
                             &format!(
-                                "the type `{expr_type:?}`, can not be assigned to a pointer of type a `{target_type:?}`",
+                                "the type `{expr_type:?}`, can not be assigned to a place of type a `{target_type:?}`",
                             ),
                         )],
                     )
@@ -731,7 +717,7 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
         }
 
         self.expr_type = DeferedType::ResolvedType(expr_type);
-        self.target_type = DeferedType::ResolvedType(*target_type);
+        self.target_type = DeferedType::ResolvedType(target_type);
 
         // The pointer assignment itself should not have a return type
         Ok(Type::Void)
@@ -856,7 +842,7 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
                 expr.check_and_resolve_types(ctx)?;
                 Ok(Type::Void)
             }
-            Statement::PtrAssign(ptr_assign) => ptr_assign.check_and_resolve_types(ctx),
+            Statement::Assignment(ptr_assign) => ptr_assign.check_and_resolve_types(ctx),
             Statement::Typedef(typedef) => typedef.check_and_resolve_types(ctx),
         }
     }

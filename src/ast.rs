@@ -36,7 +36,7 @@ impl_display! {
     Block<'_>,
     LocalDef<'_>,
     Typedef<'_>,
-    PtrAssign<'_>
+    Assignment<'_>
 }
 
 pub type Ident = String;
@@ -560,7 +560,7 @@ impl<'a> AsSpan<'a> for LocalDef<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct PtrAssign<'a> {
+pub struct Assignment<'a> {
     pub target: Expr<'a>,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
@@ -569,7 +569,7 @@ pub struct PtrAssign<'a> {
     pub expr_type: DeferedType<'a>,
 }
 
-impl<'a> AsSpan<'a> for PtrAssign<'a> {
+impl<'a> AsSpan<'a> for Assignment<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
     }
@@ -615,7 +615,7 @@ pub enum Statement<'a> {
     FunctionDef(FunctionDef<'a>),
     Const(ConstDef<'a>),
     Local(LocalDef<'a>),
-    PtrAssign(PtrAssign<'a>),
+    Assignment(Assignment<'a>),
     Typedef(Typedef<'a>),
 }
 
@@ -626,7 +626,7 @@ impl<'a> AsSpan<'a> for Statement<'a> {
             Statement::FunctionDef(function_def) => function_def.as_span(),
             Statement::Const(const_def) => const_def.as_span(),
             Statement::Local(local_def) => local_def.as_span(),
-            Statement::PtrAssign(ptr_assign) => ptr_assign.as_span(),
+            Statement::Assignment(ptr_assign) => ptr_assign.as_span(),
             Statement::Typedef(typedef) => typedef.as_span(),
         }
     }

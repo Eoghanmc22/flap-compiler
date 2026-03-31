@@ -86,7 +86,7 @@ expression =  { prefix_op* ~ atom ~ postfix_op* ~ (binary_op ~ prefix_op* ~ atom
 // A const_var can only take on the value of a literal
 const_var      = { "const" ~ var_type ~ ident ~ "=" ~ expression }
 local_var      = { var_type ~ ident ~ "=" ~ expression }
-pointer_assign = { "*" ~ expression ~ "=" ~ expression }
+assignment = { expression ~ "=" ~ expression }
 
 function_parameters = _{ (expression ~ ("," ~ expression)*)? }
 function_call       =  { ident ~ "(" ~ function_parameters ~ ")" }
@@ -98,7 +98,7 @@ else_block    =  { "else" ~ block }
 if_statement  =  { if_block ~ if_else_block* ~ else_block? }
 
 semicolon =  { ";" }
-statement = _{ ((const_var | local_var | pointer_assign | expression) ~ semicolon) | function_def | if_statement | typedef }
+statement = _{ ((const_var | local_var | assignment | expression) ~ semicolon) | function_def | if_statement | typedef }
 
 no_mangle               =  { "no_mangle" }
 function_attr           =  { no_mangle }

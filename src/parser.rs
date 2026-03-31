@@ -14,9 +14,9 @@ use tracing::{instrument, trace};
 
 use crate::{
     ast::{
-        BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr, FunctionAttribute,
-        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
-        PostfixOp, PrefixOp, PtrAssign, Punctuation, Statement, Type, Typedef, Value,
+        Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr,
+        FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr,
+        LocalDef, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -200,7 +200,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     expr_span,
                 })
             }
-            Rule::pointer_assign => {
+            Rule::assignment => {
                 let mut inner = target.into_inner();
 
                 let target_pair = inner.next().unwrap();
@@ -210,7 +210,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                 let expr_span = expr_pair.as_span();
                 let expr = parse_expr(expr_pair.into_inner())?;
 
-                Statement::PtrAssign(PtrAssign {
+                Statement::Assignment(Assignment {
                     target,
                     expr,
                     span,
