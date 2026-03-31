@@ -78,7 +78,7 @@ cast        = { "(" ~ var_type ~ ")" }
 
 binary_op  = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
 unary_op   = _{ negate | logical_not | dereference | cast }
-atom       = _{ array_expr | struct_expr | if_statement | function_call | value | field_path | ("(" ~ expression ~ ")") }
+atom       = _{ array_expr | struct_expr | if_statement | sizeof_builtin | function_call | value | field_path | ("(" ~ expression ~ ")") }
 expression =  { unary_op? ~ atom ~ (binary_op ~ unary_op? ~ atom)* }
 
 // A const_var can only take on the value of a literal
@@ -88,6 +88,7 @@ pointer_assign = { "*" ~ expression ~ "=" ~ expression }
 
 function_parameters = _{ (expression ~ ("," ~ expression)*)? }
 function_call       =  { ident ~ "(" ~ function_parameters ~ ")" }
+sizeof_builtin      =  { "sizeof" ~ "(" ~ var_type ~ ")" }
 
 if_block      =  { "if" ~ "(" ~ expression ~ ")" ~ block }
 if_else_block = _{ "else" ~ if_block }

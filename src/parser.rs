@@ -372,6 +372,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     Ok(parse_expr(primary.into_inner())?)
                 }
                 Rule::function_call => Ok(Expr::FunctionCall(parse_function_call(primary)?)),
+                Rule::sizeof_builtin => Ok(Expr::SizeOf(parse_type(primary)?, span)),
                 Rule::if_statement => Ok(Expr::If(parse_if_expr(primary)?)),
                 Rule::struct_expr => {
                     let struct_expr_fields = primary.into_inner();

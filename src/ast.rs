@@ -133,6 +133,7 @@ pub enum Expr<'a> {
         span: Span<'a>,
     },
     FunctionCall(FunctionCall<'a>),
+    SizeOf(Type<'a>, Span<'a>),
     If(IfExpr<'a>),
 }
 
@@ -146,6 +147,7 @@ impl<'a> AsSpan<'a> for Expr<'a> {
             | Expr::BinaryOp { span, .. }
             | Expr::UnaryOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
+            | Expr::SizeOf(_, span)
             | Expr::If(IfExpr { span, .. }) => *span,
         }
     }

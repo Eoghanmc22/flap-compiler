@@ -315,6 +315,9 @@ fn walk_if_statement_inner<'a, 'b>(
 #[instrument(skip(ctx), fields(%expr))]
 fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
     match expr {
+        Expr::SizeOf(inner_type, _span) => {
+            Ok(DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)?)).into())
+        }
         Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),
         Expr::Path(ident, span) => Ok(ctx
             .lookup_ident_path(ident)
