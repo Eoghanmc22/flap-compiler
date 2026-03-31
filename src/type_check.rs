@@ -292,6 +292,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *left_type = DeferedType::ResolvedType(left_type_computed.clone());
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
 
+                // TODO: make this more general
                 if left_type_computed != right_type_computed
                     && left_type_computed != Type::Pointer(Type::Char.into())
                 {
@@ -315,7 +316,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         }));
                 }
 
-                let allowed_type = match op {
+                // TODO: this is cooked
+                let mismatched_type = match op {
                     BinaryOp::Add
                     | BinaryOp::Sub
                     | BinaryOp::Mul
@@ -330,21 +332,23 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     | BinaryOp::Gt
                     | BinaryOp::BShr
                     | BinaryOp::BShl
-                    | BinaryOp::BAnd => Type::Int,
+                    | BinaryOp::BAnd => right_type_computed.width(ctx)? != 1,
 
-                    BinaryOp::LAnd | BinaryOp::LOr => Type::Bool,
+                    BinaryOp::LAnd | BinaryOp::LOr => right_type_computed != Type::Bool,
                 };
 
-                if right_type_computed != allowed_type {
-                    return Err(eyre!("Binary op uses a disallowed type")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
+                if mismatched_type {
+                    return Err(eyre!("Binary op uses a disallowed type").with_section(|| {
+                        generate_span_error_section_with_annotations(
+                            *span,
+                            &[(
                                 *span,
-                                &[
-                                    (*span, &format!("has the type `{left_type_computed:?}`, but only the type `{allowed_type:?}` is permitted")),
-                                ],
-                            )
-                        }));
+                                &format!(
+                                    "has the type `{left_type_computed:?}`, which is not permitted"
+                                ),
+                            )],
+                        )
+                    }));
                 }
 
                 let output_type = match op {
