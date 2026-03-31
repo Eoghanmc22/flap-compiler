@@ -17,6 +17,7 @@ const int STDERR = 2;
 
 const int NULL = 0;
 
+const int INT_WIDTH = 8; // native width in bytes (ASSUMED TO BE 8)
 
 int handle_error(int res) {
   if (res == -1) {
@@ -70,6 +71,21 @@ int write_all(int fd, char *buf, int count) {
   }
 }
 
+void memcpy(char* dst, char* src, int n) {
+  if (n != 0) {
+    *dst = *src;
+    memcpy(dst+1, src+1, n-1);
+  }
+}
+
+// FIXME: add when it gets released
+// void int_memcpy(int* dst, int* src, int n) {
+//   if (n != 0) {
+//     *dst = *src;
+//     int_memcpy(dst+1, src+1, n-1);
+//   }
+// }
+
 int strlen(char* q) {
   if ((int)(*q) == 0) {
     0
@@ -109,6 +125,17 @@ int readline(str inp_buf) {
   }
 }
 
+void assert(bool x) {
+  if (!x) {
+    char* tmp = malloc(64);
+    *tmp = "Assertion failure!\n\0";
+
+    write_all(STDOUT, tmp, strlen(tmp));
+
+    quit()
+  }
+}
+
 typedef struct {
   int capacity;
   int len;
@@ -118,37 +145,89 @@ typedef struct {
 const int UBA_SIZE = 128;
 const int UBA_PREALLOC = 4096;
 
-uba* uba_new() {
-  uba* alloc = (uba*)malloc(UBA_SIZE);
+uba uba_new() {
   int* values = (int*)malloc(UBA_PREALLOC);
+  int init_capac = UBA_PREALLOC / INT_WIDTH;
 
-  int init_capac = UBA_PREALLOC /(int_width()/8);
-
-  *alloc = struct {
+  struct {
     capacity = init_capac;
     len = 0;
     values = values;
-  };
-
-  alloc
-}
-
-void assert(bool x) {
-  if (!x) {
-    quit()
   }
 }
 
-void uba_free(uba* ub) {
-  munmap((*ub).values, (*ub).capacity);
+uba uba_push(uba ub, int val) {
+  // FIXME: use arrow operator when it gets released
+
+  // FIXME: this needs to get released
+  *(ub.values + ub.len) = val;
+  int new_len = ub.len + 1;
+
+  if (new_len >= ub.capacity) {
+    assert(new_len == ub.capacity);
+
+    int capacity_in_bytes = ub.capacity * INT_WIDTH;
+    // realloc
+    //
+    int new_capacity_in_bytes = capacity_in_bytes * 2;
+    int new_capacity_in_natives = new_capacity_in_bytes / INT_WIDTH;
+
+    int* new_values = malloc(capacity_in_bytes * 2);
+
+    memcpy(new_values, ub.values, capacity_in_bytes);
+    munmap(ub.values, capacity_in_bytes);
+
+    struct {
+      capacity = new_capacity_in_natives;
+      len = new_len;
+      values = new_values;
+    }
+  } else {
+    struct {
+      capacity = ub.capacity;
+      len = new_len;
+      values = ub.values;
+    }
+  }
+}
+
+void uba_free(uba ub) {
+  munmap(ub.values, ub.capacity);
   munmap(ub, UBA_SIZE);
 }
 
-void uba_push() {
-  
-}
+// uba* uba_new() {
+//   uba* alloc = (uba*)malloc(UBA_SIZE);
+//   int* values = (int*)malloc(UBA_PREALLOC);
 
+//   int init_capac = UBA_PREALLOC /(int_width()/8);
 
+//   *alloc = struct {
+//     capacity = init_capac;
+//     len = 0;
+//     values = values;
+//   };
+
+//   alloc
+// }
+
+// void uba_push(uba* ub, int val) {
+//   // FIXME: use arrow operator when it gets released
+//   uba der = *ub;
+//   int new_len = der.len + 1;
+
+//   if (new_len > der.capacity) {
+//     // realloc
+//     int* new_values = malloc(der.capacity * 2);
+//   } else {
+    
+//   }
+// }
+
+// void uba_free(uba* ub) {
+//   munmap((*ub).values, (*ub).capacity);
+//   munmap(ub, UBA_SIZE);
+// }
 
 void repl(str inp_buf, str prompt) {
   write_all(STDOUT, prompt.dat, prompt.len);

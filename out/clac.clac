@@ -34,6 +34,10 @@
       (char *)handle_error(syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
     }
     
+    int munmap(char* addr, int length) {
+      handle_error(syscall(0x0b, (int)addr, length, 0, 0, 0, 0))
+    }
+      
     char *malloc(int size) {
       const int prot = PROT_READ + PROT_WRITE;
       const int flags = MAP_PRIVATE + MAP_ANON;
@@ -108,6 +112,47 @@
       }
     }
     
+    typedef struct {
+      int capacity;
+      int len;
+      int* values;
+    } uba;
+    // FIXME: use sizeof if it's added
+    const int UBA_SIZE = 128;
+    const int UBA_PREALLOC = 4096;
+    
+    uba* uba_new() {
+      uba* alloc = (uba*)malloc(UBA_SIZE);
+      int* values = (int*)malloc(UBA_PREALLOC);
+    
+      int init_capac = UBA_PREALLOC /(int_width()/8);
+    
+      *alloc = struct {
+        capacity = init_capac;
+        len = 0;
+        values = values;
+      };
+    
+      alloc
+    }
+    
+    void assert(bool x) {
+      if (!x) {
+        quit()
+      }
+    }
+    
+    // void uba_free(uba* ub) {
+    //   munmap((*ub).values, (*ub).capacity);
+    //   munmap(ub, UBA_SIZE);
+    // }
+    
+    void uba_push() {
+      
+    }
+    
+    
+    
     void repl(str inp_buf, str prompt) {
       write_all(STDOUT, prompt.dat, prompt.len);
     
@@ -153,32 +198,37 @@
 : func-on_true-3 67676767 print quit drop ;
 : func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
 : func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
-: func-malloc-17 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
-: func-read-19 0 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
-: func-write-23 1 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
-: func-on_true-33 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-read_all-27 4 pick 2 pick + 1 pick 9 8 drop_range ;
-: func-on_false-42 0 5 4 drop_range ;
-: func-read_all-27 3 pick 3 pick 3 pick func-read-19 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-33 1 skip func-on_false-42 ;
-: func-on_true-53 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-47 4 pick 2 pick + 1 pick 9 8 drop_range ;
-: func-on_false-62 0 5 4 drop_range ;
-: func-write_all-47 3 pick 3 pick 3 pick func-write-23 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-53 1 skip func-on_false-62 ;
-: func-on_true-72 0 swap drop ;
-: func-on_false-74 1 pick 1 + 1 pick func-strlen-67 1 2 pick + 1 pick 5 4 drop_range ;
-: func-strlen-67 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-72 1 skip func-on_false-74 ;
-: func-on_true-83 0 3 2 drop_range ;
-: func-on_true-92 1 3 2 drop_range ;
-: func-on_false-95 1 pick 1 + 3 pick 1 - 2 pick 2 pick 6 4 drop_range func-find_newline-79 ;
-: func-on_false-86 1 pick read8 1 pick 10 - if 0 1 skip 1 4 pick 4 pick 3 pick 7 4 drop_range if func-on_true-92 1 skip func-on_false-95 ;
-: func-find_newline-79 1 pick 0 - if 0 1 skip 1 2 pick 4 pick 3 pick 6 3 drop_range if func-on_true-83 1 skip func-on_false-86 ;
-: func-on_true-116 3 pick 2 pick + 3 pick 3 pick - 2 pick 2 pick 2 pick 2 pick func-readline-100 6 pick 2 pick + 1 pick 10 9 drop_range ;
-: func-on_false-126 1 pick 4 3 drop_range ;
-: func-on_true-110 3 pick 2 pick func-find_newline-79 1 pick 1 swap - 5 pick 5 pick 5 pick 4 pick 9 5 drop_range if func-on_true-116 1 skip func-on_false-126 ;
-: func-on_false-129 0 4 3 drop_range ;
-: func-on_true-104 0 3 pick 3 pick func-read-19 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 4 pick 4 pick 8 4 drop_range if func-on_true-110 1 skip func-on_false-129 ;
-: func-on_false-132 0 3 2 drop_range ;
-: func-readline-100 0 2 pick < 3 pick 3 pick 3 pick 6 3 drop_range if func-on_true-104 1 skip func-on_false-132 ;
-: func-repl-134 1 3 pick 3 pick func-write_all-47 5 pick 5 pick func-readline-100 1 7 pick 3 pick func-write_all-47 7 pick 7 pick 7 pick 7 pick func-repl-134 7 7 drop_range ;
-: func-main-145 4096 func-malloc-17 1 pick 99 write8 1 pick 1 + 1 pick 108 write8 2 pick 2 + 1 pick 97 write8 3 pick 3 + 1 pick 99 write8 4 pick 4 + 1 pick 45 write8 5 pick 5 + 1 pick 99 write8 6 pick 6 + 1 pick 108 write8 7 pick 7 + 1 pick 97 write8 8 pick 8 + 1 pick 99 write8 9 pick 9 + 1 pick 62 write8 10 pick 10 + 1 pick 62 write8 11 pick 11 + 1 pick 32 write8 12 pick 12 + 1 pick 0 write8 13 pick func-strlen-67 14 pick 2 pick + 1 pick 2 + 1 pick 87 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 99 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 109 write8 6 pick 6 + 1 pick 101 write8 7 pick 7 + 1 pick 32 write8 8 pick 8 + 1 pick 116 write8 9 pick 9 + 1 pick 111 write8 10 pick 10 + 1 pick 32 write8 11 pick 11 + 1 pick 99 write8 12 pick 12 + 1 pick 108 write8 13 pick 13 + 1 pick 97 write8 14 pick 14 + 1 pick 99 write8 15 pick 15 + 1 pick 46 write8 16 pick 16 + 1 pick 99 write8 17 pick 17 + 1 pick 108 write8 18 pick 18 + 1 pick 97 write8 19 pick 19 + 1 pick 99 write8 20 pick 20 + 1 pick 10 write8 21 pick 21 + 1 pick 0 write8 22 pick func-strlen-67 1 24 pick 3 pick func-write_all-47 39 pick func-strlen-67 40 pick 2 pick 8192 func-malloc-17 1 pick 8192 2 pick 2 pick 7 pick 7 pick func-repl-134 45 45 drop_range ;
+: func-munmap-17 11 3 pick 3 pick 0 0 0 0 syscall 1 pick 4 3 drop_range func-handle_error-0 ;
+: func-malloc-21 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
+: func-read-23 0 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
+: func-write-27 1 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
+: func-on_true-37 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-read_all-31 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-46 0 5 4 drop_range ;
+: func-read_all-31 3 pick 3 pick 3 pick func-read-23 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-37 1 skip func-on_false-46 ;
+: func-on_true-57 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-51 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-66 0 5 4 drop_range ;
+: func-write_all-51 3 pick 3 pick 3 pick func-write-27 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-57 1 skip func-on_false-66 ;
+: func-on_true-76 0 swap drop ;
+: func-on_false-78 1 pick 1 + 1 pick func-strlen-71 1 2 pick + 1 pick 5 4 drop_range ;
+: func-strlen-71 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-76 1 skip func-on_false-78 ;
+: func-on_true-87 0 3 2 drop_range ;
+: func-on_true-96 1 3 2 drop_range ;
+: func-on_false-99 1 pick 1 + 3 pick 1 - 2 pick 2 pick 6 4 drop_range func-find_newline-83 ;
+: func-on_false-90 1 pick read8 1 pick 10 - if 0 1 skip 1 4 pick 4 pick 3 pick 7 4 drop_range if func-on_true-96 1 skip func-on_false-99 ;
+: func-find_newline-83 1 pick 0 - if 0 1 skip 1 2 pick 4 pick 3 pick 6 3 drop_range if func-on_true-87 1 skip func-on_false-90 ;
+: func-on_true-120 3 pick 2 pick + 3 pick 3 pick - 2 pick 2 pick 2 pick 2 pick func-readline-104 6 pick 2 pick + 1 pick 10 9 drop_range ;
+: func-on_false-130 1 pick 4 3 drop_range ;
+: func-on_true-114 3 pick 2 pick func-find_newline-83 1 pick 1 swap - 5 pick 5 pick 5 pick 4 pick 9 5 drop_range if func-on_true-120 1 skip func-on_false-130 ;
+: func-on_false-133 0 4 3 drop_range ;
+: func-on_true-108 0 3 pick 3 pick func-read-23 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 4 pick 4 pick 8 4 drop_range if func-on_true-114 1 skip func-on_false-133 ;
+: func-on_false-136 0 3 2 drop_range ;
+: func-readline-104 0 2 pick < 3 pick 3 pick 3 pick 6 3 drop_range if func-on_true-108 1 skip func-on_false-136 ;
+: func-uba_new-138 128 func-malloc-21 4096 func-malloc-21 width_native 1 pick 8 / 4096 2 pick / 1 pick 0 6 pick 8 pick 4 pick write_native 8 pick 8 + 1 pick 4 pick write_native 9 pick 16 + 1 pick 4 pick write_native 10 pick 11 10 drop_range ;
+: func-on_true-157 drop quit ;
+: func-assert-154 1 pick 1 swap - 2 pick 2 pick 4 2 drop_range if func-on_true-157 1 skip drop ;
+: func-uba_push-159 ;
+: func-repl-161 1 3 pick 3 pick func-write_all-51 5 pick 5 pick func-readline-104 1 7 pick 3 pick func-write_all-51 7 pick 7 pick 7 pick 7 pick func-repl-161 7 7 drop_range ;
+: func-main-172 4096 func-malloc-21 1 pick 99 write8 1 pick 1 + 1 pick 108 write8 2 pick 2 + 1 pick 97 write8 3 pick 3 + 1 pick 99 write8 4 pick 4 + 1 pick 45 write8 5 pick 5 + 1 pick 99 write8 6 pick 6 + 1 pick 108 write8 7 pick 7 + 1 pick 97 write8 8 pick 8 + 1 pick 99 write8 9 pick 9 + 1 pick 62 write8 10 pick 10 + 1 pick 62 write8 11 pick 11 + 1 pick 32 write8 12 pick 12 + 1 pick 0 write8 13 pick func-strlen-71 14 pick 2 pick + 1 pick 2 + 1 pick 87 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 99 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 109 write8 6 pick 6 + 1 pick 101 write8 7 pick 7 + 1 pick 32 write8 8 pick 8 + 1 pick 116 write8 9 pick 9 + 1 pick 111 write8 10 pick 10 + 1 pick 32 write8 11 pick 11 + 1 pick 99 write8 12 pick 12 + 1 pick 108 write8 13 pick 13 + 1 pick 97 write8 14 pick 14 + 1 pick 99 write8 15 pick 15 + 1 pick 46 write8 16 pick 16 + 1 pick 99 write8 17 pick 17 + 1 pick 108 write8 18 pick 18 + 1 pick 97 write8 19 pick 19 + 1 pick 99 write8 20 pick 20 + 1 pick 10 write8 21 pick 21 + 1 pick 0 write8 22 pick func-strlen-71 1 24 pick 3 pick func-write_all-51 39 pick func-strlen-71 40 pick 2 pick 8192 func-malloc-21 1 pick 8192 2 pick 2 pick 7 pick 7 pick func-repl-161 45 45 drop_range ;
 
 : comment Start Main ;
-func-main-145
+func-main-172
