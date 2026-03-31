@@ -61,6 +61,14 @@ pub enum ClacToken {
     NewLine,
     Comment(String),
     Silent(Box<ClacToken>),
+
+    // Clac++
+    Syscall,
+    Write8,
+    WriteNative,
+    Read8,
+    ReadNative,
+    WidthNative,
 }
 
 impl ClacToken {
@@ -88,6 +96,12 @@ impl ClacToken {
             ClacToken::NewLine => 0,
             ClacToken::Comment(_) => 0,
             ClacToken::Silent(_) => 0,
+            ClacToken::Syscall => -6,
+            ClacToken::Write8 => -2,
+            ClacToken::WriteNative => -2,
+            ClacToken::Read8 => 0,
+            ClacToken::ReadNative => 0,
+            ClacToken::WidthNative => 1,
         }
     }
 }
@@ -134,6 +148,12 @@ impl Display for ClacToken {
                 }
             }
             ClacToken::Silent(clac_token) => <ClacToken as Display>::fmt(clac_token, f),
+            ClacToken::Syscall => write!(f, "syscall"),
+            ClacToken::Write8 => write!(f, "write8"),
+            ClacToken::WriteNative => write!(f, "write_native"),
+            ClacToken::Read8 => write!(f, "read8"),
+            ClacToken::ReadNative => write!(f, "read_native"),
+            ClacToken::WidthNative => write!(f, "width_native"),
         }
     }
 }

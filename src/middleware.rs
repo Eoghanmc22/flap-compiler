@@ -14,8 +14,8 @@ use crate::{
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
-        clac::{ClacProgram, ClacValue},
-        ir::{ClacOp, DataReference},
+        clac::{ClacProgram, ClacToken, ClacValue},
+        ir::{ClacOp, DataReference, TokenConsumer},
     },
 };
 
@@ -346,6 +346,7 @@ impl<'a> ExpressionOutput<'a> {
         self.into_tail_call(ctx)?.into_data_ref(ctx)
     }
 
+    // FIXME: this impl is hella cooked
     #[instrument(skip(ctx))]
     fn into_tail_call(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<MaybeTailCall<'a>> {
         match self {
@@ -363,51 +364,64 @@ impl<'a> ExpressionOutput<'a> {
                     (_, Stride::ZST) => unreachable!(),
                     (1, Stride::Byte) => {
                         let target_data_ref = value.into_data_ref(ctx)?;
-                        ctx.call_function_like("read8", vec![target_data_ref], span)?
-                            .into_data_ref(ctx)?;
+
+                        ctx.bring_up_references(&[target_data_ref], 1)?;
+                        ctx.push_token(ClacToken::Read8)?;
                     }
                     (1, Stride::Native) => {
                         let target_data_ref = value.into_data_ref(ctx)?;
 
-                        ctx.call_function_like("read_native", vec![target_data_ref], span)?
-                            .into_data_ref(ctx)?;
+                        ctx.bring_up_references(&[target_data_ref], 1)?;
+                        ctx.push_token(ClacToken::ReadNative)?;
                     }
                     (width, Stride::Byte) => {
                         let target_data_ref = value.into_data_ref(ctx)?;
 
                         for idx in 0..width {
-                            let target_char = if idx != 0 {
-                                ClacOp::Add {
+                            if idx != 0 {
+                                let data_ref = ClacOp::Add {
                                     lhs: target_data_ref.clone(),
                                     rhs: DataReference::Value(Value::Int(idx as ClacValue)),
                                 }
-                                .append_into(ctx)?
+                                .append_into(ctx)?;
+
+                                match data_ref {
+                                    DataReference::Value(_) => {
+                                        ctx.bring_up_references(&[&target_data_ref], 1)?;
+                                    }
+                                    _ => {}
+                                }
                             } else {
-                                target_data_ref.clone()
+                                ctx.bring_up_references(&[&target_data_ref], 1)?;
                             };
 
-                            ctx.call_function_like("read8", vec![target_char], span)?
-                                .into_data_ref(ctx)?;
+                            ctx.push_token(ClacToken::Read8)?;
                         }
                     }
                     (width, Stride::Native) => {
                         let target_data_ref = value.into_data_ref(ctx)?;
 
                         for idx in 0..width {
-                            let target_int = if idx != 0 {
-                                ClacOp::Add {
+                            if idx != 0 {
+                                let data_ref = ClacOp::Add {
                                     lhs: target_data_ref.clone(),
                                     rhs: DataReference::Value(Value::Int(
                                         idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
                                     )),
                                 }
-                                .append_into(ctx)?
+                                .append_into(ctx)?;
+
+                                match data_ref {
+                                    DataReference::Value(_) => {
+                                        ctx.bring_up_references(&[&target_data_ref], 1)?;
+                                    }
+                                    _ => {}
+                                }
                             } else {
-                                target_data_ref.clone()
+                                ctx.bring_up_references(&[&target_data_ref], 1)?;
                             };
 
-                            ctx.call_function_like("read_native", vec![target_int], span)?
-                                .into_data_ref(ctx)?;
+                            ctx.push_token(ClacToken::ReadNative)?;
                         }
                     }
                 }
@@ -830,6 +844,7 @@ fn walk_expr<'a, 'b>(
                     let field_width = inner.width(ctx.type_checker)?;
 
                     let value = walk_expr(ctx, operand)?;
+                    // TODO: this emits redundant code when the array is behind a pointer
                     let data_ref = value.into_data_ref(ctx)?;
 
                     let idx = walk_expr(ctx, expr)?;

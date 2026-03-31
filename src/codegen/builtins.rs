@@ -1,8 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use crate::{
     ast::{FunctionSignature, IdentRef, Type},
-    codegen::clac::{ClacToken, MangledIdent},
+    codegen::clac::ClacToken,
 };
 
 pub struct ClacBuiltin {}
@@ -46,10 +46,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     map.insert(
         "syscall",
         (
-            ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("syscall".to_string())),
-                stack_delta: -6,
-            },
+            ClacToken::Syscall,
             FunctionSignature {
                 arguements: vec![
                     (Type::Int, "rax"),
@@ -68,10 +65,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     map.insert(
         "write8",
         (
-            ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("write8".to_string())),
-                stack_delta: -2,
-            },
+            ClacToken::Write8,
             FunctionSignature {
                 arguements: vec![
                     (Type::Pointer(Type::Char.into()), "addr"),
@@ -85,10 +79,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     map.insert(
         "write_native",
         (
-            ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("write_native".to_string())),
-                stack_delta: -2,
-            },
+            ClacToken::WriteNative,
             FunctionSignature {
                 arguements: vec![
                     (Type::Pointer(Type::Int.into()), "addr"),
@@ -102,10 +93,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     map.insert(
         "read8",
         (
-            ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("read8".to_string())),
-                stack_delta: 0,
-            },
+            ClacToken::Read8,
             FunctionSignature {
                 arguements: vec![(Type::Pointer(Type::Char.into()), "addr")],
                 return_type: Type::Char,
@@ -116,10 +104,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     map.insert(
         "read_native",
         (
-            ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("read_native".to_string())),
-                stack_delta: 0,
-            },
+            ClacToken::ReadNative,
             FunctionSignature {
                 arguements: vec![(Type::Pointer(Type::Int.into()), "addr")],
                 return_type: Type::Int,
@@ -130,10 +115,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     map.insert(
         "int_width",
         (
-            ClacToken::Call {
-                mangled_ident: MangledIdent(Arc::new("width_native".to_string())),
-                stack_delta: 1,
-            },
+            ClacToken::WidthNative,
             FunctionSignature {
                 arguements: vec![],
                 return_type: Type::Int,
