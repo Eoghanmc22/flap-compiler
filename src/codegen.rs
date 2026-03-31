@@ -184,23 +184,43 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         Ok(self.allocate_tempoary_at(var_type, offset))
     }
 
-    pub fn allocate_tempoary_relative(
+    pub fn reference_relative(
         &mut self,
         var_type: Type<'a>,
         base: DataReference<'a>,
         rel_offset: Offset,
-    ) -> Result<TempoaryIdent> {
-        let DataReference::Tempoary(base) = self.dereference_data_ref(&base)? else {
-            return Err(eyre!(
-                "UNIMPLEMENTED: Can only allocate a tempoary relative to another tempoary, attempted: {base:?}"
-            ));
-        };
+    ) -> Result<DataReference<'a>> {
+        match self.dereference_data_ref(&base)? {
+            DataReference::Value(value) => match var_type.resolve(self.type_checker)? {
+                Type::Int => Ok(DataReference::Value(Value::Int(
+                    value.as_repr()[rel_offset.0 as usize],
+                ))),
+                Type::Char => Ok(DataReference::Value(Value::Char(
+                    value.as_repr()[rel_offset.0 as usize],
+                ))),
+                Type::Bool => Ok(DataReference::Value(Value::Bool(
+                    value.as_repr()[rel_offset.0 as usize] != 0,
+                ))),
+                Type::Void => Ok(DataReference::Tempoary(self.allocate_tempoary(Type::Void)?)),
+                _ => {
+                    return Err(eyre!(
+                        "UNIMPLEMENTED: reference_relative on a value only supports numeric types"
+                    ));
+                }
+            },
+            DataReference::Tempoary(tempoary_ident) => {
+                let (base_type, base_offset) = self
+                    .lookup_temporary(tempoary_ident)
+                    .ok_or_eyre("Bad tempoary")?;
+                assert!(0 <= rel_offset.0 && rel_offset.0 < base_type.width(self.type_checker)?);
 
-        let (base_type, base_offset) = self.lookup_temporary(base).ok_or_eyre("Bad tempoary")?;
-        assert!(0 <= rel_offset.0 && rel_offset.0 < base_type.width(self.type_checker)?);
-
-        let offset = Offset(base_offset.0 + rel_offset.0);
-        Ok(self.allocate_tempoary_at(var_type, offset))
+                let offset = Offset(base_offset.0 + rel_offset.0);
+                Ok(DataReference::Tempoary(
+                    self.allocate_tempoary_at(var_type, offset),
+                ))
+            }
+            _ => unreachable!(),
+        }
     }
 
     fn allocate_tempoary_at(&mut self, var_type: Type<'a>, offset: Offset) -> TempoaryIdent {

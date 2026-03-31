@@ -166,11 +166,8 @@ fn walk_ptr_assign<'a, 'b>(
         }
         (width, Stride::Byte) => {
             for idx in 0..width {
-                let char = DataReference::Tempoary(ctx.allocate_tempoary_relative(
-                    Type::Char,
-                    expr_data_ref.clone(),
-                    Offset(idx),
-                )?);
+                let char =
+                    ctx.reference_relative(Type::Char, expr_data_ref.clone(), Offset(idx))?;
 
                 let target_char = if idx != 0 {
                     ClacOp::Add {
@@ -188,11 +185,7 @@ fn walk_ptr_assign<'a, 'b>(
         }
         (width, Stride::Native) => {
             for idx in 0..width {
-                let int = DataReference::Tempoary(ctx.allocate_tempoary_relative(
-                    Type::Int,
-                    expr_data_ref.clone(),
-                    Offset(idx),
-                )?);
+                let int = ctx.reference_relative(Type::Int, expr_data_ref.clone(), Offset(idx))?;
 
                 let target_int = if idx != 0 {
                     ClacOp::Add {

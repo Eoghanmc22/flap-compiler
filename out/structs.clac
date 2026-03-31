@@ -52,7 +52,7 @@
 8 width_native - if -100 print quit
 
 : comment Start Definitions ;
-: func-make_dude-3 100 421888 2 3 pick 3 pick 10 4 pick 4 pick 4 pick 0 5 pick 5 pick 5 pick 5 pick 5 pick 15 10 drop_range ;
+: func-make_dude-0 10 2 100 421888 0 ;
 
 : comment Start Main ;
-100 421888 2 3 pick 3 pick 5 4 pick 4 pick 4 pick 0 5 pick print 3 pick print func-make_dude-3 5 pick print 3 pick print
+5 print 100 print func-make_dude-0 5 pick print 3 pick print
