@@ -16,7 +16,7 @@ use crate::{
     ast::{
         BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr, FunctionAttribute,
         FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
-        PtrAssign, Punctuation, Statement, Type, Typedef, UnaryOp, Value,
+        PostfixOp, PrefixOp, PtrAssign, Punctuation, Statement, Type, Typedef, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -31,16 +31,17 @@ lazy_static::lazy_static! {
             // Lowest precedence first
             .op(Op::infix(logical_or, Left))           // ||
             .op(Op::infix(logical_and, Left))          // &&
+            .op(Op::infix(bit_and, Left))
             .op(Op::infix(eq, Left) | Op::infix(ne, Left))                    // == !=
             .op(Op::infix(le, Left) | Op::infix(ge, Left) | Op::infix(lt, Left) | Op::infix(gt, Left))  // <= >= < >
+            .op(Op::infix(shl, Left) | Op::infix(shr, Left))
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))             // + -
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))  // * / %
             .op(Op::infix(power, Right))               // ^ ** (right-associative)
-            .op(Op::infix(shl, Left) | Op::infix(shr, Left))
-            .op(Op::infix(bit_and, Left))
             .op(Op::prefix(cast))
-            // Highest precedence
             .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
+            // Highest precedence
+            .op(Op::postfix(member) | Op::prefix(member_deref) | Op::prefix(array_idx))
     };
 }
 
@@ -360,13 +361,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             // Handle primary expressions (atoms)
             match primary.as_rule() {
                 Rule::value => Ok(Expr::Value(parse_value(primary)?, span)),
-                Rule::field_path => Ok(Expr::Path(
-                    primary
-                        .into_inner()
-                        .map(parse_ident)
-                        .collect::<Result<_>>()?,
-                    span,
-                )),
+                Rule::ident => Ok(Expr::Variable(parse_ident(primary)?, span)),
                 Rule::expression => {
                     // Parenthesized expression
                     Ok(parse_expr(primary.into_inner())?)
@@ -458,19 +453,43 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         })
         .map_prefix(|op, rhs| {
             // Handle unary operations
-            let un_op = match op.as_rule() {
-                Rule::cast => UnaryOp::Cast(parse_type(op.clone().into_inner().next().unwrap())?),
-                Rule::dereference => UnaryOp::Dereference,
-                Rule::negate => UnaryOp::Negate,
-                Rule::logical_not => UnaryOp::LNot,
+            let pre_op = match op.as_rule() {
+                Rule::cast => PrefixOp::Cast(parse_type(op.clone().into_inner().next().unwrap())?),
+                Rule::dereference => PrefixOp::Dereference,
+                Rule::negate => PrefixOp::Negate,
+                Rule::logical_not => PrefixOp::LNot,
                 _ => {
                     return Err(eyre!("Unexpected prefix op: {:?}", op)
                         .with_section(|| generate_span_error_section(op.as_span())));
                 }
             };
-            Ok(Expr::UnaryOp {
-                op: un_op,
+            Ok(Expr::PrefixOp {
+                op: pre_op,
                 operand: Box::new(rhs?),
+                span: op.as_span(),
+                operand_type: DeferedType::UnresolvedType,
+            })
+        })
+        .map_postfix(|lhs, op| {
+            let post_op = match op.as_rule() {
+                Rule::member => {
+                    PostfixOp::Member(parse_ident(op.clone().into_inner().next().unwrap())?)
+                }
+                Rule::member_deref => {
+                    PostfixOp::MemberDeref(parse_ident(op.clone().into_inner().next().unwrap())?)
+                }
+                Rule::array_idx => PostfixOp::ArrayIndex(
+                    parse_expr(op.clone().into_inner().next().unwrap().into_inner())?.into(),
+                ),
+                _ => {
+                    return Err(eyre!("Unexpected postfix op: {:?}", op)
+                        .with_section(|| generate_span_error_section(op.as_span())));
+                }
+            };
+
+            Ok(Expr::PostfixOp {
+                op: post_op,
+                operand: Box::new(lhs?),
                 span: op.as_span(),
                 operand_type: DeferedType::UnresolvedType,
             })

@@ -21,8 +21,6 @@ ident_start_chars =  { ASCII_ALPHA | "_" }
 ident_chars       =  { ASCII_ALPHANUMERIC | "_" }
 ident             = @{ ident_start_chars+ ~ ident_chars* }
 
-field_path = { ident ~ ("." ~ ident)* }
-
 struct_type_field = { var_type ~ ident ~ ";" }
 struct_type       = { "struct" ~ "{" ~ struct_type_field* ~ "}" }
 struct_expr_field = { ident ~ "=" ~ expression ~ ";" }
@@ -50,7 +48,7 @@ negate   = { "-" }
 multiply = { "*" }
 divide   = { "/" }
 modulo   = { "%" }
-power    = { "**" }
+power    = { "pow!" }
 
 // Comparison operators
 eq = { "==" }
@@ -73,13 +71,17 @@ shl     = { "<<" }
 bit_and = { "&" }
 
 // Pointer Operators
-dereference = { "*" }
-cast        = { "(" ~ var_type ~ ")" }
+dereference  = { "*" }
+cast         = { "(" ~ var_type ~ ")" }
+member       = { "." ~ ident }
+member_deref = { "->" ~ ident }
+array_idx    = { "[" ~ number ~ "]" }
 
 binary_op  = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
-unary_op   = _{ negate | logical_not | dereference | cast }
-atom       = _{ array_expr | struct_expr | if_statement | sizeof_builtin | function_call | value | field_path | ("(" ~ expression ~ ")") }
-expression =  { unary_op? ~ atom ~ (binary_op ~ unary_op? ~ atom)* }
+prefix_op   = _{ negate | logical_not | dereference | cast }
+postfix_op   = _{ member | member_deref | array_idx }
+atom       = _{ array_expr | struct_expr | if_statement | sizeof_builtin | function_call | value | ident | ("(" ~ expression ~ ")") }
+expression =  { prefix_op* ~ atom ~ postfix_op* ~ (binary_op ~ prefix_op* ~ atom ~ postfix_op*)* }
 
 // A const_var can only take on the value of a literal
 const_var      = { "const" ~ var_type ~ ident ~ "=" ~ expression }

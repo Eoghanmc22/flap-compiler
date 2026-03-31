@@ -1,5 +1,7 @@
 use crate::{
-    codegen::clac::ClacValue, middleware::generate_span_error_section, type_check::TypeChecker,
+    codegen::{Offset, clac::ClacValue},
+    middleware::generate_span_error_section,
+    type_check::TypeChecker,
 };
 use color_eyre::eyre::{Result, eyre};
 use core::fmt;
@@ -53,6 +55,7 @@ pub enum Value<'a> {
     Char(ClacValue),
     Bool(bool),
     Cast(Type<'a>, Box<Value<'a>>),
+    Flat(Type<'a>, Vec<ClacValue>),
 }
 
 impl<'a> Value<'a> {
@@ -71,6 +74,7 @@ impl<'a> Value<'a> {
                 .flat_map(|it| it.as_repr().into_iter())
                 .collect(),
             Value::Cast(_, inner) => inner.as_repr(),
+            Value::Flat(_, inner) => inner.clone(),
         }
     }
 
@@ -94,6 +98,7 @@ impl<'a> Value<'a> {
                     .collect(),
             ),
             Value::Cast(new_type, _) => new_type,
+            Value::Flat(inner_type, _) => inner_type,
         }
     }
 }
@@ -108,6 +113,7 @@ impl<'a> Display for Value<'a> {
             Value::Array(_, values) => write!(f, "{values:?}"),
             Value::Struct(values) => write!(f, "{values:?}"),
             Value::Cast(new_type, inner) => write!(f, "({new_type}) {inner}"),
+            Value::Flat(inner_type, inner) => write!(f, "({inner_type}) {inner:?}"),
         }
     }
 }
@@ -115,7 +121,7 @@ impl<'a> Display for Value<'a> {
 #[derive(Debug, Clone)]
 pub enum Expr<'a> {
     Value(Value<'a>, Span<'a>),
-    Path(Vec<IdentRef<'a>>, Span<'a>),
+    Variable(IdentRef<'a>, Span<'a>),
     Struct(BTreeMap<IdentRef<'a>, Expr<'a>>, DeferedType<'a>, Span<'a>),
     Array(Vec<Expr<'a>>, DeferedType<'a>, Span<'a>),
     BinaryOp {
@@ -126,8 +132,14 @@ pub enum Expr<'a> {
         right_type: DeferedType<'a>,
         span: Span<'a>,
     },
-    UnaryOp {
-        op: UnaryOp<'a>,
+    PrefixOp {
+        op: PrefixOp<'a>,
+        operand: Box<Expr<'a>>,
+        operand_type: DeferedType<'a>,
+        span: Span<'a>,
+    },
+    PostfixOp {
+        op: PostfixOp<'a>,
         operand: Box<Expr<'a>>,
         operand_type: DeferedType<'a>,
         span: Span<'a>,
@@ -142,11 +154,12 @@ impl<'a> AsSpan<'a> for Expr<'a> {
     fn as_span(&self) -> Span<'a> {
         match self {
             Expr::Value(_, span)
-            | Expr::Path(_, span)
+            | Expr::Variable(_, span)
             | Expr::Struct(_, _, span)
             | Expr::Array(_, _, span)
             | Expr::BinaryOp { span, .. }
-            | Expr::UnaryOp { span, .. }
+            | Expr::PrefixOp { span, .. }
+            | Expr::PostfixOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
             | Expr::SizeOfType(_, span)
             | Expr::SizeOfExpr(_, _, span)
@@ -156,20 +169,37 @@ impl<'a> AsSpan<'a> for Expr<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum UnaryOp<'a> {
+pub enum PrefixOp<'a> {
     Cast(Type<'a>),
     Dereference,
     Negate,
     LNot,
 }
 
-impl Display for UnaryOp<'_> {
+impl Display for PrefixOp<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UnaryOp::Cast(to) => write!(f, "({to})"),
-            UnaryOp::Dereference => write!(f, "*"),
-            UnaryOp::Negate => write!(f, "-"),
-            UnaryOp::LNot => write!(f, "!"),
+            PrefixOp::Cast(to) => write!(f, "({to})"),
+            PrefixOp::Dereference => write!(f, "*"),
+            PrefixOp::Negate => write!(f, "-"),
+            PrefixOp::LNot => write!(f, "!"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum PostfixOp<'a> {
+    Member(IdentRef<'a>),
+    MemberDeref(IdentRef<'a>),
+    ArrayIndex(Box<Expr<'a>>),
+}
+
+impl Display for PostfixOp<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PostfixOp::Member(field) => write!(f, ".{field}"),
+            PostfixOp::MemberDeref(field) => write!(f, ".{field}"),
+            PostfixOp::ArrayIndex(idx) => write!(f, "[{idx}]"),
         }
     }
 }
@@ -226,6 +256,7 @@ impl Display for BinaryOp {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stride {
     Native,
     Byte,
@@ -311,7 +342,7 @@ impl<'a> Type<'a> {
         &self,
         ctx: &TypeChecker<'a>,
         ident: IdentRef<'a>,
-    ) -> Result<(Type<'a>, ClacValue)> {
+    ) -> Result<(Type<'a>, Offset)> {
         match self {
             Type::Typedef(type_def_ident) => ctx
                 .typedefs
@@ -323,7 +354,7 @@ impl<'a> Type<'a> {
 
                 for (field_name, field_type) in map {
                     if *field_name == ident {
-                        return Ok((field_type.clone(), offset));
+                        return Ok((field_type.clone(), Offset(offset)));
                     }
 
                     offset += field_type.width(ctx)?;

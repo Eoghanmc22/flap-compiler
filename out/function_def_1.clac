@@ -4,7 +4,7 @@
     int test() {
       int i = 42;
       int j = i + 37;
-      j ** 5
+      j pow! 5
     }
     
     test()

@@ -9,8 +9,8 @@ use tracing::{instrument, trace};
 use crate::{
     ast::{
         AsSpan, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall, FunctionDef,
-        FunctionSignature, IfCase, IfExpr, LocalDef, PtrAssign, Punctuation, Statement, Stride,
-        Type, UnaryOp, Value,
+        FunctionSignature, IfCase, IfExpr, LocalDef, PostfixOp, PrefixOp, PtrAssign, Punctuation,
+        Statement, Stride, Type, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -22,7 +22,7 @@ use crate::{
 #[instrument(skip(ctx), fields(%block))]
 pub fn walk_block<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
-    block: &'a Block<'a>,
+    block: &Block<'a>,
 ) -> Result<MaybeTailCall<'a>> {
     let mut last_return_val = None;
 
@@ -63,7 +63,7 @@ pub fn walk_block<'a, 'b>(
 #[instrument(skip(ctx), fields(%func_call))]
 fn walk_function_call<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
-    func_call: &'a FunctionCall<'a>,
+    func_call: &FunctionCall<'a>,
 ) -> Result<MaybeTailCall<'a>> {
     let parameters = func_call
         .parameters
@@ -79,7 +79,7 @@ fn walk_function_call<'a, 'b>(
 #[instrument(skip(ctx), fields(%func_def))]
 fn walk_function_def<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
-    func_def: &'a FunctionDef,
+    func_def: &FunctionDef<'a>,
 ) -> Result<()> {
     ctx.define_function(
         func_def.function,
@@ -94,7 +94,7 @@ fn walk_function_def<'a, 'b>(
 }
 
 #[instrument(skip(ctx), fields(%const_def))]
-fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &'a ConstDef) -> Result<()> {
+fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>) -> Result<()> {
     let ConstDef {
         name,
         var_type,
@@ -123,7 +123,7 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &'a ConstDef)
 }
 
 #[instrument(skip(ctx), fields(%local_def))]
-fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &'a LocalDef) -> Result<()> {
+fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>) -> Result<()> {
     let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
     ctx.promote_to_local(data_ref, local_def.name, local_def.var_type.clone());
 
@@ -133,7 +133,7 @@ fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &'a LocalDef)
 #[instrument(skip(ctx), fields(%ptr_assign))]
 fn walk_ptr_assign<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
-    ptr_assign: &'a PtrAssign,
+    ptr_assign: &PtrAssign<'a>,
 ) -> Result<MaybeTailCall<'a>> {
     let expr_data_ref = walk_expr(ctx, &ptr_assign.expr)?.into_data_ref(ctx)?;
     let target_data_ref = walk_expr(ctx, &ptr_assign.target)?.into_data_ref(ctx)?;
@@ -214,7 +214,7 @@ fn walk_ptr_assign<'a, 'b>(
 #[instrument(skip(ctx), fields(%if_expr))]
 fn walk_if_expr<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
-    if_expr: &'a IfExpr,
+    if_expr: &IfExpr<'a>,
 ) -> Result<MaybeTailCall<'a>> {
     if if_expr.otherwise.is_none() && if_expr.return_type != DeferedType::ResolvedType(Type::Void) {
         return Err(eyre!(
@@ -243,8 +243,8 @@ fn walk_if_expr<'a, 'b>(
 #[instrument(skip_all)]
 fn walk_if_statement_inner<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
-    if_cases: &'a [IfCase],
-    otherwise: Option<&'a Block>,
+    if_cases: &[IfCase<'a>],
+    otherwise: Option<&Block<'a>>,
     mut signature: FunctionSignature<'a>,
 ) -> Result<MaybeTailCall<'a>> {
     if let Some((next_case, remaining)) = if_cases.split_first() {
@@ -313,7 +313,7 @@ fn walk_if_statement_inner<'a, 'b>(
 }
 
 #[instrument(skip(ctx), fields(%expr))]
-fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
+fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &Expr<'a>) -> Result<MaybeTailCall<'a>> {
     match expr {
         Expr::SizeOfType(inner_type, _span) => {
             Ok(DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)?)).into())
@@ -326,8 +326,8 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             Ok(DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)?)).into())
         }
         Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),
-        Expr::Path(ident, span) => Ok(ctx
-            .lookup_ident_path(ident)
+        Expr::Variable(ident, span) => Ok(ctx
+            .lookup_ident(ident)
             .map(|it| it.reference)
             .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
             .with_section(|| generate_span_error_section(*span))?
@@ -543,7 +543,7 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
 
             Ok(ret.into())
         }
-        Expr::UnaryOp {
+        Expr::PrefixOp {
             op,
             operand,
             span,
@@ -552,13 +552,13 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             let value = walk_expr(ctx, operand)?;
 
             let clac_op = match op {
-                UnaryOp::Negate => ClacOp::Neg {
+                PrefixOp::Negate => ClacOp::Neg {
                     value: value.into_data_ref(ctx)?,
                 },
-                UnaryOp::LNot => ClacOp::Not {
+                PrefixOp::LNot => ClacOp::Not {
                     value: value.into_data_ref(ctx)?,
                 },
-                UnaryOp::Cast(to) => {
+                PrefixOp::Cast(to) => {
                     return match &value {
                         MaybeTailCall::Regular(data_reference) => {
                             match ctx.dereference_data_ref(data_reference)? {
@@ -572,7 +572,7 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                         _ => Ok(value),
                     };
                 }
-                UnaryOp::Dereference => {
+                PrefixOp::Dereference => {
                     let DeferedType::ResolvedType(operand_type) = operand_type else {
                         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
                     };
@@ -645,6 +645,158 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
                 .with_section(|| generate_span_error_section(*span))?;
             Ok(ret.into())
+        }
+        Expr::PostfixOp {
+            op,
+            operand,
+            span,
+            operand_type,
+        } => {
+            let DeferedType::ResolvedType(operand_type) = operand_type else {
+                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+            };
+
+            match (operand_type, op) {
+                (Type::Struct(_), PostfixOp::Member(ident)) => {
+                    let (field_type, field_offset) =
+                        operand_type.member_and_offset(ctx.type_checker, ident)?;
+
+                    let value = walk_expr(ctx, operand)?;
+                    let data_ref = value.into_data_ref(ctx)?;
+
+                    Ok(ctx
+                        .reference_relative(field_type, data_ref, field_offset)?
+                        .into())
+                }
+                (Type::Pointer(inner), PostfixOp::MemberDeref(ident)) => {
+                    let (field_type, field_offset) =
+                        inner.member_and_offset(ctx.type_checker, ident)?;
+
+                    assert!(field_type.stride(ctx.type_checker)? == Stride::Native);
+
+                    let offset = match (**operand).clone() {
+                        // Try to help out value propagation
+                        Expr::BinaryOp {
+                            op: BinaryOp::Add,
+                            left,
+                            left_type,
+                            right,
+                            right_type,
+                            span,
+                        } => Expr::BinaryOp {
+                            op: BinaryOp::Add,
+                            left,
+                            left_type,
+                            right: Expr::BinaryOp {
+                                op: BinaryOp::Add,
+                                left: right,
+                                left_type: right_type,
+                                right: Expr::Value(Value::Int(field_offset.0), span).into(),
+                                right_type: DeferedType::ResolvedType(Type::Int),
+                                span,
+                            }
+                            .into(),
+                            right_type: DeferedType::ResolvedType(Type::Int),
+                            span,
+                        },
+                        _ => Expr::BinaryOp {
+                            op: BinaryOp::Add,
+                            left: operand.clone(),
+                            left_type: DeferedType::ResolvedType(operand_type.clone()),
+                            right: Expr::Value(Value::Int(field_offset.0), *span).into(),
+                            right_type: DeferedType::ResolvedType(Type::Int),
+                            span: *span,
+                        },
+                    };
+
+                    walk_expr(
+                        ctx,
+                        &Expr::PrefixOp {
+                            op: PrefixOp::Dereference,
+                            operand: offset.into(),
+                            operand_type: DeferedType::ResolvedType(Type::Pointer(
+                                field_type.into(),
+                            )),
+                            span: *span,
+                        },
+                    )
+                }
+                (Type::Array(inner, len), PostfixOp::ArrayIndex(expr)) => {
+                    let field_width = inner.width(ctx.type_checker)?;
+
+                    let value = walk_expr(ctx, operand)?;
+                    let data_ref = value.into_data_ref(ctx)?;
+
+                    let idx = walk_expr(ctx, expr)?;
+                    let MaybeTailCall::Regular(DataReference::Value(Value::Int(idx))) = idx else {
+                        return Err(eyre!(
+                            "UNIMPLEMENTED: Can not index into an array with a index that is not known at compile time"
+                        ));
+                    };
+
+                    assert!(*len >= 0);
+                    if idx < 0 || idx >= *len {
+                        return Err(eyre!("Array Index out of bounds").with_section(|| {
+                                generate_span_error_section_with_annotations(
+                                    *span,
+                                    &[
+                                        (expr.as_span(), &format!("This index is computed to be {idx}, but the length is only {len}"))
+                                    ])
+                        }));
+                    }
+
+                    Ok(ctx
+                        .reference_relative((**inner).clone(), data_ref, Offset(field_width * idx))?
+                        .into())
+                }
+                (Type::Pointer(inner), PostfixOp::ArrayIndex(expr)) => {
+                    let offset = match (**operand).clone() {
+                        // Try to help out value propagation
+                        Expr::BinaryOp {
+                            op: BinaryOp::Add,
+                            left,
+                            left_type,
+                            right,
+                            right_type,
+                            span,
+                        } => Expr::BinaryOp {
+                            op: BinaryOp::Add,
+                            left,
+                            left_type,
+                            right: Expr::BinaryOp {
+                                op: BinaryOp::Add,
+                                left: right,
+                                left_type: right_type,
+                                right: expr.clone(),
+                                right_type: DeferedType::ResolvedType(Type::Int),
+                                span,
+                            }
+                            .into(),
+                            right_type: DeferedType::ResolvedType(Type::Int),
+                            span,
+                        },
+                        _ => Expr::BinaryOp {
+                            op: BinaryOp::Add,
+                            left: operand.clone(),
+                            left_type: DeferedType::ResolvedType(operand_type.clone()),
+                            right: expr.clone(),
+                            right_type: DeferedType::ResolvedType(Type::Int),
+                            span: *span,
+                        },
+                    };
+
+                    walk_expr(
+                        ctx,
+                        &Expr::PrefixOp {
+                            op: PrefixOp::Dereference,
+                            operand: offset.into(),
+                            operand_type: DeferedType::ResolvedType(Type::Pointer(inner.clone())),
+                            span: *span,
+                        },
+                    )
+                }
+                _ => unreachable!(),
+            }
         }
         Expr::FunctionCall(func_call) => walk_function_call(ctx, func_call),
         Expr::If(if_expr) => walk_if_expr(ctx, if_expr),

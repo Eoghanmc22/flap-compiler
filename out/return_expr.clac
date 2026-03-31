@@ -2,7 +2,7 @@
 
 : comment flap source code:
     int a = 67;
-    67 ** 2
+    67 pow! 2
 ;
 
 : comment Check that the clac interperter is using the correct native width ;
