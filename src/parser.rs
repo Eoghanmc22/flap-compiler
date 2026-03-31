@@ -372,7 +372,21 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     Ok(parse_expr(primary.into_inner())?)
                 }
                 Rule::function_call => Ok(Expr::FunctionCall(parse_function_call(primary)?)),
-                Rule::sizeof_builtin => Ok(Expr::SizeOf(parse_type(primary)?, span)),
+                Rule::sizeof_builtin => {
+                    let inner = primary.clone().into_inner().next().unwrap();
+                    match inner.as_rule() {
+                        Rule::var_type => Ok(Expr::SizeOfType(parse_type(inner)?, span)),
+                        Rule::expression => Ok(Expr::SizeOfExpr(
+                            parse_expr(inner.into_inner())?.into(),
+                            DeferedType::UnresolvedType,
+                            span,
+                        )),
+                        _ => {
+                            return Err(eyre!("Unsupported arguement to sizeof: {:?}", primary)
+                                .with_section(|| generate_span_error_section(span)));
+                        }
+                    }
+                }
                 Rule::if_statement => Ok(Expr::If(parse_if_expr(primary)?)),
                 Rule::struct_expr => {
                     let struct_expr_fields = primary.into_inner();

@@ -315,7 +315,14 @@ fn walk_if_statement_inner<'a, 'b>(
 #[instrument(skip(ctx), fields(%expr))]
 fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
     match expr {
-        Expr::SizeOf(inner_type, _span) => {
+        Expr::SizeOfType(inner_type, _span) => {
+            Ok(DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)?)).into())
+        }
+        Expr::SizeOfExpr(_inner_expr, defered_type, _span) => {
+            let DeferedType::ResolvedType(inner_type) = defered_type else {
+                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+            };
+
             Ok(DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)?)).into())
         }
         Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),

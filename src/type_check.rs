@@ -218,7 +218,12 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
     #[instrument(name = "typecheck_expr", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
-            Expr::SizeOf(..) => Ok(Type::Int),
+            Expr::SizeOfType(..) => Ok(Type::Int),
+            Expr::SizeOfExpr(inner_expr, defered_type, _span) => {
+                *defered_type = DeferedType::ResolvedType(inner_expr.check_and_resolve_types(ctx)?);
+
+                Ok(Type::Int)
+            }
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)
                 .and_then(|it| it.resolve(ctx))

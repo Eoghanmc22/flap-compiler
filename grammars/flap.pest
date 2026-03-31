@@ -88,7 +88,7 @@ pointer_assign = { "*" ~ expression ~ "=" ~ expression }
 
 function_parameters = _{ (expression ~ ("," ~ expression)*)? }
 function_call       =  { ident ~ "(" ~ function_parameters ~ ")" }
-sizeof_builtin      =  { "sizeof" ~ "(" ~ var_type ~ ")" }
+sizeof_builtin      =  { "sizeof" ~ (("(" ~ (expression) ~ ")") | ("<" ~ (var_type) ~ ">")) }
 
 if_block      =  { "if" ~ "(" ~ expression ~ ")" ~ block }
 if_else_block = _{ "else" ~ if_block }
