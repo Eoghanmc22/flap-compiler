@@ -1,0 +1,184 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    typedef struct {
+      int len;
+      char* dat;
+    } str;
+    
+    const int PROT_EXEC = 4;
+    const int PROT_READ = 1;
+    const int PROT_WRITE = 2;
+    const int PROT_NONE = 0;
+    
+    const int MAP_PRIVATE = 2;
+    const int MAP_ANON = 32;
+    
+    const int STDIN = 0;
+    const int STDOUT = 1;
+    const int STDERR = 2;
+    
+    const int NULL = 0;
+    
+    
+    int handle_error(int res) {
+      if (res == -1) {
+        print(67676767);
+        quit();
+      }
+    
+      res
+    }
+    
+    char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
+      (char *)handle_error(syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
+    }
+    
+    char *malloc(int size) {
+      const int prot = PROT_READ + PROT_WRITE;
+      const int flags = MAP_PRIVATE + MAP_ANON;
+    
+      mmap((char *)NULL, size, prot, flags, -1, 0)
+    }
+    
+    int read(int fd, char *buf, int count) {
+      syscall(0, fd, (int)buf, count, 0, 0, 0)
+    }
+    
+    int write(int fd, char *buf, int count) {
+      syscall(1, fd, (int)buf, count, 0, 0, 0)
+    }
+    
+    int read_all(int fd, char *buf, int count) {
+      int new = read(fd, buf, count);
+    
+      if (new != 0) {
+        new + read_all(fd, buf + new, count - new)
+      } else {
+        0
+      }
+    }
+    
+    int write_all(int fd, char *buf, int count) {
+      int new = write(fd, buf, count);
+    
+      if (new != 0) {
+        new + write_all(fd, buf + new, count - new)
+      } else {
+        0
+      }
+    }
+    
+    int strlen(char* q) {
+      if ((int)(*q) == 0) {
+        0
+      } else {
+        1 + strlen(q + 1)
+      }
+    }
+    
+    bool find_newline(char* start, int len) {
+      if (len == 0) {
+        false
+      } else if ((int)(*start) == (int)'\n') {
+        true
+      } else {
+        find_newline(start+1, len-1)
+      }
+    }
+    
+    int readline(str inp_buf) {
+      if (inp_buf.len > 0) {
+        int res = read(STDIN, inp_buf.dat, inp_buf.len);
+    
+        if (res != 0) {
+          if (!find_newline(inp_buf.dat, res)) {
+            res + readline((str) struct {
+                       dat = inp_buf.dat + res;
+                       len = inp_buf.len - res;
+                     })
+          } else {
+            res
+          }
+        } else {
+          0
+        }
+      } else {
+        0
+      }
+    }
+    
+    void repl(str inp_buf, str prompt) {
+      write_all(STDOUT, prompt.dat, prompt.len);
+    
+      int read_amt = readline(inp_buf);
+    
+      write_all(STDOUT, inp_buf.dat, read_amt);
+    
+      repl(inp_buf, prompt);
+    }
+    
+    void main() {
+      char* strings = malloc(4096);
+    
+      char* prompt = strings;
+      *prompt = "clac-clac>> \0";
+    
+      char* welcome = prompt + strlen(prompt) + 2;
+      *welcome = "Welcome to clac.clac\n\0";
+    
+      write_all(STDOUT, welcome, strlen(welcome));
+    
+      str prompt2 = struct {
+        len = strlen(prompt);
+        dat = prompt;
+      };
+    
+      int inplen = 0x2000;
+      str inpbuf = struct {
+        len = inplen;
+        dat = malloc(inplen);
+      };
+    
+      repl(inpbuf, prompt2);
+    }
+    
+    main()
+;
+
+: comment Check that the clac interperter is using the correct native width ;
+64 width_native - if -100 print quit
+
+: comment Start Definitions ;
+: func-on_true-3 67676767 print quit drop ;
+: func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
+: func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
+: func-malloc-17 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
+: func-read-19 0 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
+: func-write-23 1 4 pick 4 pick 4 pick 0 0 0 10 3 drop_range syscall ;
+: func-on_true-33 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-read_all-27 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-42 0 5 4 drop_range ;
+: func-read_all-27 3 pick 3 pick 3 pick func-read-19 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-33 1 skip func-on_false-42 ;
+: func-on_true-53 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-47 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-62 0 5 4 drop_range ;
+: func-write_all-47 3 pick 3 pick 3 pick func-write-23 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-53 1 skip func-on_false-62 ;
+: func-on_true-72 0 swap drop ;
+: func-on_false-74 1 pick 1 + 1 pick func-strlen-67 1 2 pick + 1 pick 5 4 drop_range ;
+: func-strlen-67 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-72 1 skip func-on_false-74 ;
+: func-on_true-83 0 3 2 drop_range ;
+: func-on_true-92 1 3 2 drop_range ;
+: func-on_false-95 1 pick 1 + 3 pick 1 - 2 pick 2 pick 6 4 drop_range func-find_newline-79 ;
+: func-on_false-86 1 pick read8 1 pick 10 - if 0 1 skip 1 4 pick 4 pick 3 pick 7 4 drop_range if func-on_true-92 1 skip func-on_false-95 ;
+: func-find_newline-79 1 pick 0 - if 0 1 skip 1 2 pick 4 pick 3 pick 6 3 drop_range if func-on_true-83 1 skip func-on_false-86 ;
+: func-on_true-116 3 pick 2 pick + 3 pick 3 pick - 2 pick 2 pick 2 pick 2 pick func-readline-100 6 pick 2 pick + 1 pick 10 9 drop_range ;
+: func-on_false-126 1 pick 4 3 drop_range ;
+: func-on_true-110 3 pick 2 pick func-find_newline-79 1 pick 1 swap - 5 pick 5 pick 5 pick 4 pick 9 5 drop_range if func-on_true-116 1 skip func-on_false-126 ;
+: func-on_false-129 0 4 3 drop_range ;
+: func-on_true-104 0 3 pick 3 pick func-read-19 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 4 pick 4 pick 8 4 drop_range if func-on_true-110 1 skip func-on_false-129 ;
+: func-on_false-132 0 3 2 drop_range ;
+: func-readline-100 0 2 pick < 3 pick 3 pick 3 pick 6 3 drop_range if func-on_true-104 1 skip func-on_false-132 ;
+: func-repl-134 1 3 pick 3 pick func-write_all-47 5 pick 5 pick func-readline-100 1 7 pick 3 pick func-write_all-47 7 pick 7 pick 7 pick 7 pick func-repl-134 7 7 drop_range ;
+: func-main-145 4096 func-malloc-17 1 pick 99 write8 1 pick 1 + 1 pick 108 write8 2 pick 2 + 1 pick 97 write8 3 pick 3 + 1 pick 99 write8 4 pick 4 + 1 pick 45 write8 5 pick 5 + 1 pick 99 write8 6 pick 6 + 1 pick 108 write8 7 pick 7 + 1 pick 97 write8 8 pick 8 + 1 pick 99 write8 9 pick 9 + 1 pick 62 write8 10 pick 10 + 1 pick 62 write8 11 pick 11 + 1 pick 32 write8 12 pick 12 + 1 pick 0 write8 13 pick func-strlen-67 14 pick 2 pick + 1 pick 2 + 1 pick 87 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 99 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 109 write8 6 pick 6 + 1 pick 101 write8 7 pick 7 + 1 pick 32 write8 8 pick 8 + 1 pick 116 write8 9 pick 9 + 1 pick 111 write8 10 pick 10 + 1 pick 32 write8 11 pick 11 + 1 pick 99 write8 12 pick 12 + 1 pick 108 write8 13 pick 13 + 1 pick 97 write8 14 pick 14 + 1 pick 99 write8 15 pick 15 + 1 pick 46 write8 16 pick 16 + 1 pick 99 write8 17 pick 17 + 1 pick 108 write8 18 pick 18 + 1 pick 97 write8 19 pick 19 + 1 pick 99 write8 20 pick 20 + 1 pick 10 write8 21 pick 21 + 1 pick 0 write8 22 pick func-strlen-67 1 24 pick 3 pick func-write_all-47 39 pick func-strlen-67 40 pick 2 pick 8192 func-malloc-17 1 pick 8192 2 pick 2 pick 7 pick 7 pick func-repl-134 45 45 drop_range ;
+
+: comment Start Main ;
+func-main-145
