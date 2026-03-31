@@ -319,15 +319,6 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
 
             Type::Struct(map)
         }
-        Rule::array_type => {
-            let mut array_type = type_token.into_inner();
-
-            let field_type = parse_type(array_type.next().unwrap())?;
-            let field_count = parse_number(array_type.next().unwrap())?;
-            assert!(array_type.next().is_none());
-
-            Type::Array(field_type.into(), field_count)
-        }
         Rule::named_type => Type::Typedef(type_token.as_str()),
         _ => {
             return Err(eyre!("Unknown type: {:?}", type_token)
@@ -336,7 +327,11 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     };
 
     tokens.fold(Ok(parsed_type), |acc, next| match next.as_rule() {
-        Rule::pointer_type => Ok(Type::Pointer(acc?.into())),
+        Rule::pointer_type_mod => Ok(Type::Pointer(acc?.into())),
+        Rule::array_type_mod => Ok(Type::Array(
+            acc?.into(),
+            parse_number(next.into_inner().next().unwrap())?,
+        )),
         _ => {
             return Err(
                 eyre!("Unknown symbol trailing after type: {:?}", span.as_str())

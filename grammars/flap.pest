@@ -28,16 +28,18 @@ struct_type       = { "struct" ~ "{" ~ struct_type_field* ~ "}" }
 struct_expr_field = { ident ~ "=" ~ expression ~ ";" }
 struct_expr       = { "struct" ~ "{" ~ struct_expr_field* ~ "}" }
 
-array_type    = { "[" ~ var_type ~ ";" ~ number ~ "]" }
-array_expr    = { "[" ~  (expression ~ ("," ~ expression)*)? ~ "]" }
+array_expr     = { "[" ~  (expression ~ ("," ~ expression)*)? ~ "]" }
+
+array_type_mod = { "[" ~ number ~ "]" }
+pointer_type_mod = { "*" }
+type_mod = _{ array_type_mod | pointer_type_mod }
 
 char_type    = { "char" }
 int_type     = { "int" }
 bool_type    = { "bool" }
 void_type    = { "void" }
 named_type   = { ident }
-pointer_type = { "*" }
-var_type     = { (char_type | int_type | bool_type | void_type | struct_type | array_type | named_type) ~ pointer_type* }
+var_type     = { (char_type | int_type | bool_type | void_type | struct_type | named_type) ~ type_mod* }
 
 typedef = { "typedef" ~ var_type ~ ident ~ ";" }
 
