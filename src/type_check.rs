@@ -477,7 +477,8 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             self.parameters.iter_mut().zip(sig.arguements.iter())
         {
             let parm_type = parm_expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
-            if parm_type != *arg_type {
+            let arg_type = arg_type.resolve(ctx)?;
+            if parm_type != arg_type {
                 return Err(eyre!("Function called with a paramater of the incorrect type")
                             .with_section(|| {
                                 generate_span_error_section_with_annotations(
