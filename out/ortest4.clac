@@ -1,0 +1,11 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    print((int)((bool)0 || (bool)0));
+;
+
+: comment Check that the clac interperter is using the correct native width ;
+64 width_native - if -100 print quit
+
+: comment Start Main ;
+0 0 if 0 1 skip 1 if 0 1 skip 1 * 1 swap - 1 pick print

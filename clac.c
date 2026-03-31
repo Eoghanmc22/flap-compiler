@@ -110,7 +110,7 @@ int readline(str inp_buf) {
 
     if (res != 0) {
       if (!find_newline(inp_buf.dat, res)) {
-        res + readline((str) struct {
+        res + readline(struct {
                    dat = inp_buf.dat + res;
                    len = inp_buf.len - res;
                  })
@@ -129,7 +129,6 @@ void assert(bool x) {
   if (!x) {
     char* tmp = malloc(64);
     *tmp = "Assertion failure!\n\0";
-
     write_all(STDOUT, tmp, strlen(tmp));
 
     quit()
@@ -192,10 +191,18 @@ uba uba_push(uba ub, int val) {
     int new_capacity_in_bytes = capacity_in_bytes * 2;
     int new_capacity_in_natives = new_capacity_in_bytes / INT_WIDTH;
 
-    int* new_values = malloc(capacity_in_bytes * 2);
+    int* new_values = (int*)malloc(capacity_in_bytes * 2);
 
     int_memcpy(new_values, ub.values, ub.capacity);
-    munmap(ub.values, capacity_in_bytes);
+
+    char* tmp = malloc(64);
+    *tmp = "Realloc triggered!\n\0";
+    write_all(STDOUT, tmp, strlen(tmp));
+
+    print((int)new_values);
+    print((int)ub.values);
+    
+    munmap((char*)ub.values, capacity_in_bytes);
 
     struct {
       capacity = new_capacity_in_natives;
@@ -212,8 +219,8 @@ uba uba_push(uba ub, int val) {
 }
 
 void uba_free(uba ub) {
-  munmap(ub.values, ub.capacity);
-  munmap(ub, UBA_SIZE);
+  munmap((char*)ub.values, ub.capacity);
+  // munmap(ub, UBA_SIZE);
 }
 
 // uba* uba_new() {
@@ -249,14 +256,63 @@ void uba_free(uba ub) {
 //   munmap(ub, UBA_SIZE);
 // }
 
-void repl(str inp_buf, str prompt) {
-  write_all(STDOUT, prompt.dat, prompt.len);
 
-  int read_amt = readline(inp_buf);
+int __str_eq_helper(char* a, char* b, int len) {
+  if (len == 0) {
+    0
+  } else if (*a == *b) {
+    __str_eq_helper(a+1, b+1, len-1)
+  } else {
+    ((int)(*a)) - ((int)(*b))
+  }
+}
 
-  write_all(STDOUT, inp_buf.dat, read_amt);
+int strcmp(str a, str b) {
+  if (a.len == b.len) {
+    __str_eq_helper(a.dat, b.dat, a.len)
+  } else {
+    a.len - b.len
+  }
+}
 
-  repl(inp_buf, prompt);
+int distance_to_space_or_newline(char* buf, int acc) {
+  if (((*buf) == ' ') || ((*buf) == '\n')) {
+    acc
+  } else {
+    distance_to_space_or_newline(buf+1, acc+1)
+  }
+}
+
+typedef struct {
+  str prompt;
+  str quit;
+  str inp_buf; 
+} repl_strings;
+
+void repl(uba ub, repl_strings strs) {
+  write_all(STDOUT, strs.prompt.dat, strs.prompt.len);
+
+  int read_amt = readline(strs.inp_buf);
+
+  write_all(STDOUT, strs.inp_buf.dat, read_amt);
+
+  int dtt = distance_to_space_or_newline(strs.inp_buf.dat, 0);
+
+  print(dtt);
+  if (strcmp(struct {dat = strs.inp_buf.dat; len = dtt;}, strs.quit) == 0) {
+    quit();
+  }
+
+  // uba_print(ub);
+
+  repl(uba_push(ub, 67), strs);
+}
+
+str str_from(char* cs) {
+  struct {
+    dat = cs;
+    len = strlen(cs);
+  }
 }
 
 void main() {
@@ -267,13 +323,11 @@ void main() {
 
   char* welcome = prompt + strlen(prompt) + 2;
   *welcome = "Welcome to clac.clac\n\0";
+  
+  char* quit = welcome + strlen(welcome) + 2;
+  *quit = "quit\0";
 
   write_all(STDOUT, welcome, strlen(welcome));
-
-  str prompt2 = struct {
-    len = strlen(prompt);
-    dat = prompt;
-  };
 
   int inplen = 0x2000;
   str inpbuf = struct {
@@ -281,7 +335,11 @@ void main() {
     dat = malloc(inplen);
   };
 
-  repl(inpbuf, prompt2);
+  repl(uba_new(), struct {
+        quit = str_from(quit);
+        inp_buf = inpbuf;
+        prompt = str_from(prompt);
+  });
 }
 
 main()
