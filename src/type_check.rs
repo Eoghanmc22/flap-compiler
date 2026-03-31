@@ -527,7 +527,7 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
     #[instrument(name = "typecheck_const_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?;
-        if actual_type != self.var_type {
+        if actual_type != self.var_type.resolve(ctx)? {
             return Err(
                 eyre!("Const definition set to the incorrect type").with_section(|| {
                     generate_span_error_section_with_annotations(

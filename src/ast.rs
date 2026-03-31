@@ -52,6 +52,7 @@ pub enum Value<'a> {
     Int(ClacValue),
     Char(ClacValue),
     Bool(bool),
+    Cast(Type<'a>, Box<Value<'a>>),
 }
 
 impl<'a> Value<'a> {
@@ -69,6 +70,7 @@ impl<'a> Value<'a> {
                 .values()
                 .flat_map(|it| it.as_repr().into_iter())
                 .collect(),
+            Value::Cast(_, inner) => inner.as_repr(),
         }
     }
 
@@ -91,6 +93,7 @@ impl<'a> Value<'a> {
                     .map(|(key, val)| (*key, val.compute_type()))
                     .collect(),
             ),
+            Value::Cast(new_type, _) => new_type,
         }
     }
 }
@@ -104,6 +107,7 @@ impl<'a> Display for Value<'a> {
             Value::String(data) => <Cow<'a, str> as Display>::fmt(data, f),
             Value::Array(_, values) => write!(f, "{values:?}"),
             Value::Struct(values) => write!(f, "{values:?}"),
+            Value::Cast(new_type, inner) => write!(f, "({new_type}) {inner}"),
         }
     }
 }

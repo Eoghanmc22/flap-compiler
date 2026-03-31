@@ -112,7 +112,10 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &'a ConstDef)
         }
     };
 
-    assert_eq!(var_type, &expr_value.compute_type());
+    assert_eq!(
+        var_type.resolve(ctx.type_checker)?,
+        expr_value.compute_type().resolve(ctx.type_checker)?
+    );
 
     ctx.define_const(name, expr_value);
 
@@ -439,7 +442,20 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                 UnaryOp::LNot => ClacOp::Not {
                     value: value.into_data_ref(ctx)?,
                 },
-                UnaryOp::Cast(_) => return Ok(value),
+                UnaryOp::Cast(to) => {
+                    return match &value {
+                        MaybeTailCall::Regular(data_reference) => {
+                            match ctx.dereference_data_ref(data_reference)? {
+                                DataReference::Value(value) => {
+                                    Ok(DataReference::Value(Value::Cast(to.clone(), value.into()))
+                                        .into())
+                                }
+                                _ => Ok(value),
+                            }
+                        }
+                        _ => Ok(value),
+                    };
+                }
                 UnaryOp::Dereference => {
                     let DeferedType::ResolvedType(operand_type) = operand_type else {
                         return Err(eyre!("COMPILER BUG: defered type was not resolved"));

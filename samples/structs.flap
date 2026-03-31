@@ -10,7 +10,7 @@ typedef struct {
   char *name;
 } person;
 
-person dude = struct {
+const person dude = struct {
   age = 5;
   inner = struct {
     brain_cells = 2;
