@@ -4,7 +4,7 @@ use color_eyre::eyre::{ContextCompat, Result, bail};
 use tracing::instrument;
 
 use crate::{
-    ast::{FunctionSignature, IdentRef, Type},
+    ast::{FunctionSignature, IdentRef, Type, Value},
     codegen::{
         CodegenCtx, DefinitionIdent, TempoaryIdent,
         clac::{ClacProgram, ClacToken, ClacValue, ClacValueUnsigned},
@@ -44,9 +44,9 @@ impl<'a, 'b> TokenConsumer<'a, 'b> for (&mut ClacProgram, &mut CodegenCtx<'a, 'b
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum DataReference<'a> {
-    Number(ClacValue),
+    Value(Value<'a>),
     Local(IdentRef<'a>),
     Const(IdentRef<'a>),
     Tempoary(TempoaryIdent),
@@ -152,30 +152,30 @@ impl<'b, 'a: 'b> ClacOp<'a> {
     #[instrument(skip(ctx))]
     pub fn load_inputs(&self, ctx: &mut CodegenCtx<'a, '_>) -> Result<()> {
         match self {
-            ClacOp::Print { value } => ctx.bring_up_references(&[*value], 1),
+            ClacOp::Print { value } => ctx.bring_up_references(&[value], 1),
             ClacOp::Quit => Ok(()),
-            ClacOp::Add { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Sub { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Mul { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Div { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Mod { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Pow { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Lt { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
+            ClacOp::Add { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Sub { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Mul { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Div { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Mod { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Pow { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Lt { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
             // lhs and rhs reversed to save an instruction
-            ClacOp::Gt { lhs, rhs } => ctx.bring_up_references(&[*rhs, *lhs], 2),
+            ClacOp::Gt { lhs, rhs } => ctx.bring_up_references(&[rhs, lhs], 2),
             // lhs and rhs reversed to save an instruction
-            ClacOp::Le { lhs, rhs } => ctx.bring_up_references(&[*rhs, *lhs], 2),
-            ClacOp::Ge { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Eq { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Ne { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::Neg { value } => ctx.bring_up_references(&[*value], 1),
-            ClacOp::Not { value } => ctx.bring_up_references(&[*value], 1),
-            ClacOp::LAnd { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::LOr { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::BShl { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::BShr { lhs, rhs } => ctx.bring_up_references(&[*lhs, *rhs], 2),
-            ClacOp::BAnd { lhs, rhs: _rhs } => ctx.bring_up_references(&[*lhs], 1),
-            ClacOp::If { condition, .. } => ctx.bring_up_references(&[*condition], 1),
+            ClacOp::Le { lhs, rhs } => ctx.bring_up_references(&[rhs, lhs], 2),
+            ClacOp::Ge { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Eq { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Ne { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Neg { value } => ctx.bring_up_references(&[value], 1),
+            ClacOp::Not { value } => ctx.bring_up_references(&[value], 1),
+            ClacOp::LAnd { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::LOr { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::BShl { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::BShr { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::BAnd { lhs, rhs: _rhs } => ctx.bring_up_references(&[lhs], 1),
+            ClacOp::If { condition, .. } => ctx.bring_up_references(&[condition], 1),
             ClacOp::Call { name, parameters } => {
                 let (_mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
                 ctx.bring_up_references(parameters, def.paramater_width(ctx.type_checker)?)
@@ -336,7 +336,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 Type::Int
             }
             ClacOp::BAnd { rhs, .. } => {
-                let DataReference::Number(rhs) = *rhs else {
+                let DataReference::Value(Value::Int(rhs) | Value::Char(rhs)) = *rhs else {
                     bail!(
                         "Bit wise AND is only implemented for anding with a literal int, or an int that ends up getting inlined"
                     );
@@ -523,191 +523,230 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         Ok(return_type)
     }
 
+    // TODO: also support char?
     pub fn try_execute_const(&self, ctx: &mut CodegenCtx<'a, 'b>) -> Option<DataReference<'a>> {
         let ret = match self {
             ClacOp::Add { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.wrapping_add(rhs))
+                DataReference::Value(Value::Int(lhs.wrapping_add(rhs)))
             }
             ClacOp::Sub { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.wrapping_sub(rhs))
+                DataReference::Value(Value::Int(lhs.wrapping_sub(rhs)))
             }
             ClacOp::Mul { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.wrapping_mul(rhs))
+                DataReference::Value(Value::Int(lhs.wrapping_mul(rhs)))
             }
             ClacOp::Div { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.wrapping_div(rhs))
+                DataReference::Value(Value::Int(lhs.wrapping_div(rhs)))
             }
             ClacOp::Mod { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.wrapping_rem(rhs))
+                DataReference::Value(Value::Int(lhs.wrapping_rem(rhs)))
             }
             ClacOp::Pow { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.wrapping_pow(rhs as u32))
+                DataReference::Value(Value::Int(lhs.wrapping_pow(rhs as u32)))
             }
             ClacOp::Lt { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number((lhs < rhs) as _)
+                DataReference::Value(Value::Bool(lhs < rhs))
             }
             ClacOp::Gt { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number((lhs > rhs) as _)
+                DataReference::Value(Value::Bool(lhs > rhs))
             }
             ClacOp::Le { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number((lhs <= rhs) as _)
+                DataReference::Value(Value::Bool(lhs <= rhs))
             }
             ClacOp::Ge { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number((lhs >= rhs) as _)
+                DataReference::Value(Value::Bool(lhs >= rhs))
             }
             ClacOp::Eq { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number((lhs == rhs) as _)
+                DataReference::Value(Value::Bool(lhs == rhs))
             }
             ClacOp::Ne { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number((lhs != rhs) as _)
+                DataReference::Value(Value::Bool(lhs != rhs))
             }
             ClacOp::Neg { value } => {
-                let DataReference::Number(value) = ctx.dereference_data_ref(*value).ok()? else {
+                let DataReference::Value(Value::Int(value)) =
+                    ctx.dereference_data_ref(value).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(-value)
+                DataReference::Value(Value::Int(-value))
             }
             ClacOp::Not { value } => {
-                let DataReference::Number(value) = ctx.dereference_data_ref(*value).ok()? else {
+                let DataReference::Value(Value::Bool(value)) =
+                    ctx.dereference_data_ref(value).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(1 - value)
+                DataReference::Value(Value::Bool(!value))
             }
             ClacOp::LAnd { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Bool(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Bool(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(((lhs != 0) && (rhs != 0)) as _)
+                DataReference::Value(Value::Bool(lhs && rhs))
             }
             ClacOp::LOr { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Bool(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Bool(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(((lhs != 0) || (rhs != 0)) as _)
+                DataReference::Value(Value::Bool(lhs || rhs))
             }
             ClacOp::BShl { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.unbounded_shl(rhs as u32))
+                DataReference::Value(Value::Int(lhs.unbounded_shl(rhs as u32)))
             }
             ClacOp::BShr { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs.unbounded_shr(rhs as u32))
+                DataReference::Value(Value::Int(lhs.unbounded_shr(rhs as u32)))
             }
             ClacOp::BAnd { lhs, rhs } => {
-                let DataReference::Number(lhs) = ctx.dereference_data_ref(*lhs).ok()? else {
+                let DataReference::Value(Value::Int(lhs)) = ctx.dereference_data_ref(lhs).ok()?
+                else {
                     return None;
                 };
-                let DataReference::Number(rhs) = ctx.dereference_data_ref(*rhs).ok()? else {
+                let DataReference::Value(Value::Int(rhs)) = ctx.dereference_data_ref(rhs).ok()?
+                else {
                     return None;
                 };
 
-                DataReference::Number(lhs & rhs)
+                DataReference::Value(Value::Int(lhs & rhs))
             }
             _ => return None,
         };

@@ -11,7 +11,9 @@ use pest::Span;
 use tracing::{debug, instrument, trace};
 
 use std::{
+    borrow::Borrow,
     collections::{HashMap, HashSet},
+    fmt::Debug,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -33,7 +35,6 @@ use crate::{
 pub enum DefinitionIdent<'a> {
     Function(IdentRef<'a>),
     Inline(IdentRef<'a>),
-    Const(IdentRef<'a>),
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -103,6 +104,7 @@ impl<'a> From<DataReference<'a>> for MaybeTailCall<'a> {
 pub struct ScopeFrame<'a> {
     frame_start: ClacValue,
     locals: HashMap<IdentRef<'a>, AnnotatedDataRef<'a>>,
+    constants: HashMap<IdentRef<'a>, Value<'a>>,
     temporaries: HashMap<TempoaryIdent, (Type<'a>, Offset)>,
     definitions: HashMap<StoredDefinitionIdent<'a>, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
 
@@ -152,6 +154,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         ScopeFrame {
             frame_start: self.cursor,
             locals: Default::default(),
+            constants: Default::default(),
             temporaries: Default::default(),
             definitions: Default::default(),
             allow_underflow: attributes.contains(&FunctionAttribute::AllowUnderflow),
@@ -187,7 +190,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         base: DataReference<'a>,
         rel_offset: Offset,
     ) -> Result<TempoaryIdent> {
-        let DataReference::Tempoary(base) = self.dereference_data_ref(base)? else {
+        let DataReference::Tempoary(base) = self.dereference_data_ref(&base)? else {
             return Err(eyre!(
                 "UNIMPLEMENTED: Can only allocate a tempoary relative to another tempoary, attempted: {base:?}"
             ));
@@ -388,28 +391,8 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         Ok(def_ident)
     }
 
-    pub fn define_const(
-        &mut self,
-        ident: IdentRef<'a>,
-        var_type: Type<'a>,
-        value: Value,
-    ) -> Result<DefinitionIdent<'a>> {
-        let def_ident = DefinitionIdent::Const(ident);
-
-        let signature = Arc::new(FunctionSignature {
-            arguements: vec![],
-            return_type: var_type,
-        });
-
-        self.top_scope_frame().definitions.insert(
-            StoredDefinitionIdent(def_ident),
-            (
-                value.as_repr().into_iter().map(ClacToken::Number).collect(),
-                signature,
-            ),
-        );
-
-        Ok(def_ident)
+    pub fn define_const(&mut self, ident: IdentRef<'a>, value: Value<'a>) {
+        self.top_scope_frame().constants.insert(ident, value);
     }
 
     pub fn define_inline(
@@ -433,7 +416,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     #[instrument(skip(self))]
     pub fn bring_up_references(
         &mut self,
-        references: &[DataReference<'a>],
+        references: &[impl Borrow<DataReference<'a>> + Debug],
         expected_width: ClacValue,
     ) -> Result<()> {
         trace!("bring up references '{references:?}', expected_width, {expected_width}");
@@ -441,21 +424,20 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         // TODO: Optimize
         let starting_cursor = self.cursor;
         for reference in references {
+            let reference = reference.borrow();
             trace!("bring up reference '{reference:?}'",);
 
-            match *reference {
-                DataReference::Number(num) => self.push_token(ClacToken::Number(num))?,
-                DataReference::Const(ident) => {
-                    let (func_impl, sig) = self
-                        .lookup_definition(DefinitionIdent::Const(ident))
-                        .wrap_err("Bring up valid const")?;
-
-                    if !sig.arguements.is_empty() {
-                        bail!("Constant '{ident}' has a non zero number of arguements: {sig:?}");
+            match reference {
+                DataReference::Value(val) => {
+                    for num in val.as_repr() {
+                        self.push_token(ClacToken::Number(num))?
                     }
+                }
+                DataReference::Const(ident) => {
+                    let val = self.lookup_const(ident).wrap_err("Bring up valid const")?;
 
-                    for token in func_impl.to_vec() {
-                        self.push_token(token)?;
+                    for num in val.as_repr() {
+                        self.push_token(ClacToken::Number(num))?
                     }
                 }
                 DataReference::Local(ident) => {
@@ -465,9 +447,12 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     } = self.lookup_local(ident).wrap_err("Bring up valid local")?;
 
                     trace!("recursing to bring up local reference '{ident}'",);
-                    self.bring_up_references(&[reference], data_type.width(self.type_checker)?)?;
+                    self.bring_up_references(
+                        &[reference.clone()],
+                        data_type.width(self.type_checker)?,
+                    )?;
                 }
-                DataReference::Tempoary(ident) => {
+                &DataReference::Tempoary(ident) => {
                     let (var_type, offset) = self
                         .lookup_temporary(ident)
                         .expect("Bring up valid temporary");
@@ -572,11 +557,34 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         None
     }
 
+    pub fn lookup_const(&self, ident: IdentRef<'a>) -> Option<Value<'a>> {
+        for frame in self.scope_stack.iter().rev() {
+            if let Some(value) = frame.constants.get(ident) {
+                return Some(value.clone());
+            }
+        }
+
+        None
+    }
+
     pub fn lookup_local(&self, ident: IdentRef<'a>) -> Option<AnnotatedDataRef<'a>> {
         self.scope_stack
             .last()
             .and_then(|it| it.locals.get(ident))
             .cloned()
+    }
+
+    pub fn lookup_ident(&self, ident: IdentRef<'a>) -> Option<AnnotatedDataRef<'a>> {
+        if let Some(local) = self.lookup_local(ident) {
+            Some(local)
+        } else if let Some(constant) = self.lookup_const(ident) {
+            Some(AnnotatedDataRef {
+                reference: DataReference::Value(constant.clone()),
+                data_type: constant.compute_type(),
+            })
+        } else {
+            None
+        }
     }
 
     pub fn lookup_temporary(&self, ident: TempoaryIdent) -> Option<(Type<'a>, Offset)> {
@@ -589,7 +597,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         None
     }
 
-    pub fn lookup_variable_path_data_ref(
+    pub fn lookup_ident_path(
         &mut self,
         mut var_path: &[IdentRef<'a>],
     ) -> Result<AnnotatedDataRef<'a>> {
@@ -597,22 +605,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             return Err(eyre!("Can not look up empty variable path"));
         };
 
-        let mut lookup = None;
-        if let Some(local) = self.lookup_local(var) {
-            lookup = Some(local)
-        } else {
-            for frame in self.scope_stack.iter().rev() {
-                if let Some((_, sig)) = frame.definitions.get(&DefinitionIdent::Const(var)) {
-                    lookup = Some(AnnotatedDataRef {
-                        reference: DataReference::Const(var),
-                        data_type: sig.return_type.clone(),
-                    });
-                    break;
-                }
-            }
-        }
-
-        let Some(mut lookup) = lookup else {
+        let Some(mut lookup) = self.lookup_ident(var) else {
             return Err(eyre!("Variable {var}.{var_path:?} is not in scope"));
         };
 
@@ -621,7 +614,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 .data_type
                 .member_and_offset(self.type_checker, next)?;
 
-            match self.dereference_data_ref(lookup.reference)? {
+            match self.dereference_data_ref(&lookup.reference)? {
                 DataReference::Tempoary(tempoary_ident) => {
                     let (_type, offset) = self
                         .lookup_temporary(tempoary_ident)
@@ -632,9 +625,19 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         self.allocate_tempoary_at(next_type, Offset(offset.0 + delta)),
                     );
                 }
+                DataReference::Value(Value::Struct(items)) => {
+                    if let Some(value) = items.get(next) {
+                        lookup.data_type = next_type.clone();
+                        lookup.reference = DataReference::Value(value.clone());
+                    } else {
+                        return Err(eyre!(
+                            "COMPILER BUG: Comptime struct value is missing field {next}"
+                        ));
+                    }
+                }
                 _ => {
                     return Err(eyre!(
-                        "UNIMPLEMENTED: Can not access membors of a value that is not a temporary"
+                        "UNIMPLEMENTED: Can not access membors of a value that is not a temporary or a struct value"
                     ));
                 }
             }
@@ -645,10 +648,11 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         Ok(lookup)
     }
 
-    pub fn dereference_data_ref(&self, data_ref: DataReference<'a>) -> Result<DataReference<'a>> {
+    pub fn dereference_data_ref(&self, data_ref: &DataReference<'a>) -> Result<DataReference<'a>> {
         match data_ref {
             DataReference::Local(local) => self.dereference_data_ref(
-                self.lookup_local(local)
+                &self
+                    .lookup_local(local)
                     .ok_or_else(|| {
                         eyre!(
                             "Attempted to deref a data reference pointing to a non existant local"
@@ -657,20 +661,13 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     .reference,
             ),
             DataReference::Const(constant) => {
-                let (tokens, _sig) = self.lookup_definition(DefinitionIdent::Const(constant))
-                    .ok_or_else(|| {
-                        eyre!(
-                            "Attempted to deref a data reference pointing to a non existant constant"
-                        )
-                    })?;
+                let value = self.lookup_const(constant).ok_or_else(|| {
+                    eyre!("Attempted to deref a data reference pointing to a non existant constant")
+                })?;
 
-                if let [ClacToken::Number(num)] = &tokens[..] {
-                    Ok(DataReference::Number(*num))
-                } else {
-                    Ok(DataReference::Const(constant))
-                }
+                Ok(DataReference::Value(value))
             }
-            data_ref => Ok(data_ref),
+            data_ref => Ok(data_ref.clone()),
         }
     }
 }

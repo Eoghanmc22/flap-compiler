@@ -47,7 +47,8 @@ pub trait AsSpan<'a> {
 #[derive(Debug, Clone)]
 pub enum Value<'a> {
     String(Cow<'a, str>),
-    // Array(Type<'a>, Vec<Value<'a>>),
+    Array(Type<'a>, Vec<Value<'a>>),
+    Struct(BTreeMap<IdentRef<'a>, Value<'a>>),
     Int(ClacValue),
     Char(ClacValue),
     Bool(bool),
@@ -60,7 +61,14 @@ impl<'a> Value<'a> {
             Value::Char(int) => vec![*int],
             Value::Bool(bool) => vec![*bool as _],
             Value::String(items) => items.bytes().map(|it| it as ClacValue).collect(),
-            // Value::Array(_, items) => items .iter() .flat_map(|it| it.as_repr().into_iter()) .collect(),
+            Value::Array(_, items) => items
+                .iter()
+                .flat_map(|it| it.as_repr().into_iter())
+                .collect(),
+            Value::Struct(items) => items
+                .values()
+                .flat_map(|it| it.as_repr().into_iter())
+                .collect(),
         }
     }
 
@@ -74,7 +82,15 @@ impl<'a> Value<'a> {
             Value::Char(_) => Type::Char,
             Value::Bool(_) => Type::Bool,
             Value::String(items) => Type::Array(Type::Char.into(), items.len() as ClacValue),
-            // Value::Array(inner_type, items) => { Type::Array(inner_type.into(), items.len() as ClacValue) }
+            Value::Array(inner_type, items) => {
+                Type::Array(inner_type.into(), items.len() as ClacValue)
+            }
+            Value::Struct(items) => Type::Struct(
+                items
+                    .iter()
+                    .map(|(key, val)| (*key, val.compute_type()))
+                    .collect(),
+            ),
         }
     }
 }
@@ -86,7 +102,8 @@ impl<'a> Display for Value<'a> {
             Value::Char(char) => <ClacValue as Display>::fmt(char, f),
             Value::Bool(bool) => <bool as Display>::fmt(bool, f),
             Value::String(data) => <Cow<'a, str> as Display>::fmt(data, f),
-            // Value::Array(_, values) => { write!(f, "[")?; for value in values { write!(f, "{value},")?; } write!(f, "]") }
+            Value::Array(_, values) => write!(f, "{values:?}"),
+            Value::Struct(values) => write!(f, "{values:?}"),
         }
     }
 }

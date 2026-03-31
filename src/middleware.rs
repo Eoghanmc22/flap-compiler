@@ -1,9 +1,9 @@
 use color_eyre::{
     Section,
-    eyre::{Context, ContextCompat, Result, eyre},
+    eyre::{Context, ContextCompat, Ok, Result, eyre},
 };
 use pest::Span;
-use std::{fmt::Write, sync::Arc};
+use std::{collections::BTreeMap, fmt::Write, sync::Arc};
 use tracing::{instrument, trace};
 
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
-        clac::{ClacProgram, ClacToken, ClacValue},
+        clac::{ClacProgram, ClacValue},
         ir::{ClacOp, DataReference},
     },
 };
@@ -103,17 +103,18 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &'a ConstDef)
     } = const_def;
 
     let expr_data_ref = walk_expr(ctx, expr)?.into_data_ref(ctx)?;
-    let expr_data_ref = ctx.dereference_data_ref(expr_data_ref)?;
+    let expr_data_ref = ctx.dereference_data_ref(&expr_data_ref)?;
     let expr_value = match expr_data_ref {
-        DataReference::Number(num) => num,
+        DataReference::Value(val) => val,
         _ => {
             return Err(eyre!("Const could not be evaluated at compile time"))
                 .with_section(|| generate_span_error_section(const_def.as_span()));
         }
     };
 
-    // TODO: this wont be okay once we have wide types
-    ctx.define_const(name, var_type.clone(), Value::Int(expr_value))?;
+    assert_eq!(var_type, &expr_value.compute_type());
+
+    ctx.define_const(name, expr_value);
 
     Ok(())
 }
@@ -167,18 +168,18 @@ fn walk_ptr_assign<'a, 'b>(
             for idx in 0..width {
                 let char = DataReference::Tempoary(ctx.allocate_tempoary_relative(
                     Type::Char,
-                    expr_data_ref,
+                    expr_data_ref.clone(),
                     Offset(idx),
                 )?);
 
                 let target_char = if idx != 0 {
                     ClacOp::Add {
-                        lhs: target_data_ref,
-                        rhs: DataReference::Number(idx as ClacValue),
+                        lhs: target_data_ref.clone(),
+                        rhs: DataReference::Value(Value::Int(idx as ClacValue)),
                     }
                     .append_into(ctx)?
                 } else {
-                    target_data_ref
+                    target_data_ref.clone()
                 };
 
                 ctx.call_function_like("write8", vec![target_char, char], ptr_assign.span)?
@@ -189,20 +190,20 @@ fn walk_ptr_assign<'a, 'b>(
             for idx in 0..width {
                 let int = DataReference::Tempoary(ctx.allocate_tempoary_relative(
                     Type::Int,
-                    expr_data_ref,
+                    expr_data_ref.clone(),
                     Offset(idx),
                 )?);
 
                 let target_int = if idx != 0 {
                     ClacOp::Add {
-                        lhs: target_data_ref,
-                        rhs: DataReference::Number(
+                        lhs: target_data_ref.clone(),
+                        rhs: DataReference::Value(Value::Int(
                             idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
-                        ),
+                        )),
                     }
                     .append_into(ctx)?
                 } else {
-                    target_data_ref
+                    target_data_ref.clone()
                 };
 
                 ctx.call_function_like("write_native", vec![target_int, int], ptr_assign.span)?
@@ -273,7 +274,7 @@ fn walk_if_statement_inner<'a, 'b>(
         };
 
         let clac_op = ClacOp::If {
-            condition,
+            condition: condition.clone(),
             on_true,
             on_false,
         };
@@ -318,24 +319,9 @@ fn walk_if_statement_inner<'a, 'b>(
 #[instrument(skip(ctx), fields(%expr))]
 fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<MaybeTailCall<'a>> {
     match expr {
-        Expr::Value(value, _span) => {
-            let repr = value.as_repr();
-            match repr[..] {
-                [] => Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into()),
-                [number] => Ok(DataReference::Number(number).into()),
-                [..] => {
-                    for val in repr {
-                        ctx.push_token(ClacToken::Number(val))?;
-                    }
-                    Ok(
-                        DataReference::Tempoary(ctx.allocate_tempoary(value.compute_type())?)
-                            .into(),
-                    )
-                }
-            }
-        }
+        Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),
         Expr::Path(ident, span) => Ok(ctx
-            .lookup_variable_path_data_ref(ident)
+            .lookup_ident_path(ident)
             .map(|it| it.reference)
             .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
             .with_section(|| generate_span_error_section(*span))?
@@ -346,30 +332,67 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             };
 
             let data_refs = map
-                .values()
-                .map(|expr| walk_expr(ctx, expr)?.into_data_ref(ctx))
+                .iter()
+                .map(|(key, expr)| Ok((key, walk_expr(ctx, expr)?.into_data_ref(ctx)?)))
                 .collect::<Result<Vec<_>>>()?;
 
-            let expected_width = struct_type.width(ctx.type_checker)?;
-            ctx.bring_up_references(&data_refs, expected_width)?;
+            let maybe_value = data_refs
+                .iter()
+                .map(
+                    |(key, data_ref)| match ctx.dereference_data_ref(data_ref)? {
+                        DataReference::Value(value) => Ok(Some((&***key, value))),
+                        DataReference::Tempoary(_) => Ok(None),
+                        _ => unreachable!(),
+                    },
+                )
+                .collect::<Result<Option<BTreeMap<_, _>>>>()?;
 
-            Ok(DataReference::Tempoary(ctx.allocate_tempoary(struct_type.clone())?).into())
+            if let Some(map) = maybe_value {
+                Ok(DataReference::Value(Value::Struct(map)).into())
+            } else {
+                let expected_width = struct_type.width(ctx.type_checker)?;
+                ctx.bring_up_references(
+                    &data_refs
+                        .into_iter()
+                        .map(|(_, data_ref)| data_ref)
+                        .collect::<Vec<_>>(),
+                    expected_width,
+                )?;
+
+                Ok(DataReference::Tempoary(ctx.allocate_tempoary(struct_type.clone())?).into())
+            }
         }
         Expr::Array(exprs, array_type, _span) => {
-            let DeferedType::ResolvedType(array_type) = array_type else {
+            let DeferedType::ResolvedType(array_type @ Type::Array(inner_type, len)) = array_type
+            else {
                 // TODO: I think empty arrays will hit this
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
             };
+
+            assert_eq!(exprs.len(), *len as _);
 
             let data_refs = exprs
                 .iter()
                 .map(|expr| walk_expr(ctx, expr)?.into_data_ref(ctx))
                 .collect::<Result<Vec<_>>>()?;
 
-            let expected_width = array_type.width(ctx.type_checker)?;
-            ctx.bring_up_references(&data_refs, expected_width)?;
+            let maybe_value = data_refs
+                .iter()
+                .map(|data_ref| match ctx.dereference_data_ref(data_ref)? {
+                    DataReference::Value(value) => Ok(Some(value)),
+                    DataReference::Tempoary(_) => Ok(None),
+                    _ => unreachable!(),
+                })
+                .collect::<Result<Option<Vec<_>>>>()?;
 
-            Ok(DataReference::Tempoary(ctx.allocate_tempoary(array_type.clone())?).into())
+            if let Some(map) = maybe_value {
+                Ok(DataReference::Value(Value::Array((**inner_type).clone(), map)).into())
+            } else {
+                let expected_width = array_type.width(ctx.type_checker)?;
+                ctx.bring_up_references(&data_refs, expected_width)?;
+
+                Ok(DataReference::Tempoary(ctx.allocate_tempoary(array_type.clone())?).into())
+            }
         }
         Expr::BinaryOp {
             op,
@@ -454,12 +477,12 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                             for idx in 0..width {
                                 let target_char = if idx != 0 {
                                     ClacOp::Add {
-                                        lhs: target_data_ref,
-                                        rhs: DataReference::Number(idx as ClacValue),
+                                        lhs: target_data_ref.clone(),
+                                        rhs: DataReference::Value(Value::Int(idx as ClacValue)),
                                     }
                                     .append_into(ctx)?
                                 } else {
-                                    target_data_ref
+                                    target_data_ref.clone()
                                 };
 
                                 ctx.call_function_like("read8", vec![target_char], *span)?
@@ -472,14 +495,14 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                             for idx in 0..width {
                                 let target_int = if idx != 0 {
                                     ClacOp::Add {
-                                        lhs: target_data_ref,
-                                        rhs: DataReference::Number(
+                                        lhs: target_data_ref.clone(),
+                                        rhs: DataReference::Value(Value::Int(
                                             idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
-                                        ),
+                                        )),
                                     }
                                     .append_into(ctx)?
                                 } else {
-                                    target_data_ref
+                                    target_data_ref.clone()
                                 };
 
                                 ctx.call_function_like("read_native", vec![target_int], *span)?
