@@ -307,6 +307,8 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 out.consume(ClacToken::Skip)?;
                 out.consume_silent(ClacToken::Number(1))?;
 
+                out.consume(ClacToken::Swap)?;
+
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(0))?;
                 out.consume(ClacToken::Number(1))?;
