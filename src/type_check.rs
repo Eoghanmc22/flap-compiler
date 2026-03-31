@@ -312,52 +312,47 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *left_type = DeferedType::ResolvedType(left_type_computed.clone());
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
 
-                // TODO: make this more general
-                if left_type_computed != right_type_computed
-                    && left_type_computed != Type::Pointer(Type::Char.into())
-                {
-                    return Err(eyre!("Binary op has differing left and right types")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                *span,
-                                &[
-                                    (
-                                        left.as_span(),
-                                        &format!("LHS has the type `{left_type_computed:?}`"),
-                                    ),
-                                    (
-                                        right.as_span(),
-                                        &format!(
-                                            "RHS has differing type `{right_type_computed:?}`"
-                                        ),
-                                    ),
-                                ],
-                            )
-                        }));
+                if left_type_computed.width(ctx)? != 1 || right_type_computed.width(ctx)? != 1 {
+                    return Err(eyre!("Binary op only support types that are 1 word")
+                        .with_section(|| generate_span_error_section(*span)));
                 }
 
-                // TODO: this is cooked
-                let mismatched_type = match op {
-                    BinaryOp::Add
-                    | BinaryOp::Sub
-                    | BinaryOp::Mul
-                    | BinaryOp::Div
-                    | BinaryOp::Mod
-                    | BinaryOp::Pow
-                    | BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Le
-                    | BinaryOp::Ge
-                    | BinaryOp::Lt
-                    | BinaryOp::Gt
-                    | BinaryOp::BShr
-                    | BinaryOp::BShl
-                    | BinaryOp::BAnd => right_type_computed.width(ctx)? != 1,
+                let (valid_types, output_type) =
+                    match (op, &left_type_computed, &right_type_computed) {
+                        (
+                            BinaryOp::Add
+                            | BinaryOp::Sub
+                            | BinaryOp::Mul
+                            | BinaryOp::Div
+                            | BinaryOp::Mod
+                            | BinaryOp::Pow
+                            | BinaryOp::BShr
+                            | BinaryOp::BShl
+                            | BinaryOp::BAnd,
+                            left @ (Type::Int | Type::Char),
+                            right,
+                        ) => (left == right, left.clone()),
+                        (BinaryOp::Add | BinaryOp::Sub, left @ Type::Pointer(_), Type::Int) => {
+                            (true, left.clone())
+                        }
+                        // (BinaryOp::Sub, Type::Pointer(_), Type::Pointer(_)) => (false, Type::Int),
+                        (
+                            BinaryOp::Eq
+                            | BinaryOp::Ne
+                            | BinaryOp::Le
+                            | BinaryOp::Ge
+                            | BinaryOp::Lt
+                            | BinaryOp::Gt,
+                            left,
+                            right,
+                        ) => (left == right, Type::Bool),
+                        (BinaryOp::LAnd | BinaryOp::LOr, Type::Bool, Type::Bool) => {
+                            (true, Type::Bool)
+                        }
+                        _ => (false, Type::Void),
+                    };
 
-                    BinaryOp::LAnd | BinaryOp::LOr => right_type_computed != Type::Bool,
-                };
-
-                if mismatched_type {
+                if !valid_types {
                     return Err(eyre!("Binary op uses a disallowed type").with_section(|| {
                         generate_span_error_section_with_annotations(
                             *span,
@@ -370,27 +365,6 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         )
                     }));
                 }
-
-                let output_type = match op {
-                    BinaryOp::Add
-                    | BinaryOp::Sub
-                    | BinaryOp::Mul
-                    | BinaryOp::Div
-                    | BinaryOp::Mod
-                    | BinaryOp::Pow
-                    | BinaryOp::BShr
-                    | BinaryOp::BShl
-                    | BinaryOp::BAnd => left_type_computed,
-
-                    BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Le
-                    | BinaryOp::Ge
-                    | BinaryOp::Lt
-                    | BinaryOp::Gt
-                    | BinaryOp::LAnd
-                    | BinaryOp::LOr => Type::Bool,
-                };
 
                 Ok(output_type)
             }

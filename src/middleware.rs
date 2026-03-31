@@ -405,11 +405,67 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             left,
             right,
             span,
-            left_type: _,
-            right_type: _,
+            left_type,
+            right_type,
         } => {
+            let DeferedType::ResolvedType(left_type) = left_type else {
+                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+            };
+            let DeferedType::ResolvedType(right_type) = right_type else {
+                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+            };
+
             let lhs = walk_expr(ctx, left)?.into_data_ref(ctx)?;
             let rhs = walk_expr(ctx, right)?.into_data_ref(ctx)?;
+
+            // Scale rhs to have correct semantics
+            let (lhs, rhs) = match (
+                op,
+                left_type.resolve(ctx.type_checker)?,
+                right_type.resolve(ctx.type_checker)?,
+            ) {
+                (BinaryOp::Add | BinaryOp::Sub, Type::Pointer(inner_type), Type::Int) => {
+                    let width = inner_type.width(ctx.type_checker)?;
+                    let stride = inner_type.stride(ctx.type_checker)?;
+
+                    match (width, stride) {
+                        (0, _) | (_, Stride::ZST) => todo!(),
+                        (1, Stride::Byte) => (lhs, rhs),
+                        (1, Stride::Native) => {
+                            let rhs = ClacOp::Mul {
+                                lhs: DataReference::Value(Value::Int(
+                                    ClacValue::BITS as ClacValue / 8,
+                                )),
+                                rhs,
+                            }
+                            .append_into(ctx)?;
+
+                            (lhs, rhs)
+                        }
+                        (width, Stride::Byte) => {
+                            let rhs = ClacOp::Mul {
+                                lhs: DataReference::Value(Value::Int(width)),
+                                rhs,
+                            }
+                            .append_into(ctx)?;
+
+                            (lhs, rhs)
+                        }
+                        (width, Stride::Native) => {
+                            let rhs = ClacOp::Mul {
+                                lhs: DataReference::Value(Value::Int(
+                                    ClacValue::BITS as ClacValue / 8 * width,
+                                )),
+                                rhs,
+                            }
+                            .append_into(ctx)?;
+
+                            (lhs, rhs)
+                        }
+                    }
+                }
+                _ => (lhs, rhs),
+            };
 
             let clac_op = match op {
                 BinaryOp::Add => ClacOp::Add { lhs, rhs },
