@@ -418,7 +418,7 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
             let lhs = walk_expr(ctx, left)?.into_data_ref(ctx)?;
             let rhs = walk_expr(ctx, right)?.into_data_ref(ctx)?;
 
-            // Scale rhs to have correct semantics
+            // Scale rhs to have correct semantics for pointer arithmetic
             let (lhs, rhs) = match (
                 op,
                 left_type.resolve(ctx.type_checker)?,
@@ -491,6 +491,56 @@ fn walk_expr<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, expr: &'a Expr) -> Result<May
                 .append_into(ctx)
                 .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
                 .with_section(|| generate_span_error_section(*span))?;
+
+            // Scale ret to have correct semantics for pointer arithmetic
+            let ret = match (
+                op,
+                left_type.resolve(ctx.type_checker)?,
+                right_type.resolve(ctx.type_checker)?,
+            ) {
+                (BinaryOp::Sub, Type::Pointer(inner_type), Type::Pointer(_)) => {
+                    let width = inner_type.width(ctx.type_checker)?;
+                    let stride = inner_type.stride(ctx.type_checker)?;
+
+                    match (width, stride) {
+                        (0, _) | (_, Stride::ZST) => todo!(),
+                        (1, Stride::Byte) => ret,
+                        (1, Stride::Native) => {
+                            let ret = ClacOp::Div {
+                                lhs: DataReference::Value(Value::Int(
+                                    ClacValue::BITS as ClacValue / 8,
+                                )),
+                                rhs: ret,
+                            }
+                            .append_into(ctx)?;
+
+                            ret
+                        }
+                        (width, Stride::Byte) => {
+                            let ret = ClacOp::Div {
+                                lhs: DataReference::Value(Value::Int(width)),
+                                rhs: ret,
+                            }
+                            .append_into(ctx)?;
+
+                            ret
+                        }
+                        (width, Stride::Native) => {
+                            let ret = ClacOp::Div {
+                                lhs: DataReference::Value(Value::Int(
+                                    ClacValue::BITS as ClacValue / 8 * width,
+                                )),
+                                rhs: ret,
+                            }
+                            .append_into(ctx)?;
+
+                            ret
+                        }
+                    }
+                }
+                _ => ret,
+            };
+
             Ok(ret.into())
         }
         Expr::UnaryOp {

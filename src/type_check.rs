@@ -335,7 +335,9 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         (BinaryOp::Add | BinaryOp::Sub, left @ Type::Pointer(_), Type::Int) => {
                             (true, left.clone())
                         }
-                        // (BinaryOp::Sub, Type::Pointer(_), Type::Pointer(_)) => (false, Type::Int),
+                        (BinaryOp::Sub, Type::Pointer(left), Type::Pointer(right)) => {
+                            (left == right, Type::Int)
+                        }
                         (
                             BinaryOp::Eq
                             | BinaryOp::Ne
