@@ -570,7 +570,7 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
                             self.expr.as_span(),
                             &format!(
                                 "has the type `{actual_type:?}`, but a `{:?}` is required",
-                                self.var_type
+                                self.var_type.resolve(ctx)
                             ),
                         )],
                     )
