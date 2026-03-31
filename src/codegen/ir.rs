@@ -281,6 +281,8 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 out.consume(ClacToken::Sub)?;
                 Type::Bool
             }
+            // TODO: we can optimize this since the type checker makes sure
+            // the inputs will be 1 or 0
             ClacOp::LAnd { .. } => {
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(1))?;
@@ -300,6 +302,8 @@ impl<'b, 'a: 'b> ClacOp<'a> {
 
                 Type::Bool
             }
+            // TODO: we can optimize this since the type checker makes sure
+            // the inputs will be 1 or 0
             ClacOp::LOr { .. } => {
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(0))?;

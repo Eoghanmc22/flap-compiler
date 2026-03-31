@@ -12,6 +12,7 @@ use std::{
     fmt::{Debug, Display},
     ops::BitOr,
 };
+use tracing::instrument;
 
 macro_rules! impl_display {
     ($($the_type:ty),*) => {
@@ -292,6 +293,7 @@ impl Display for Type<'_> {
 }
 
 impl<'a> Type<'a> {
+    #[instrument(skip(ctx))]
     pub fn resolve(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Type::Typedef(ident) => ctx
@@ -311,6 +313,7 @@ impl<'a> Type<'a> {
         }
     }
 
+    #[instrument(skip(ctx))]
     pub fn dereference(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Type::Typedef(ident) => ctx
@@ -323,6 +326,7 @@ impl<'a> Type<'a> {
         }
     }
 
+    #[instrument(skip(ctx))]
     pub fn member(&self, ctx: &TypeChecker<'a>, ident: IdentRef<'a>) -> Result<Type<'a>> {
         match self {
             Type::Typedef(type_def_ident) => ctx
@@ -338,6 +342,7 @@ impl<'a> Type<'a> {
         }
     }
 
+    #[instrument(skip(ctx))]
     pub fn member_and_offset(
         &self,
         ctx: &TypeChecker<'a>,
@@ -366,6 +371,7 @@ impl<'a> Type<'a> {
         }
     }
 
+    #[instrument(skip(ctx))]
     pub fn width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
         match self {
             Type::Typedef(ident) => ctx
@@ -383,6 +389,7 @@ impl<'a> Type<'a> {
         }
     }
 
+    #[instrument(skip(ctx))]
     pub fn stride(&self, ctx: &TypeChecker<'a>) -> Result<Stride> {
         match self {
             Type::Typedef(ident) => ctx

@@ -478,9 +478,9 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 Rule::member_deref => {
                     PostfixOp::MemberDeref(parse_ident(op.clone().into_inner().next().unwrap())?)
                 }
-                Rule::array_idx => PostfixOp::ArrayIndex(
-                    parse_expr(op.clone().into_inner().next().unwrap().into_inner())?.into(),
-                ),
+                Rule::array_idx => {
+                    PostfixOp::ArrayIndex(parse_expr(op.clone().into_inner())?.into())
+                }
                 _ => {
                     return Err(eyre!("Unexpected postfix op: {:?}", op)
                         .with_section(|| generate_span_error_section(op.as_span())));

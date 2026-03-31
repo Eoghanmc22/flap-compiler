@@ -75,7 +75,7 @@ dereference  = { "*" }
 cast         = { "(" ~ var_type ~ ")" }
 member       = { "." ~ ident }
 member_deref = { "->" ~ ident }
-array_idx    = { "[" ~ number ~ "]" }
+array_idx    = { "[" ~ expression ~ "]" }
 
 binary_op  = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
 prefix_op   = _{ negate | logical_not | dereference | cast }

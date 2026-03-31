@@ -96,3 +96,6 @@ print(heap->nested.a); // 60
 
 write(STDOUT, heap->b, strlen(heap->b));               // "hello world!"
 write(STDOUT, heap->nested.b, strlen(heap->nested.b)); // "hi from inner!"
+
+print((int)'i');
+print((int)(heap->nested.b[1]));

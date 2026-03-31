@@ -323,6 +323,7 @@ fn walk_if_statement_inner<'a, 'b>(
     }
 }
 
+#[derive(Debug)]
 enum ExpressionOutput<'a> {
     TailCall(MaybeTailCall<'a>),
     Dereference(Box<Expr<'a>>, Type<'a>, Span<'a>),
@@ -345,6 +346,7 @@ impl<'a> ExpressionOutput<'a> {
         self.into_tail_call(ctx)?.into_data_ref(ctx)
     }
 
+    #[instrument(skip(ctx))]
     fn into_tail_call(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<MaybeTailCall<'a>> {
         match self {
             ExpressionOutput::TailCall(tail_call) => Ok(tail_call),
@@ -688,7 +690,11 @@ fn walk_expr<'a, 'b>(
                             ..
                         }) => Ok(tail_call),
                         ExpressionOutput::Dereference(expr, _expr_type, span) => {
-                            Ok(ExpressionOutput::Dereference(expr, to.clone(), span))
+                            Ok(ExpressionOutput::Dereference(
+                                expr,
+                                Type::Pointer(to.clone().into()),
+                                span,
+                            ))
                         }
                     };
                 }
@@ -761,28 +767,30 @@ fn walk_expr<'a, 'b>(
                                 left,
                                 left_type,
                                 right,
-                                right_type: _,
+                                right_type,
                                 span,
                             },
                             _,
-                        ) => Expr::BinaryOp {
-                            op: BinaryOp::Add,
-                            left,
-                            left_type,
-                            right: Expr::BinaryOp {
+                        ) => {
+                            assert_eq!(right_type, DeferedType::ResolvedType(Type::Int));
+
+                            Expr::BinaryOp {
                                 op: BinaryOp::Add,
-                                left: right,
-                                left_type: DeferedType::ResolvedType(Type::Pointer(
-                                    Type::Int.into(),
-                                )),
-                                right: Expr::Value(Value::Int(field_offset.0), span).into(),
+                                left,
+                                left_type,
+                                right: Expr::BinaryOp {
+                                    op: BinaryOp::Add,
+                                    left: right,
+                                    left_type: right_type,
+                                    right: Expr::Value(Value::Int(field_offset.0), span).into(),
+                                    right_type: DeferedType::ResolvedType(Type::Int),
+                                    span,
+                                }
+                                .into(),
                                 right_type: DeferedType::ResolvedType(Type::Int),
                                 span,
                             }
-                            .into(),
-                            right_type: DeferedType::ResolvedType(Type::Int),
-                            span,
-                        },
+                        }
                         _ => Expr::BinaryOp {
                             op: BinaryOp::Add,
                             left: operand.clone(),
@@ -846,22 +854,26 @@ fn walk_expr<'a, 'b>(
                             right,
                             right_type,
                             span,
-                        } => Expr::BinaryOp {
-                            op: BinaryOp::Add,
-                            left,
-                            left_type,
-                            right: Expr::BinaryOp {
+                        } => {
+                            assert_eq!(right_type, DeferedType::ResolvedType(Type::Int));
+
+                            Expr::BinaryOp {
                                 op: BinaryOp::Add,
-                                left: right,
-                                left_type: right_type,
-                                right: expr.clone(),
+                                left,
+                                left_type,
+                                right: Expr::BinaryOp {
+                                    op: BinaryOp::Add,
+                                    left: right,
+                                    left_type: right_type,
+                                    right: expr.clone(),
+                                    right_type: DeferedType::ResolvedType(Type::Int),
+                                    span,
+                                }
+                                .into(),
                                 right_type: DeferedType::ResolvedType(Type::Int),
                                 span,
                             }
-                            .into(),
-                            right_type: DeferedType::ResolvedType(Type::Int),
-                            span,
-                        },
+                        }
                         _ => Expr::BinaryOp {
                             op: BinaryOp::Add,
                             left: operand.clone(),
