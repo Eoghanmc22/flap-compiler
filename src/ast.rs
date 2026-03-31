@@ -264,7 +264,15 @@ impl<'a> Type<'a> {
                 .get(ident)
                 .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
                 .and_then(|it| it.resolve(ctx)),
-            _ => Ok(self.clone()),
+            Type::Struct(btree_map) => Ok(Type::Struct(
+                btree_map
+                    .into_iter()
+                    .map(|(key, val)| Ok((*key, val.resolve(ctx)?)))
+                    .collect::<Result<_>>()?,
+            )),
+            Type::Pointer(ptr) => Ok(Type::Pointer(ptr.resolve(ctx)?.into())),
+            Type::Array(inner_type, len) => Ok(Type::Array(inner_type.resolve(ctx)?.into(), *len)),
+            Type::Int | Type::Char | Type::Bool | Type::Void => Ok(self.clone()),
         }
     }
 

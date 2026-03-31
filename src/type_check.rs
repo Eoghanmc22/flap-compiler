@@ -220,11 +220,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
         match self {
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)
+                .and_then(|it| it.resolve(ctx))
                 .wrap_err("Could not type check expr value")
                 .with_section(|| generate_span_error_section(*span)),
             Expr::Path(ident, span) => {
                 let var_type = ctx
                     .lookup_variable_path(ident)
+                    .and_then(|it| it.resolve(ctx))
                     .wrap_err_with(|| format!("Could not find identifier: `{ident:?}`"))
                     .with_section(|| generate_span_error_section(*span))?;
 
@@ -233,7 +235,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
             Expr::Struct(map, defered_type, _span) => {
                 let map = map
                     .into_iter()
-                    .map(|(key, expr)| Ok((*key, expr.check_and_resolve_types(ctx)?)))
+                    .map(|(key, expr)| {
+                        Ok((
+                            *key,
+                            expr.check_and_resolve_types(ctx)
+                                .and_then(|it| it.resolve(ctx))?,
+                        ))
+                    })
                     .collect::<Result<BTreeMap<_, _>>>()?;
 
                 *defered_type = DeferedType::ResolvedType(Type::Struct(map.clone()));
@@ -243,7 +251,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
             Expr::Array(exprs, defered_type, span) => {
                 let types = exprs
                     .into_iter()
-                    .map(|expr| Ok((expr.as_span(), expr.check_and_resolve_types(ctx)?)))
+                    .map(|expr| {
+                        Ok((
+                            expr.as_span(),
+                            expr.check_and_resolve_types(ctx)
+                                .and_then(|it| it.resolve(ctx))?,
+                        ))
+                    })
                     .collect::<Result<Vec<_>>>()?;
 
                 let mut inner_type: Option<(Span, &Type)> = None;
@@ -286,8 +300,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 left_type,
                 right_type,
             } => {
-                let left_type_computed = left.check_and_resolve_types(ctx)?;
-                let right_type_computed = right.check_and_resolve_types(ctx)?;
+                let left_type_computed = left.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                let right_type_computed = right.check_and_resolve_types(ctx)?.resolve(ctx)?;
 
                 *left_type = DeferedType::ResolvedType(left_type_computed.clone());
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
@@ -380,7 +394,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 span,
                 operand_type,
             } => {
-                let operand_type_computed = operand.check_and_resolve_types(ctx)?;
+                let operand_type_computed = operand.check_and_resolve_types(ctx)?.resolve(ctx)?;
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (allowed_type, return_type) = match op {
@@ -432,8 +446,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 Ok(return_type)
             }
-            Expr::FunctionCall(func_call) => func_call.check_and_resolve_types(ctx),
-            Expr::If(if_expr) => if_expr.check_and_resolve_types(ctx),
+            Expr::FunctionCall(func_call) => func_call.check_and_resolve_types(ctx)?.resolve(ctx),
+            Expr::If(if_expr) => if_expr.check_and_resolve_types(ctx)?.resolve(ctx),
         }
     }
 }
@@ -462,7 +476,7 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
         for (parm_expr, (arg_type, arg_name)) in
             self.parameters.iter_mut().zip(sig.arguements.iter())
         {
-            let parm_type = parm_expr.check_and_resolve_types(ctx)?;
+            let parm_type = parm_expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
             if parm_type != *arg_type {
                 return Err(eyre!("Function called with a paramater of the incorrect type")
                             .with_section(|| {
@@ -489,7 +503,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
                 arguements: self.signature.arguements.clone(),
                 return_type: self.signature.return_type.clone(),
             },
-            |ctx| self.contents.check_and_resolve_types(ctx),
+            |ctx| self.contents.check_and_resolve_types(ctx)?.resolve(ctx),
         );
 
         let actual_return_type = actual_return_type?;
@@ -530,7 +544,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     #[instrument(name = "typecheck_const_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let actual_type = self.expr.check_and_resolve_types(ctx)?;
+        let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if actual_type != self.var_type.resolve(ctx)? {
             return Err(
                 eyre!("Const definition set to the incorrect type").with_section(|| {
@@ -560,7 +574,7 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
     #[instrument(name = "typecheck_local_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let actual_type = self.expr.check_and_resolve_types(ctx)?;
+        let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if actual_type.resolve(ctx)? != self.var_type.resolve(ctx)? {
             return Err(
                 eyre!("Local definition set to the incorrect type").with_section(|| {
@@ -606,11 +620,10 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
                 }),
             );
         };
-        let target_type = target_type.resolve(ctx)?;
 
         let mismatched_type = match (&target_type, &expr_type) {
-            (target_type, Type::Array(array_type, _len)) => target_type != &**array_type,
-            (target_type, expr_type) => target_type != expr_type,
+            (target_type, Type::Array(array_type, _len)) => target_type != array_type,
+            (target_type, expr_type) => &**target_type != expr_type,
         };
 
         if mismatched_type {
@@ -630,7 +643,7 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
         }
 
         self.expr_type = DeferedType::ResolvedType(expr_type);
-        self.target_type = DeferedType::ResolvedType(target_type);
+        self.target_type = DeferedType::ResolvedType(*target_type);
 
         // The pointer assignment itself should not have a return type
         Ok(Type::Void)
@@ -650,7 +663,7 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 impl<'a> TypeCheck<'a> for IfCase<'a> {
     #[instrument(name = "typecheck_if_case", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let case_type = self.condition.check_and_resolve_types(ctx)?;
+        let case_type = self.condition.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if case_type != Type::Bool {
             return Err(
                 eyre!("If statement's condition evaluated to the incorrect type").with_section(
@@ -670,7 +683,7 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
             );
         }
 
-        self.contents.check_and_resolve_types(ctx)
+        self.contents.check_and_resolve_types(ctx)?.resolve(ctx)
     }
 }
 
@@ -681,11 +694,12 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
             .cases
             .first_mut()
             .unwrap()
-            .check_and_resolve_types(ctx)?;
+            .check_and_resolve_types(ctx)?
+            .resolve(ctx)?;
 
         let (rst, frame) = ctx.define_scope::<Result<_>, _>(|ctx| {
             for case in &mut self.cases {
-                let case_return_type = case.check_and_resolve_types(ctx)?;
+                let case_return_type = case.check_and_resolve_types(ctx)?.resolve(ctx)?;
                 if case_return_type != expected_type {
                     return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
@@ -709,7 +723,7 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
             }
 
             if let Some(otherwise) = &mut self.otherwise {
-                let case_return_type = otherwise.check_and_resolve_types(ctx)?;
+                let case_return_type = otherwise.check_and_resolve_types(ctx)?.resolve(ctx)?;
                 if case_return_type != expected_type {
                     return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
@@ -767,7 +781,7 @@ impl<'a> TypeCheck<'a> for Block<'a> {
 
         let (res, frame) = ctx.define_scope::<Result<_>, _>(|ctx| {
             for statement in &mut self.statements {
-                actual_return_type = statement.check_and_resolve_types(ctx)?;
+                actual_return_type = statement.check_and_resolve_types(ctx)?.resolve(ctx)?;
             }
 
             Ok(())
