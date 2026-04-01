@@ -1,0 +1,27 @@
+#include "../std"
+
+map_int *map = map_int_new(3);
+map_int_print(map);
+
+new_line();
+new_line();
+new_line();
+
+map_int_insert(map, 1, 2);
+map_int_insert(map, 10, 3);
+map_int_insert(map, 15213, 42);
+map_int_insert(map, 67, 1);
+map_int_insert(map, 42, 9);
+map_int_insert(map, 37, 2);
+map_int_insert(map, 1, 7);
+map_int_insert(map, 6, 7);
+map_int_print(map);
+
+print(map_int_get(map, 1, -100));
+print(map_int_get(map, 10, -100));
+print(map_int_get(map, 15213, -100));
+print(map_int_get(map, 67, -100));
+print(map_int_get(map, 42, -100));
+print(map_int_get(map, 37, -100));
+print(map_int_get(map, 1, -100));
+print(map_int_get(map, 6, -100));

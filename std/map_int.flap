@@ -1,0 +1,132 @@
+#include "io.flap"
+#include "malloc.flap"
+#include "memory.flap"
+
+typedef struct {
+  int key;
+  int value;
+  bool occupied;
+} map_int_entry;
+
+typedef struct {
+  map_int_entry *data;
+  int len;
+  int cap;
+} map_int;
+
+typedef struct {
+  map_int *map;
+  int idx;
+} map_int_iter;
+
+map_int *map_int_new(int cap) {
+  map_int *header = (map_int *)malloc(sizeof<map_int>);
+
+  header->data = (map_int_entry *)malloc(cap * sizeof<map_int_entry>);
+  header->cap = cap;
+  header->len = 0;
+
+  header
+}
+
+int hash_int(int x){x * 1337}
+
+map_int_iter *map_int_iter_new(map_int *map) {
+  map_int_iter *iter = (map_int_iter *)malloc(sizeof<map_int_iter>);
+
+  iter->map = map;
+  iter->idx = 0;
+
+  iter
+}
+
+bool map_int_iter_has_next(map_int_iter *iter) {
+  if (iter->map->data[iter->idx].occupied) {
+    true
+  } else if (iter->idx >= iter->map->cap) {
+    false
+  } else {
+    iter->idx = iter->idx + 1;
+    map_int_iter_has_next(iter)
+  }
+}
+
+map_int_entry map_int_iter_next(map_int_iter *iter) {
+  int old_idx = iter->idx;
+  iter->idx = old_idx + 1;
+  iter->map->data[old_idx]
+}
+
+void map_int_insert(map_int *map, int key, int value) {
+  void insert_probe(map_int * map, int start, int iter, map_int_entry entry) {
+    int idx = (start + iter * iter) % map->cap;
+
+    map_int_entry old = map->data[idx];
+    if (!old.occupied || old.key == entry.key) {
+      map->data[idx] = entry;
+    } else {
+      insert_probe(map, start, iter + 1, entry);
+    }
+  }
+
+  void extend_from_iter(map_int * dst, map_int_iter * src_iter) {
+    if (map_int_iter_has_next(src_iter)) {
+      map_int_entry entry = map_int_iter_next(src_iter);
+      map_int_insert(dst, entry.key, entry.value);
+      extend_from_iter(dst, src_iter);
+    }
+  }
+
+  if (map->len >= map->cap / 2) {
+    map_int *dst = map_int_new(map->cap * 2);
+    map_int_iter *iter = map_int_iter_new(map);
+
+    extend_from_iter(dst, iter);
+    *map = *dst;
+  }
+
+  int start_cell = hash_int(key) % map->cap;
+
+  insert_probe(
+      map, start_cell, 0, struct {
+        key = key;
+        value = value;
+        occupied = true;
+      });
+
+  map->len = map->len + 1;
+}
+
+int map_int_get(map_int *map, int key, int default) {
+  int get_probe(map_int * map, int start, int iter, int key, int default) {
+    int idx = (start + iter * iter) % map->cap;
+
+    map_int_entry entry = map->data[idx];
+    if (entry.occupied && entry.key == key) {
+      entry.value
+    } else if (!entry.occupied) {
+      default
+    } else {
+      get_probe(map, start, iter + 1, key, default)
+    }
+  }
+
+  int start_cell = hash_int(key) % map->cap;
+  get_probe(map, start_cell, 0, key, default)
+}
+
+void map_int_print(map_int *map) {
+  void inner(map_int_iter * iter) {
+    if (map_int_iter_has_next(iter)) {
+      map_int_entry entry = map_int_iter_next(iter);
+
+      print(entry.key);
+      print(entry.value);
+      new_line();
+
+      inner(iter);
+    }
+  }
+
+  inner(map_int_iter_new(map));
+}

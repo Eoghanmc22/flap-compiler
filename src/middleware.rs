@@ -792,36 +792,36 @@ fn walk_expr<'a, 'b>(
                     // Try to help out value propagation
                     let offset = match ((**operand).clone(), field_offset) {
                         (operand, Offset(0)) => operand,
-                        (
-                            Expr::BinaryOp {
-                                op: BinaryOp::Add,
-                                left,
-                                left_type,
-                                right,
-                                right_type,
-                                span,
-                            },
-                            _,
-                        ) => {
-                            assert_eq!(right_type, DeferedType::ResolvedType(Type::Int));
-
-                            Expr::BinaryOp {
-                                op: BinaryOp::Add,
-                                left,
-                                left_type,
-                                right: Expr::BinaryOp {
-                                    op: BinaryOp::Add,
-                                    left: right,
-                                    left_type: right_type,
-                                    right: Expr::Value(Value::Int(field_offset.0), span).into(),
-                                    right_type: DeferedType::ResolvedType(Type::Int),
-                                    span,
-                                }
-                                .into(),
-                                right_type: DeferedType::ResolvedType(Type::Int),
-                                span,
-                            }
-                        }
+                        // (
+                        //     Expr::BinaryOp {
+                        //         op: BinaryOp::Add,
+                        //         left,
+                        //         left_type,
+                        //         right,
+                        //         right_type,
+                        //         span,
+                        //     },
+                        //     _,
+                        // ) => {
+                        //     assert_eq!(right_type, DeferedType::ResolvedType(Type::Int));
+                        //
+                        //     Expr::BinaryOp {
+                        //         op: BinaryOp::Add,
+                        //         left,
+                        //         left_type,
+                        //         right: Expr::BinaryOp {
+                        //             op: BinaryOp::Add,
+                        //             left: right,
+                        //             left_type: right_type,
+                        //             right: Expr::Value(Value::Int(field_offset.0), span).into(),
+                        //             right_type: DeferedType::ResolvedType(Type::Int),
+                        //             span,
+                        //         }
+                        //         .into(),
+                        //         right_type: DeferedType::ResolvedType(Type::Int),
+                        //         span,
+                        //     }
+                        // }
                         _ => Expr::BinaryOp {
                             op: BinaryOp::Add,
                             left: operand.clone(),
@@ -913,33 +913,33 @@ fn walk_expr<'a, 'b>(
                 (Type::Pointer(inner), PostfixOp::ArrayIndex(expr)) => {
                     let offset = match (**operand).clone() {
                         // Try to help out value propagation
-                        Expr::BinaryOp {
-                            op: BinaryOp::Add,
-                            left,
-                            left_type,
-                            right,
-                            right_type,
-                            span,
-                        } => {
-                            assert_eq!(right_type, DeferedType::ResolvedType(Type::Int));
-
-                            Expr::BinaryOp {
-                                op: BinaryOp::Add,
-                                left,
-                                left_type,
-                                right: Expr::BinaryOp {
-                                    op: BinaryOp::Add,
-                                    left: right,
-                                    left_type: right_type,
-                                    right: expr.clone(),
-                                    right_type: DeferedType::ResolvedType(Type::Int),
-                                    span,
-                                }
-                                .into(),
-                                right_type: DeferedType::ResolvedType(Type::Int),
-                                span,
-                            }
-                        }
+                        // Expr::BinaryOp {
+                        //     op: BinaryOp::Add,
+                        //     left,
+                        //     left_type,
+                        //     right,
+                        //     right_type,
+                        //     span,
+                        // } => {
+                        //     assert_eq!(right_type, DeferedType::ResolvedType(Type::Int));
+                        //
+                        //     Expr::BinaryOp {
+                        //         op: BinaryOp::Add,
+                        //         left,
+                        //         left_type,
+                        //         right: Expr::BinaryOp {
+                        //             op: BinaryOp::Add,
+                        //             left: right,
+                        //             left_type: right_type,
+                        //             right: expr.clone(),
+                        //             right_type: DeferedType::ResolvedType(Type::Int),
+                        //             span,
+                        //         }
+                        //         .into(),
+                        //         right_type: DeferedType::ResolvedType(Type::Int),
+                        //         span,
+                        //     }
+                        // }
                         _ => Expr::BinaryOp {
                             op: BinaryOp::Add,
                             left: operand.clone(),
