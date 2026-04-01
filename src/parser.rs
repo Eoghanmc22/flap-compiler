@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::Path,
+};
 
 use color_eyre::{
     Section,
@@ -14,9 +17,9 @@ use tracing::{instrument, trace};
 
 use crate::{
     ast::{
-        Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr,
+        Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Directive, Expr,
         FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr,
-        LocalDef, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
+        LocalDef, PostfixOp, PrefixOp, Program, Punctuation, Statement, Type, Typedef, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -50,13 +53,54 @@ lazy_static::lazy_static! {
 struct FlapParser;
 
 #[instrument]
-pub fn parse_program<'a>(input: &'a str) -> Result<Block<'a>> {
+pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
     let mut pairs = FlapParser::parse(Rule::program, input).wrap_err("Autogen parser")?;
     trace!("Input program tokens: {pairs:#?}");
 
-    let program_contents_pair = pairs.next().unwrap();
+    let mut directives = Vec::new();
 
-    parse_block_like(program_contents_pair)
+    let pairs = pairs.next().unwrap().into_inner();
+    for pair in pairs {
+        match pair.as_rule() {
+            Rule::directive => {
+                directives.push(parse_directive(pair)?);
+            }
+            Rule::program_inner => {
+                let code = parse_block_like(pair)?;
+
+                return Ok(Program { directives, code });
+            }
+            _ => {
+                return Err(
+                    eyre!("Unsupported token at top level: {:?}", pair.as_rule())
+                        .with_section(|| generate_span_error_section(pair.as_span())),
+                );
+            }
+        }
+    }
+
+    unreachable!()
+}
+
+#[instrument]
+fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
+    let kind = pair.into_inner().next().unwrap();
+
+    match kind.as_rule() {
+        Rule::include => Ok(Directive::Include(Path::new(
+            kind.into_inner()
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .as_str(),
+        ))),
+        _ => {
+            return Err(eyre!("Unsupported directive: {:?}", kind.as_rule())
+                .with_section(|| generate_span_error_section(kind.as_span())));
+        }
+    }
 }
 
 #[instrument]

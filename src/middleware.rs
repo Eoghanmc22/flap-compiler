@@ -15,7 +15,7 @@ use crate::{
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
         clac::{ClacProgram, ClacToken, ClacValue},
-        ir::{ClacOp, DataReference, TokenConsumer},
+        ir::{ClacOp, DataReference},
     },
 };
 
@@ -351,7 +351,7 @@ impl<'a> ExpressionOutput<'a> {
     fn into_tail_call(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<MaybeTailCall<'a>> {
         match self {
             ExpressionOutput::TailCall(tail_call) => Ok(tail_call),
-            ExpressionOutput::Dereference(operand, operand_type, span) => {
+            ExpressionOutput::Dereference(operand, operand_type, _span) => {
                 let value = walk_expr(ctx, &operand)?;
 
                 // TODO: make this support the MaybeTailCall infra so that it wont get compiled
@@ -877,7 +877,7 @@ fn walk_expr<'a, 'b>(
                                 )?
                                 .into())
                         }
-                        ExpressionOutput::Dereference(expr, expr_type, span) => {
+                        ExpressionOutput::Dereference(expr, _expr_type, span) => {
                             // TODO: Do a similar value propagation optimization as the other cases
                             // TODO: Dont omit an add when the index is a comptime 0
                             // TODO: when index is comptime known, do bounds checking

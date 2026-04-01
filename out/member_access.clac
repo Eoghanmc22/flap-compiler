@@ -1,62 +1,7 @@
 : comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
 
 : comment flap source code:
-    const int PROT_EXEC = 4;
-    const int PROT_READ = 1;
-    const int PROT_WRITE = 2;
-    const int PROT_NONE = 0;
-    
-    const int MAP_PRIVATE = 2;
-    const int MAP_ANON = 32;
-    
-    const int STDIN = 0;
-    const int STDOUT = 1;
-    const int STDERR = 2;
-    
-    const int NULL = 0;
-    
-    const int PROT_EXEC = 4;
-    const int PROT_READ = 1;
-    const int PROT_WRITE = 2;
-    const int PROT_NONE = 0;
-    
-    const int MAP_PRIVATE = 2;
-    const int MAP_ANON = 32;
-    
-    const int NULL = 0;
-    
-    int handle_error(int res) {
-      if (res == -1) {
-        print(67676767);
-        quit();
-      }
-    
-      res
-    }
-    
-    int write(int fd, char *buf, int count) {
-      handle_error(syscall(1, fd, (int)buf, count, 0, 0, 0))
-    }
-    
-    char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
-      (char *)handle_error(
-          syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
-    }
-    
-    char *malloc(int size) {
-      const int prot = PROT_READ + PROT_WRITE;
-      const int flags = MAP_PRIVATE + MAP_ANON;
-    
-      mmap((char *)NULL, size, prot, flags, -1, 0)
-    }
-    
-    int strlen(char *str) {
-      if (*str == '\0') {
-        0
-      } else {
-        1 + strlen(str + 1)
-      }
-    }
+    #include "std.flap"
     
     typedef struct {
       int a;
@@ -136,12 +81,32 @@
 : comment Start Definitions ;
 : func-on_true-3 67676767 print quit drop ;
 : func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
-: func-write-9 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
-: func-mmap-14 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
-: func-malloc-22 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-14 ;
-: func-on_true-28 0 swap drop ;
-: func-on_false-30 1 pick 1 + 1 pick func-strlen-24 1 2 pick + 1 pick 5 4 drop_range ;
-: func-strlen-24 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-28 1 skip func-on_false-30 ;
+: func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
+: func-read-17 0 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-write-22 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-open-27 2 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-close-32 3 2 pick 0 0 0 0 0 syscall 1 pick 3 2 drop_range func-handle_error-0 ;
+: func-socket-35 41 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-setsockopt-40 54 6 pick 6 pick 6 pick 6 pick 6 pick 0 syscall 1 pick 7 6 drop_range func-handle_error-0 ;
+: func-bind-47 49 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-listen-52 50 3 pick 3 pick 0 0 0 0 syscall 1 pick 4 3 drop_range func-handle_error-0 ;
+: func-accept-56 43 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-fork-61 57 0 0 0 0 0 0 syscall 1 pick swap drop func-handle_error-0 ;
+: func-on_true-69 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-read_all-63 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-78 0 5 4 drop_range ;
+: func-read_all-63 3 pick 3 pick 3 pick func-read-17 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-69 1 skip func-on_false-78 ;
+: func-on_true-89 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-83 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-98 0 5 4 drop_range ;
+: func-write_all-83 3 pick 3 pick 3 pick func-write-22 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-89 1 skip func-on_false-98 ;
+: func-on_true-110 3 pick 6 pick 4 pick func-write_all-83 6 pick 6 pick 4 pick 7 pick func-copy_all-103 6 6 drop_range ;
+: func-copy_all-103 2 pick 5 pick 5 pick func-read_all-63 0 2 pick < 6 pick 6 pick 5 pick 5 pick 8 pick 6 pick 12 6 drop_range if func-on_true-110 5 skip drop drop drop drop drop ;
+: func-on_true-126 3 pick 6 pick 4 pick func-write_all-83 6 pick 6 pick 4 pick 7 pick func-copy-119 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_false-135 0 6 5 drop_range ;
+: func-copy-119 2 pick 5 pick 5 pick func-read-17 0 2 pick < 6 pick 6 pick 5 pick 5 pick 8 pick 6 pick 12 6 drop_range if func-on_true-126 1 skip func-on_false-135 ;
+: func-malloc-141 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
+: func-on_true-147 0 swap drop ;
+: func-on_false-149 1 pick 1 + 1 pick func-strlen-143 1 2 pick + 1 pick 5 4 drop_range ;
+: func-strlen-143 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-147 1 skip func-on_false-149 ;
 
 : comment Start Main ;
-9 func-malloc-22 1 pick 20 write_native 1 pick 8 + 1 pick 0 write_native 2 pick 16 + 1 pick 50 write_native 3 pick 24 + 1 pick 0 write_native 4 pick 32 + 1 pick 1 write_native 5 pick 40 + 1 pick 5 write_native 6 pick 48 + 1 pick 2 write_native 7 pick 56 + 1 pick 1 write_native 8 pick 64 + 1 pick 3 write_native 9 pick read_native 1 pick print 10 pick 16 + 1 pick read_native 1 pick print 4096 func-malloc-22 13 pick 8 + 1 pick 3 pick write_native 4096 func-malloc-22 15 pick 24 + 1 pick 3 pick write_native 16 pick 8 + 1 pick read_native 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 13 pick 13 + 1 pick 0 write8 31 pick 24 + 1 pick read_native 1 pick 104 write8 1 pick 1 + 1 pick 105 write8 2 pick 2 + 1 pick 32 write8 3 pick 3 + 1 pick 102 write8 4 pick 4 + 1 pick 114 write8 5 pick 5 + 1 pick 111 write8 6 pick 6 + 1 pick 109 write8 7 pick 7 + 1 pick 32 write8 8 pick 8 + 1 pick 105 write8 9 pick 9 + 1 pick 110 write8 10 pick 10 + 1 pick 110 write8 11 pick 11 + 1 pick 101 write8 12 pick 12 + 1 pick 114 write8 13 pick 13 + 1 pick 33 write8 14 pick 14 + 1 pick 10 write8 15 pick 15 + 1 pick 0 write8 48 pick 30 write_native 48 pick 16 + 1 pick 60 write_native 49 pick read_native 1 pick print 50 pick 16 + 1 pick read_native 1 pick print 52 pick 8 + 1 pick read_native 54 pick 8 + 1 pick read_native 1 pick func-strlen-24 1 5 pick 3 pick func-write-9 58 pick 24 + 1 pick read_native 60 pick 24 + 1 pick read_native 1 pick func-strlen-24 1 5 pick 3 pick func-write-9 105 print 64 pick 24 + 1 pick read_native 1 pick 1 + 1 pick read8 1 pick print 68 pick 32 + 1 pick 0 + 1 pick read_native 1 pick print 71 pick 32 + 1 pick 8 + 1 pick read_native 1 pick print 74 pick 32 + 1 pick 16 + 1 pick read_native 1 pick print 77 pick 32 + 1 pick 24 + 1 pick read_native 1 pick print 80 pick 32 + 1 pick 32 + 1 pick read_native 1 pick print 83 pick read_native 84 pick 8 + read_native 85 pick 16 + read_native 86 pick 24 + read_native 87 pick 32 + read_native 88 pick 40 + read_native 89 pick 48 + read_native 90 pick 56 + read_native 91 pick 64 + read_native 5 pick print 4 pick print 3 pick print 2 pick print 1 pick print 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 5 pick 5 pick 5 pick 5 pick 102 pick 32 + 1 pick 7 pick write_native 1 pick 8 + 1 pick 7 pick write_native 2 pick 16 + 1 pick 7 pick write_native 3 pick 24 + 1 pick 7 pick write_native 4 pick 32 + 1 pick 7 pick write_native 107 pick 32 + 1 pick 0 + 1 pick read_native 1 pick print 110 pick 32 + 1 pick 8 + 1 pick read_native 1 pick print 113 pick 32 + 1 pick 16 + 1 pick read_native 1 pick print 116 pick 32 + 1 pick 24 + 1 pick read_native 1 pick print 119 pick 32 + 1 pick 32 + 1 pick read_native 1 pick print 122 pick print
+9 func-malloc-141 1 pick 20 write_native 1 pick 8 + 1 pick 0 write_native 2 pick 16 + 1 pick 50 write_native 3 pick 24 + 1 pick 0 write_native 4 pick 32 + 1 pick 1 write_native 5 pick 40 + 1 pick 5 write_native 6 pick 48 + 1 pick 2 write_native 7 pick 56 + 1 pick 1 write_native 8 pick 64 + 1 pick 3 write_native 9 pick read_native 1 pick print 10 pick 16 + 1 pick read_native 1 pick print 4096 func-malloc-141 13 pick 8 + 1 pick 3 pick write_native 4096 func-malloc-141 15 pick 24 + 1 pick 3 pick write_native 16 pick 8 + 1 pick read_native 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 13 pick 13 + 1 pick 0 write8 31 pick 24 + 1 pick read_native 1 pick 104 write8 1 pick 1 + 1 pick 105 write8 2 pick 2 + 1 pick 32 write8 3 pick 3 + 1 pick 102 write8 4 pick 4 + 1 pick 114 write8 5 pick 5 + 1 pick 111 write8 6 pick 6 + 1 pick 109 write8 7 pick 7 + 1 pick 32 write8 8 pick 8 + 1 pick 105 write8 9 pick 9 + 1 pick 110 write8 10 pick 10 + 1 pick 110 write8 11 pick 11 + 1 pick 101 write8 12 pick 12 + 1 pick 114 write8 13 pick 13 + 1 pick 33 write8 14 pick 14 + 1 pick 10 write8 15 pick 15 + 1 pick 0 write8 48 pick 30 write_native 48 pick 16 + 1 pick 60 write_native 49 pick read_native 1 pick print 50 pick 16 + 1 pick read_native 1 pick print 52 pick 8 + 1 pick read_native 54 pick 8 + 1 pick read_native 1 pick func-strlen-143 1 5 pick 3 pick func-write-22 58 pick 24 + 1 pick read_native 60 pick 24 + 1 pick read_native 1 pick func-strlen-143 1 5 pick 3 pick func-write-22 105 print 64 pick 24 + 1 pick read_native 1 pick 1 + 1 pick read8 1 pick print 68 pick 32 + 1 pick 0 + 1 pick read_native 1 pick print 71 pick 32 + 1 pick 8 + 1 pick read_native 1 pick print 74 pick 32 + 1 pick 16 + 1 pick read_native 1 pick print 77 pick 32 + 1 pick 24 + 1 pick read_native 1 pick print 80 pick 32 + 1 pick 32 + 1 pick read_native 1 pick print 83 pick read_native 84 pick 8 + read_native 85 pick 16 + read_native 86 pick 24 + read_native 87 pick 32 + read_native 88 pick 40 + read_native 89 pick 48 + read_native 90 pick 56 + read_native 91 pick 64 + read_native 5 pick print 4 pick print 3 pick print 2 pick print 1 pick print 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 5 pick 5 pick 5 pick 5 pick 102 pick 32 + 1 pick 7 pick write_native 1 pick 8 + 1 pick 7 pick write_native 2 pick 16 + 1 pick 7 pick write_native 3 pick 24 + 1 pick 7 pick write_native 4 pick 32 + 1 pick 7 pick write_native 107 pick 32 + 1 pick 0 + 1 pick read_native 1 pick print 110 pick 32 + 1 pick 8 + 1 pick read_native 1 pick print 113 pick 32 + 1 pick 16 + 1 pick read_native 1 pick print 116 pick 32 + 1 pick 24 + 1 pick read_native 1 pick print 119 pick 32 + 1 pick 32 + 1 pick read_native 1 pick print 122 pick print

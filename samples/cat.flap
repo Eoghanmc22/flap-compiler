@@ -1,63 +1,4 @@
-const int PROT_EXEC = 4;
-const int PROT_READ = 1;
-const int PROT_WRITE = 2;
-const int PROT_NONE = 0;
-
-const int MAP_PRIVATE = 2;
-const int MAP_ANON = 32;
-
-const int STDIN = 0;
-const int STDOUT = 1;
-const int STDERR = 2;
-
-const int NULL = 0;
-
-char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
-  (char *)syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset)
-}
-
-int read(int fd, char *buf, int count) {
-  syscall(0, fd, (int)buf, count, 0, 0, 0)
-}
-
-int write(int fd, char *buf, int count) {
-  syscall(1, fd, (int)buf, count, 0, 0, 0)
-}
-
-int open(char *name, int flags, int mode) {
-  syscall(2, (int)name, flags, mode, 0, 0, 0)
-}
-
-int close(int fd) { syscall(3, fd, 0, 0, 0, 0, 0) }
-
-int read_all(int fd, char *buf, int count) {
-  int new = read(fd, buf, count);
-
-  if (new != 0) {
-    new + read_all(fd, buf + new, count - new)
-  } else {
-    0
-  }
-}
-
-int write_all(int fd, char *buf, int count) {
-  int new = write(fd, buf, count);
-
-  if (new != 0) {
-    new + write_all(fd, buf + new, count - new)
-  } else {
-    0
-  }
-}
-
-void copy_all(char *buf, int buf_len, int src_fd, int dst_fd) {
-  int in = read_all(src_fd, buf, buf_len);
-
-  if (in > 0) {
-    write_all(dst_fd, buf, in);
-    copy_all(buf, buf_len, src_fd, dst_fd);
-  }
-}
+#include "std.flap"
 
 char *get_last_arg(char *buf, char *last_ptr, int len) {
   if (len == 0) {
@@ -70,8 +11,7 @@ char *get_last_arg(char *buf, char *last_ptr, int len) {
 }
 
 int len = 4096;
-char *page = mmap((char *)NULL, len, PROT_READ + PROT_WRITE,
-                  MAP_PRIVATE + MAP_ANON, -1, 0);
+char *page = malloc(len);
 
 // Put /proc/self/cmdline into page
 *page = "/proc/self/cmdline\0";

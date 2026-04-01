@@ -11,6 +11,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     fmt::{Debug, Display},
     ops::BitOr,
+    path::Path,
 };
 use tracing::instrument;
 
@@ -651,4 +652,21 @@ impl<'a> AsSpan<'a> for Block<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Program<'a> {
+    pub directives: Vec<Directive<'a>>,
+    pub code: Block<'a>,
+}
+
+impl<'a> AsSpan<'a> for Program<'a> {
+    fn as_span(&self) -> Span<'a> {
+        self.code.span
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Directive<'a> {
+    Include(&'a Path),
 }

@@ -97,6 +97,9 @@ if_else_block = _{ "else" ~ if_block }
 else_block    =  { "else" ~ block }
 if_statement  =  { if_block ~ if_else_block* ~ else_block? }
 
+include = { "include" ~ string }
+directive = { "#" ~ (include) }
+
 semicolon =  { ";" }
 statement = _{ ((const_var | local_var | assignment | expression) ~ semicolon) | function_def | if_statement | typedef }
 
@@ -109,4 +112,5 @@ function_def            =  { function_attrs ~ var_type ~ ident ~ "(" ~ function_
 block =  { "{" ~ code ~ "}" | statement | expression }
 code  = _{ statement* ~ expression? }
 
-program = { SOI ~ code ~ EOI }
+program_inner = { code }
+program = { SOI ~ directive* ~ program_inner ~ EOI }
