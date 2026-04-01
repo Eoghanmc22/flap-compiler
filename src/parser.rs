@@ -40,7 +40,6 @@ lazy_static::lazy_static! {
             .op(Op::infix(shl, Left) | Op::infix(shr, Left))
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))             // + -
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))  // * / %
-            .op(Op::infix(power, Right))               // ^ ** (right-associative)
             .op(Op::prefix(cast))
             .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
             // Highest precedence
@@ -469,7 +468,6 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 Rule::multiply => BinaryOp::Mul,
                 Rule::divide => BinaryOp::Div,
                 Rule::modulo => BinaryOp::Mod,
-                Rule::power => BinaryOp::Pow,
                 Rule::eq => BinaryOp::Eq,
                 Rule::ne => BinaryOp::Ne,
                 Rule::le => BinaryOp::Le,

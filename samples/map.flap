@@ -1,27 +1,29 @@
 #include "../std"
 
-map_int *map = map_int_new(3);
+map_int *map = map_int_new(1);
 map_int_print(map);
 
 new_line();
 new_line();
 new_line();
 
-map_int_insert(map, 1, 2);
-map_int_insert(map, 10, 3);
-map_int_insert(map, 15213, 42);
-map_int_insert(map, 67, 1);
-map_int_insert(map, 42, 9);
-map_int_insert(map, 37, 2);
-map_int_insert(map, 1, 7);
-map_int_insert(map, 6, 7);
+map_int_insert(map, 1, (void *)2);
+map_int_insert(map, 10, (void *)3);
+map_int_insert(map, 15213, (void *)42);
+map_int_insert(map, 67, (void *)1);
+map_int_insert(map, 42, (void *)9);
+map_int_insert(map, 37, (void *)2);
+map_int_insert(map, 1, (void *)7);
+map_int_insert(map, 6, (void *)7);
 map_int_print(map);
 
-print(map_int_get(map, 1, -100));
-print(map_int_get(map, 10, -100));
-print(map_int_get(map, 15213, -100));
-print(map_int_get(map, 67, -100));
-print(map_int_get(map, 42, -100));
-print(map_int_get(map, 37, -100));
-print(map_int_get(map, 1, -100));
-print(map_int_get(map, 6, -100));
+const void *DEFAULT = (void *)-100;
+print((int)map_int_get(map, 1, DEFAULT));
+print((int)map_int_get(map, 10, DEFAULT));
+print((int)map_int_get(map, 15213, DEFAULT));
+print((int)map_int_get(map, 67, DEFAULT));
+print((int)map_int_get(map, 42, DEFAULT));
+print((int)map_int_get(map, 37, DEFAULT));
+print((int)map_int_get(map, 1, DEFAULT));
+print((int)map_int_get(map, 6, DEFAULT));
+print((int)map_int_get(map, 45, DEFAULT));

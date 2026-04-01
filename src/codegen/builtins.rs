@@ -11,6 +11,17 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     let mut map = HashMap::new();
 
     map.insert(
+        "pow",
+        (
+            ClacToken::Pow,
+            FunctionSignature {
+                arguements: vec![(Type::Int, "base"), (Type::Int, "power")],
+                return_type: Type::Int,
+            },
+        ),
+    );
+
+    map.insert(
         "print",
         (
             ClacToken::Print,

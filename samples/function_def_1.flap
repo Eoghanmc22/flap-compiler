@@ -1,7 +1,7 @@
 int test() {
   int i = 42;
   int j = i + 37;
-  j pow! 5
+  pow(j, 5)
 }
 
 test()

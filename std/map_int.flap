@@ -4,7 +4,7 @@
 
 typedef struct {
   int key;
-  int value;
+  void *value;
   bool occupied;
 } map_int_entry;
 
@@ -19,9 +19,10 @@ typedef struct {
   int idx;
 } map_int_iter;
 
-map_int *map_int_new(int cap) {
+map_int *map_int_new(int log_cap) {
   map_int *header = (map_int *)malloc(sizeof<map_int>);
 
+  int cap = pow(2, log_cap);
   header->data = (map_int_entry *)malloc(cap * sizeof<map_int_entry>);
   header->cap = cap;
   header->len = 0;
@@ -29,7 +30,15 @@ map_int *map_int_new(int cap) {
   header
 }
 
-int hash_int(int x){x * 1337}
+int hash_int(int x) {
+  int hash = x * 1337;
+
+  if (hash >= 0) {
+    hash
+  } else {
+    -hash
+  }
+}
 
 map_int_iter *map_int_iter_new(map_int *map) {
   map_int_iter *iter = (map_int_iter *)malloc(sizeof<map_int_iter>);
@@ -57,9 +66,9 @@ map_int_entry map_int_iter_next(map_int_iter *iter) {
   iter->map->data[old_idx]
 }
 
-void map_int_insert(map_int *map, int key, int value) {
+void map_int_insert(map_int *map, int key, void *value) {
   void insert_probe(map_int * map, int start, int iter, map_int_entry entry) {
-    int idx = (start + iter * iter) % map->cap;
+    int idx = (start + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry old = map->data[idx];
     if (!old.occupied || old.key == entry.key) {
@@ -97,9 +106,9 @@ void map_int_insert(map_int *map, int key, int value) {
   map->len = map->len + 1;
 }
 
-int map_int_get(map_int *map, int key, int default) {
-  int get_probe(map_int * map, int start, int iter, int key, int default) {
-    int idx = (start + iter * iter) % map->cap;
+void *map_int_get(map_int *map, int key, void *default) {
+  void *get_probe(map_int * map, int start, int iter, int key, void *default) {
+    int idx = (start + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry entry = map->data[idx];
     if (entry.occupied && entry.key == key) {
@@ -121,7 +130,7 @@ void map_int_print(map_int *map) {
       map_int_entry entry = map_int_iter_next(iter);
 
       print(entry.key);
-      print(entry.value);
+      print((int)entry.value);
       new_line();
 
       inner(iter);

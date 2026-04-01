@@ -48,7 +48,6 @@ negate   = { "-" }
 multiply = { "*" }
 divide   = { "/" }
 modulo   = { "%" }
-power    = { "pow!" }
 
 // Comparison operators
 eq = { "==" }
@@ -77,7 +76,7 @@ member       = { "." ~ ident }
 member_deref = { "->" ~ ident }
 array_idx    = { "[" ~ expression ~ "]" }
 
-binary_op  = _{ add | subtract | power | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
+binary_op  = _{ add | subtract | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
 prefix_op   = _{ negate | logical_not | dereference | cast }
 postfix_op   = _{ member | member_deref | array_idx }
 atom       = _{ array_expr | struct_expr | if_statement | sizeof_builtin | function_call | value | ident | ("(" ~ expression ~ ")") }

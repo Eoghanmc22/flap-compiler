@@ -40,20 +40,20 @@
 
 : comment Start Definitions ;
 : func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
-: func-inner-500 2 pick 16 + 1 pick read_native 3 pick 2 pick < 4 pick 6 pick 3 pick 8 5 drop_range if func-on_true-506 2 skip drop drop ;
-: func-list_int_new-430 24 func-malloc-91 2 pick 8 * 1 pick func-malloc-91 3 pick 8 + 1 pick 3 pick write_native 4 pick 6 pick write_native 4 pick 16 + 1 pick 0 write_native 5 pick 7 6 drop_range ;
-: func-list_int_pop-483 1 pick 16 + 1 pick read_native 1 pick 1 - 4 pick 16 + 1 pick 3 pick write_native 5 pick 8 + 1 pick read_native 7 pick 16 + 1 pick read_native 8 2 pick * 4 pick 2 pick + 1 pick read_native 1 pick 13 12 drop_range ;
-: func-list_int_print-498 1 pick 0 func-inner-500 drop ;
-: func-list_int_push-443 2 pick 16 + 1 pick read_native 4 pick read_native 2 pick 2 pick - if 0 1 skip 1 6 pick 2 pick if func-on_true-450 1 skip drop 6 pick 8 + 1 pick read_native 8 pick 16 + 1 pick read_native 8 2 pick * 4 pick 2 pick + 1 pick 12 pick write_native 12 pick 16 + 1 pick read_native 1 pick 1 + 15 pick 16 + 1 pick 3 pick write_native 16 16 drop_range ;
+: func-inner-511 2 pick 16 + 1 pick read_native 3 pick 2 pick < 4 pick 6 pick 3 pick 8 5 drop_range if func-on_true-517 2 skip drop drop ;
+: func-list_int_new-441 24 func-malloc-91 2 pick 8 * 1 pick func-malloc-91 3 pick 8 + 1 pick 3 pick write_native 4 pick 6 pick write_native 4 pick 16 + 1 pick 0 write_native 5 pick 7 6 drop_range ;
+: func-list_int_pop-494 1 pick 16 + 1 pick read_native 1 pick 1 - 4 pick 16 + 1 pick 3 pick write_native 5 pick 8 + 1 pick read_native 7 pick 16 + 1 pick read_native 8 2 pick * 4 pick 2 pick + 1 pick read_native 1 pick 13 12 drop_range ;
+: func-list_int_print-509 1 pick 0 func-inner-511 drop ;
+: func-list_int_push-454 2 pick 16 + 1 pick read_native 4 pick read_native 2 pick 2 pick - if 0 1 skip 1 6 pick 2 pick if func-on_true-461 1 skip drop 6 pick 8 + 1 pick read_native 8 pick 16 + 1 pick read_native 8 2 pick * 4 pick 2 pick + 1 pick 12 pick write_native 12 pick 16 + 1 pick read_native 1 pick 1 + 15 pick 16 + 1 pick 3 pick write_native 16 16 drop_range ;
 : func-malloc-91 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
 : func-memcpy-74 0 2 pick < 3 pick 3 pick 6 pick 4 pick 8 4 drop_range if func-on_true-79 3 skip drop drop drop ;
 : func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
 : func-new_line-171 1 func-malloc-91 1 pick 10 write8 1 2 pick 1 func-write-22 drop drop ;
 : func-on_true-3 67676767 print quit drop ;
-: func-on_true-450 1 pick read_native 1 pick 2 * 1 pick 8 * 1 pick func-malloc-91 5 pick 8 + 1 pick read_native 7 pick 16 + 1 pick read_native 3 pick 6 pick 3 pick func-memcpy-74 9 pick 8 + 1 pick 7 pick write_native 10 pick 9 pick write_native 10 10 drop_range ;
-: func-on_true-506 1 pick 8 + 1 pick read_native 8 5 pick * 2 pick 2 pick + 1 pick read_native 1 pick print 7 pick 1 + 7 pick 2 pick func-inner-500 8 8 drop_range ;
+: func-on_true-461 1 pick read_native 1 pick 2 * 1 pick 8 * 1 pick func-malloc-91 5 pick 8 + 1 pick read_native 7 pick 16 + 1 pick read_native 3 pick 6 pick 3 pick func-memcpy-74 9 pick 8 + 1 pick 7 pick write_native 10 pick 9 pick write_native 10 10 drop_range ;
+: func-on_true-517 1 pick 8 + 1 pick read_native 8 5 pick * 2 pick 2 pick + 1 pick read_native 1 pick print 7 pick 1 + 7 pick 2 pick func-inner-511 8 8 drop_range ;
 : func-on_true-79 1 pick read_native 4 pick 2 pick write_native 2 pick 8 + 5 pick 8 + 5 pick 1 - 3 pick 3 pick 3 pick func-memcpy-74 7 7 drop_range ;
 : func-write-22 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
 
 : comment Start Main ;
-2 func-list_int_new-430 1 pick 8 + 1 pick read_native 1 pick print func-new_line-171 3 pick 1 func-list_int_push-443 3 pick 5 func-list_int_push-443 3 pick 2 func-list_int_push-443 3 pick 1 func-list_int_push-443 3 pick 3 func-list_int_push-443 3 pick func-list_int_print-498 func-new_line-171 3 pick 8 + 1 pick read_native 1 pick print func-new_line-171 func-new_line-171 5 pick func-list_int_pop-483 1 pick print 6 pick func-list_int_pop-483 1 pick print func-new_line-171 func-new_line-171 7 pick 6 func-list_int_push-443 7 pick 7 func-list_int_push-443 7 pick func-list_int_print-498 quit
+2 func-list_int_new-441 1 pick 8 + 1 pick read_native 1 pick print func-new_line-171 3 pick 1 func-list_int_push-454 3 pick 5 func-list_int_push-454 3 pick 2 func-list_int_push-454 3 pick 1 func-list_int_push-454 3 pick 3 func-list_int_push-454 3 pick func-list_int_print-509 func-new_line-171 3 pick 8 + 1 pick read_native 1 pick print func-new_line-171 func-new_line-171 5 pick func-list_int_pop-494 1 pick print 6 pick func-list_int_pop-494 1 pick print func-new_line-171 func-new_line-171 7 pick 6 func-list_int_push-454 7 pick 7 func-list_int_push-454 7 pick func-list_int_print-509 quit
