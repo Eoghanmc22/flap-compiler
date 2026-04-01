@@ -13,7 +13,7 @@ use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
 };
 use pest_derive::Parser;
-use tracing::{instrument, trace};
+use tracing::trace;
 
 use crate::{
     ast::{
@@ -431,6 +431,10 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                         }
                     }
                 }
+                Rule::line_builtin => Ok(Expr::Value(
+                    Value::Int(span.start_pos().line_col().0 as ClacValue),
+                    span,
+                )),
                 Rule::if_statement => Ok(Expr::If(parse_if_expr(primary)?)),
                 Rule::struct_expr => {
                     let struct_expr_fields = primary.into_inner();
