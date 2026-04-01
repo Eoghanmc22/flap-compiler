@@ -398,6 +398,10 @@ impl<'a> Type<'a> {
             _ => Ok(Stride::Native),
         }
     }
+
+    pub fn is_canonical(&self, ctx: &TypeChecker<'a>) -> Result<bool> {
+        Ok(&self.resolve(ctx)? == self)
+    }
 }
 
 // TODO: This is a kinda hacky solution
@@ -521,7 +525,7 @@ impl<'a> FunctionSignature<'a> {
 #[derive(Debug, Clone)]
 pub struct ConstDef<'a> {
     pub name: IdentRef<'a>,
-    pub var_type: Type<'a>,
+    pub var_type: DeferedType<'a>,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,
@@ -549,7 +553,7 @@ impl<'a> AsSpan<'a> for IfCase<'a> {
 #[derive(Debug, Clone)]
 pub struct LocalDef<'a> {
     pub name: IdentRef<'a>,
-    pub var_type: Type<'a>,
+    pub var_type: DeferedType<'a>,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,

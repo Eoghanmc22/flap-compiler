@@ -82,10 +82,11 @@ postfix_op   = _{ member | member_deref | array_idx }
 atom       = _{ array_expr | struct_expr | if_statement | sizeof_builtin | function_call | value | ident | ("(" ~ expression ~ ")") }
 expression =  { prefix_op* ~ atom ~ postfix_op* ~ (binary_op ~ prefix_op* ~ atom ~ postfix_op*)* }
 
-// A const_var can only take on the value of a literal
-const_var      = { "const" ~ var_type ~ ident ~ "=" ~ expression }
-local_var      = { var_type ~ ident ~ "=" ~ expression }
-assignment = { expression ~ "=" ~ expression }
+auto_type      = { "auto" }
+inferable_type = { auto_type |  var_type}
+const_var      = { "const" ~ inferable_type ~ ident ~ "=" ~ expression }
+local_var      = { inferable_type ~ ident ~ "=" ~ expression }
+assignment     = { expression ~ "=" ~ expression }
 
 function_parameters = _{ (expression ~ ("," ~ expression)*)? }
 function_call       =  { ident ~ "(" ~ function_parameters ~ ")" }

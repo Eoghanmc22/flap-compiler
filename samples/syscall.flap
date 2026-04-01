@@ -2,6 +2,7 @@
 
 char *page = (char *)malloc(4096);
 
-*page = "hello world!\n";
+auto string = "hello world!\n";
+*page = string;
 
-write(1, page, 13);
+write(1, page, sizeof(string));

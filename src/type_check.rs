@@ -581,6 +581,12 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        // Resolve types
+        for (arg_type, _) in &mut self.signature.arguements {
+            *arg_type = arg_type.resolve(ctx)?;
+        }
+        self.signature.return_type = self.signature.return_type.resolve(ctx)?;
+
         let (actual_return_type, frame) = ctx.define_function(
             self.function,
             FunctionSignature {
@@ -628,26 +634,36 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
-        if actual_type != self.var_type.resolve(ctx)? {
-            return Err(
-                eyre!("Const definition set to the incorrect type").with_section(|| {
-                    generate_span_error_section_with_annotations(
-                        self.span,
-                        &[(
-                            self.expr_span,
-                            &format!(
-                                "has the type `{actual_type:?}`, but a `{:?}` is required",
-                                self.var_type.resolve(ctx).unwrap()
-                            ),
-                        )],
-                    )
-                }),
-            );
+
+        match &mut self.var_type {
+            DeferedType::ResolvedType(expected_type) => {
+                *expected_type = expected_type.resolve(ctx)?;
+
+                if &actual_type != expected_type {
+                    return Err(
+                        eyre!("Const definition set to the incorrect type").with_section(|| {
+                            generate_span_error_section_with_annotations(
+                                self.span,
+                                &[(
+                                    self.expr_span,
+                                    &format!(
+                                        "has the type `{actual_type:?}`, but a `{:?}` is required",
+                                        expected_type
+                                    ),
+                                )],
+                            )
+                        }),
+                    );
+                }
+            }
+            DeferedType::UnresolvedType => {
+                self.var_type = DeferedType::ResolvedType(actual_type.clone());
+            }
         }
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        ctx.define_variable(self.name, self.var_type.clone(), VariableKind::Constant);
+        ctx.define_variable(self.name, actual_type, VariableKind::Constant);
 
         // The const definition it self should not have a return type
         Ok(Type::Void)
@@ -657,26 +673,36 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
-        if actual_type.resolve(ctx)? != self.var_type.resolve(ctx)? {
-            return Err(
-                eyre!("Local definition set to the incorrect type").with_section(|| {
-                    generate_span_error_section_with_annotations(
-                        self.span,
-                        &[(
-                            self.expr.as_span(),
-                            &format!(
-                                "has the type `{actual_type:?}`, but a `{:?}` is required",
-                                self.var_type.resolve(ctx).unwrap()
-                            ),
-                        )],
-                    )
-                }),
-            );
+
+        match &mut self.var_type {
+            DeferedType::ResolvedType(expected_type) => {
+                *expected_type = expected_type.resolve(ctx)?;
+
+                if &actual_type != expected_type {
+                    return Err(
+                        eyre!("Local definition set to the incorrect type").with_section(|| {
+                            generate_span_error_section_with_annotations(
+                                self.span,
+                                &[(
+                                    self.expr.as_span(),
+                                    &format!(
+                                        "has the type `{actual_type:?}`, but a `{:?}` is required",
+                                        expected_type
+                                    ),
+                                )],
+                            )
+                        }),
+                    );
+                }
+            }
+            DeferedType::UnresolvedType => {
+                self.var_type = DeferedType::ResolvedType(actual_type.clone());
+            }
         }
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        ctx.define_variable(self.name, self.var_type.clone(), VariableKind::Local);
+        ctx.define_variable(self.name, actual_type, VariableKind::Local);
 
         // The Local Definition it self should not have a return type
         Ok(Type::Void)
