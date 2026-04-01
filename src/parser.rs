@@ -208,7 +208,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
             }
             Rule::const_var => {
                 let mut inner = target.into_inner();
-                let var_type = parse_type(inner.next().unwrap())?;
+                let var_type = parse_inferable_type(inner.next().unwrap())?;
                 let name = parse_ident(inner.next().unwrap())?;
 
                 let expr_pair = inner.next().unwrap();
@@ -225,7 +225,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
             }
             Rule::local_var => {
                 let mut inner = target.into_inner();
-                let var_type = parse_type(inner.next().unwrap())?;
+                let var_type = parse_inferable_type(inner.next().unwrap())?;
                 let name = parse_ident(inner.next().unwrap())?;
 
                 let expr_pair = inner.next().unwrap();
@@ -329,6 +329,20 @@ fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
         contents,
         span,
     })
+}
+
+fn parse_inferable_type(pair: Pair<Rule>) -> Result<DeferedType> {
+    let mut tokens = pair.into_inner();
+    let type_token = tokens.next().unwrap();
+
+    match type_token.as_rule() {
+        Rule::auto_type => Ok(DeferedType::UnresolvedType),
+        Rule::var_type => Ok(DeferedType::ResolvedType(parse_type(type_token)?)),
+        _ => {
+            return Err(eyre!("Unknown inferable type: {:?}", type_token)
+                .with_section(|| generate_span_error_section(type_token.as_span())));
+        }
+    }
 }
 
 fn parse_type(pair: Pair<Rule>) -> Result<Type> {

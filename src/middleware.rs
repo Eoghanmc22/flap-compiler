@@ -108,6 +108,10 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
         }
     };
 
+    let DeferedType::ResolvedType(var_type) = var_type else {
+        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+    };
+
     assert_eq!(
         var_type.resolve(ctx.type_checker)?,
         expr_value.compute_type().resolve(ctx.type_checker)?
@@ -119,8 +123,12 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
 }
 
 fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>) -> Result<()> {
+    let DeferedType::ResolvedType(var_type) = local_def.var_type.clone() else {
+        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+    };
+
     let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
-    ctx.promote_to_local(data_ref, local_def.name, local_def.var_type.clone());
+    ctx.promote_to_local(data_ref, local_def.name, var_type);
 
     Ok(())
 }
@@ -292,7 +300,7 @@ fn walk_if_statement_inner<'a, 'b>(
 
             if *arg_data_type != data_type {
                 return Err(eyre!(
-                    "Look up local for capture for if statement failed due to type mismatch"
+                    "Look up local for capture for if statement failed due to type mismatch, arg_data_type: {arg_data_type}, data_type: {data_type}"
                 ));
             }
 
