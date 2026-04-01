@@ -9,7 +9,7 @@ use std::{
 
 use color_eyre::eyre::{Context, Result};
 use pest::Span;
-use tracing::{debug, instrument};
+use tracing::debug;
 
 use crate::{
     ast::{Block, Directive},

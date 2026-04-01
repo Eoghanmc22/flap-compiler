@@ -4,7 +4,7 @@ use color_eyre::{
 };
 use pest::Span;
 use std::{collections::BTreeMap, fmt::Write, sync::Arc};
-use tracing::{instrument, trace};
+use tracing::trace;
 
 use crate::{
     ast::{

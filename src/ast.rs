@@ -13,7 +13,6 @@ use std::{
     ops::BitOr,
     path::Path,
 };
-use tracing::instrument;
 
 macro_rules! impl_display {
     ($($the_type:ty),*) => {

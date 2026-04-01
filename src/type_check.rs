@@ -9,7 +9,6 @@ use color_eyre::{
     eyre::{Context, ContextCompat, Result, eyre},
 };
 use pest::Span;
-use tracing::instrument;
 
 use crate::{
     ast::{
@@ -231,7 +230,7 @@ pub trait TypeCheck<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Value<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, _ctx: &mut TypeChecker) -> Result<Type<'a>> {
         Ok(self.compute_type())
     }
 }
