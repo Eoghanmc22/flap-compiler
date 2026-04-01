@@ -696,7 +696,9 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
         let target_type = self.target.check_and_resolve_types(ctx)?.resolve(ctx)?;
 
         let mismatched_type = match (&target_type, &expr_type) {
-            (target_type, Type::Array(array_type, _len)) => target_type != &**array_type,
+            (target_type, Type::Array(array_type, _len)) if target_type != &expr_type => {
+                target_type != &**array_type
+            }
             (target_type, expr_type) => target_type != expr_type,
         };
 

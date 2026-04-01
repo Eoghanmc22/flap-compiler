@@ -107,4 +107,21 @@ print(heap->nested.x[2]);
 print(heap->nested.x[3]);
 print(heap->nested.x[4]);
 
+test copy_back = *heap;
+
+print(copy_back.nested.x[0]);
+print(copy_back.nested.x[1]);
+print(copy_back.nested.x[2]);
+print(copy_back.nested.x[3]);
+print(copy_back.nested.x[4]);
+
+int[5] tmp = copy_back.nested.x;
+heap->nested.x = [ tmp[0] + 1, tmp[1] + 1, tmp[2] + 1, tmp[3] + 1, tmp[4] + 1 ];
+
+print(heap->nested.x[0]);
+print(heap->nested.x[1]);
+print(heap->nested.x[2]);
+print(heap->nested.x[3]);
+print(heap->nested.x[4]);
+
 print((int)heap);
