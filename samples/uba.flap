@@ -3,7 +3,10 @@
 char *new_line = malloc(1);
 *new_line = "\n";
 
-list_int *list = list_int_new(10);
+list_int *list = list_int_new(2);
+
+print((int)list->data);
+write(STDOUT, new_line, 1);
 
 list_int_push(list, 1);
 list_int_push(list, 5);
@@ -12,6 +15,9 @@ list_int_push(list, 1);
 list_int_push(list, 3);
 
 list_int_print(list);
+
+write(STDOUT, new_line, 1);
+print((int)list->data);
 
 write(STDOUT, new_line, 1);
 write(STDOUT, new_line, 1);
