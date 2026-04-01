@@ -1,24 +1,10 @@
 #include "../std"
 
-char *get_last_arg(char *buf, char *last_ptr, int len) {
-  if (len == 0) {
-    last_ptr
-  } else if ((int)read8(buf) == 0) {
-    get_last_arg(buf + 1, buf + 1, len - 1)
-  } else {
-    get_last_arg(buf + 1, last_ptr, len - 1)
-  }
-}
+list_string *args = parse_args();
+char *path = args->data[args->len - 1];
 
 int len = 4096;
-char *page = (char *)malloc(len);
+char *scratch = (char *)malloc(len);
 
-// Put /proc/self/cmdline into page
-*page = "/proc/self/cmdline\0";
-
-int cmdline_fd = open(page, 0, 0);
-int cmdline_len = read_all(cmdline_fd, page, len);
-char *arg = get_last_arg(page, page, cmdline_len - 1);
-
-int file_fd = open(arg, 0, 0);
-copy_all(page, len, file_fd, STDOUT);
+int file_fd = open(path, 0, 0);
+copy_all(scratch, len, file_fd, STDOUT);
