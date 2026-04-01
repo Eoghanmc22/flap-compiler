@@ -1,0 +1,7 @@
+int strlen(char *str) {
+  if (*str == '\0') {
+    0
+  } else {
+    1 + strlen(str + 1)
+  }
+}

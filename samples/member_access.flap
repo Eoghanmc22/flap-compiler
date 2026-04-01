@@ -1,4 +1,4 @@
-#include "std.flap"
+#include "../std"
 
 typedef struct {
   int a;

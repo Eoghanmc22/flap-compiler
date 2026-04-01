@@ -1,0 +1,9 @@
+#include "syscall.flap"
+#include "constants.flap"
+
+char *malloc(int size) {
+  const int prot = PROT_READ + PROT_WRITE;
+  const int flags = MAP_PRIVATE + MAP_ANON;
+
+  mmap((char *)NULL, size, prot, flags, -1, 0)
+}

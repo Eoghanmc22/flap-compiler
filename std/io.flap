@@ -1,0 +1,41 @@
+#include "syscall.flap"
+
+int read_all(int fd, char *buf, int count) {
+  int new = read(fd, buf, count);
+
+  if (new != 0) {
+    new + read_all(fd, buf + new, count - new)
+  } else {
+    0
+  }
+}
+
+int write_all(int fd, char *buf, int count) {
+  int new = write(fd, buf, count);
+
+  if (new != 0) {
+    new + write_all(fd, buf + new, count - new)
+  } else {
+    0
+  }
+}
+
+void copy_all(char *buf, int buf_len, int src_fd, int dst_fd) {
+  int in = read_all(src_fd, buf, buf_len);
+
+  if (in > 0) {
+    write_all(dst_fd, buf, in);
+    copy_all(buf, buf_len, src_fd, dst_fd);
+  }
+}
+
+int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
+  int in = read(src_fd, buf, buf_len);
+
+  if (in > 0) {
+    write_all(dst_fd, buf, in);
+    in + copy(buf, buf_len, src_fd, dst_fd)
+  } else {
+    0
+  }
+}

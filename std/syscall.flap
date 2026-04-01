@@ -16,8 +16,6 @@ const int STDIN = 0;
 const int STDOUT = 1;
 const int STDERR = 2;
 
-const int NULL = 0;
-
 int handle_error(int res) {
   if (res == -1) {
     print(67676767);
@@ -70,58 +68,3 @@ int accept(int sockfd, sockaddr *addr_struct, int *addr_struct_len) {
 }
 
 int fork() { handle_error(syscall(0x39, 0, 0, 0, 0, 0, 0)) }
-
-int read_all(int fd, char *buf, int count) {
-  int new = read(fd, buf, count);
-
-  if (new != 0) {
-    new + read_all(fd, buf + new, count - new)
-  } else {
-    0
-  }
-}
-
-int write_all(int fd, char *buf, int count) {
-  int new = write(fd, buf, count);
-
-  if (new != 0) {
-    new + write_all(fd, buf + new, count - new)
-  } else {
-    0
-  }
-}
-
-void copy_all(char *buf, int buf_len, int src_fd, int dst_fd) {
-  int in = read_all(src_fd, buf, buf_len);
-
-  if (in > 0) {
-    write_all(dst_fd, buf, in);
-    copy_all(buf, buf_len, src_fd, dst_fd);
-  }
-}
-
-int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
-  int in = read(src_fd, buf, buf_len);
-
-  if (in > 0) {
-    write_all(dst_fd, buf, in);
-    in + copy(buf, buf_len, src_fd, dst_fd)
-  } else {
-    0
-  }
-}
-
-char *malloc(int size) {
-  const int prot = PROT_READ + PROT_WRITE;
-  const int flags = MAP_PRIVATE + MAP_ANON;
-
-  mmap((char *)NULL, size, prot, flags, -1, 0)
-}
-
-int strlen(char *str) {
-  if (*str == '\0') {
-    0
-  } else {
-    1 + strlen(str + 1)
-  }
-}

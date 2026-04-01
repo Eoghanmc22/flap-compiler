@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     ffi::OsStr,
     fmt::Debug,
     fs::{self, OpenOptions},
@@ -25,7 +25,7 @@ use crate::{
 };
 
 pub struct CompileContext {
-    sources: HashMap<PathBuf, SourceFile>,
+    sources: BTreeMap<PathBuf, SourceFile>,
     root: PathBuf,
 }
 
@@ -34,7 +34,7 @@ impl CompileContext {
         let root = fs::canonicalize(root.as_ref()).wrap_err("Get canonical path")?;
 
         let mut ctx = CompileContext {
-            sources: HashMap::default(),
+            sources: Default::default(),
             root: root.clone(),
         };
 
@@ -46,6 +46,21 @@ impl CompileContext {
     pub fn collect_sources(&mut self, file: impl AsRef<Path>) -> Result<()> {
         let file = fs::canonicalize(file.as_ref()).wrap_err("Get canonical path")?;
 
+        if fs::metadata(&file)?.is_dir() {
+            let mut source_file = SourceFile::default();
+
+            for file in fs::read_dir(&file)? {
+                let file = file?.path();
+                self.collect_sources(&file)?;
+                source_file.includes.insert(file);
+            }
+
+            let file = fs::canonicalize(file)?;
+            self.sources.insert(file, source_file);
+
+            return Ok(());
+        }
+
         if self.sources.contains_key(&file) {
             return Ok(());
         }
@@ -54,11 +69,12 @@ impl CompileContext {
 
         let program = parser::parse_program(&contents).wrap_err("Parse program")?;
 
-        let mut includes = HashSet::new();
+        let mut includes = BTreeSet::new();
         for directive in program.directives {
             match directive {
                 Directive::Include(include_path) => {
                     let include_path = file.parent().unwrap().join(include_path);
+                    let include_path = fs::canonicalize(include_path)?;
 
                     includes.insert(include_path);
                 }
@@ -121,10 +137,10 @@ impl CompileContext {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct SourceFile {
     contents: String,
-    includes: HashSet<PathBuf>,
+    includes: BTreeSet<PathBuf>,
 }
 
 #[instrument]

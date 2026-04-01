@@ -1,4 +1,4 @@
-#include "std.flap"
+#include "../std"
 
 char *get_last_arg(char *buf, char *last_ptr, int len) {
   if (len == 0) {

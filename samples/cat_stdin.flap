@@ -1,4 +1,4 @@
-#include "std.flap"
+#include "../std"
 
 int len = 4096;
 char *page = malloc(len);
