@@ -1,13 +1,14 @@
 #include "malloc.flap"
 
-void assert(bool x) {
+void assert(bool x, int line) {
   if (!x) {
-    char[20] msg = "Assertion failure!\n\0";
+    auto msg = "Assertion failure! On line: ";
 
-    char *tmp = (char *)malloc(sizeof(msg));
+    char *tmp = (char *)malloc(sizeof(msg) / 8);
     *tmp = msg;
 
-    write_all(STDOUT, tmp, strlen(tmp));
+    write_all(STDOUT, tmp, sizeof(msg) / 8);
+    print(line);
 
     free((void *)tmp);
 

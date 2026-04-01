@@ -1,4 +1,6 @@
 #include "io.flap"
+#include "malloc.flap"
+#include "memory.flap"
 
 int strlen(char *str) {
   if (*str == '\0') {
@@ -6,6 +8,13 @@ int strlen(char *str) {
   } else {
     1 + strlen(str + 1)
   }
+}
+
+char *strdup(char *str) {
+  int len = strlen(str);
+  char *new = (char *)malloc(len);
+  memcpy(new, str, len + 1); // include null byte
+  new
 }
 
 void print_str(char *str) {

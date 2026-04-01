@@ -1,4 +1,11 @@
-void memcpy(int *src, int *dest, int len) {
+void int_memcpy(int *src, int *dest, int len) {
+  if (len > 0) {
+    *dest = *src;
+    int_memcpy(src + 1, dest + 1, len - 1);
+  }
+}
+
+void memcpy(char *src, char *dest, int len) {
   if (len > 0) {
     *dest = *src;
     memcpy(src + 1, dest + 1, len - 1);

@@ -73,19 +73,19 @@ typedef struct {
 const void *MEM = (void *)0x6767000;
 const int MEM_SIZE = 0x8000;
 
-const auto PROMPT_DAT = "clac-clac>> \0";
-const auto WELCOME_DAT = "Welcome to clac.clac\n\0";
-const auto QUIT_DAT = "quit\0";
+const auto PROMPT_DAT = "clac-clac>> ";
+const auto WELCOME_DAT = "Welcome to clac.clac\n";
+const auto QUIT_DAT = "quit";
 
 const char *PROMPT = (char *)MEM;
-const char *WELCOME = PROMPT + sizeof(PROMPT_DAT);
-const char *QUIT = WELCOME + sizeof(WELCOME_DAT);
+const char *WELCOME = (char *)((int)PROMPT + sizeof(PROMPT_DAT) / 8);
+const char *QUIT = (char *)((int)WELCOME + sizeof(WELCOME_DAT) / 8);
 
 void setup_mem() {
   void *res = mmap(MEM, MEM_SIZE, PROT_READ + PROT_WRITE,
                    MAP_PRIVATE + MAP_ANONYMOUS + MAP_FIXED, -1, 0);
 
-  assert(res != (void *)-1);
+  assert(res != (void *)-1, __LINE__);
 
   *PROMPT = PROMPT_DAT;
   *WELCOME = WELCOME_DAT;
@@ -93,7 +93,7 @@ void setup_mem() {
 }
 
 void repl(repl_strings strs) {
-  write_all(STDOUT, PROMPT, sizeof(PROMPT_DAT));
+  write_all(STDOUT, PROMPT, sizeof(PROMPT_DAT) / 8);
 
   int read_amt = readline(strs.inp_buf);
   write_all(STDOUT, strs.inp_buf.dat, read_amt);
@@ -108,7 +108,7 @@ void repl(repl_strings strs) {
           },
           struct {
             dat = QUIT;
-            len = sizeof(QUIT_DAT);
+            len = sizeof(QUIT_DAT) / 8;
           }) == 0) {
     quit();
   }
@@ -127,7 +127,8 @@ str str_from(char *cs) {
 
 void main() {
   setup_mem();
-  write_all(STDOUT, WELCOME, sizeof(WELCOME_DAT));
+
+  write_all(STDOUT, WELCOME, sizeof(WELCOME_DAT) / 8);
 
   int inplen = 0x2000;
   str inpbuf = struct {
