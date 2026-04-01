@@ -536,7 +536,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         Ok(return_type)
     }
 
-    pub fn try_execute_const(&self, ctx: &mut CodegenCtx<'a, 'b>) -> Option<DataReference<'a>> {
+    pub fn try_execute_const(&self, _ctx: &mut CodegenCtx<'a, 'b>) -> Option<DataReference<'a>> {
         let ret = match self {
             ClacOp::Add { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;

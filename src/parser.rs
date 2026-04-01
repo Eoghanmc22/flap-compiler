@@ -19,7 +19,8 @@ use crate::{
     ast::{
         Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Directive, Expr,
         FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr,
-        LocalDef, PostfixOp, PrefixOp, Program, Punctuation, Statement, Type, Typedef, Value,
+        LocalDef, PostfixOp, PrefixOp, Program, Punctuation, SizeOfMode, Statement, Type, Typedef,
+        Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -419,10 +420,35 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 Rule::sizeof_builtin => {
                     let inner = primary.clone().into_inner().next().unwrap();
                     match inner.as_rule() {
-                        Rule::var_type => Ok(Expr::SizeOfType(parse_type(inner)?, span)),
+                        Rule::var_type => Ok(Expr::SizeOfType(
+                            parse_type(inner)?,
+                            SizeOfMode::Native,
+                            span,
+                        )),
                         Rule::expression => Ok(Expr::SizeOfExpr(
                             parse_expr(inner.into_inner())?.into(),
                             DeferedType::UnresolvedType,
+                            SizeOfMode::Native,
+                            span,
+                        )),
+                        _ => {
+                            return Err(eyre!("Unsupported arguement to sizeof: {:?}", primary)
+                                .with_section(|| generate_span_error_section(span)));
+                        }
+                    }
+                }
+                Rule::sizeof_packed_builtin => {
+                    let inner = primary.clone().into_inner().next().unwrap();
+                    match inner.as_rule() {
+                        Rule::var_type => Ok(Expr::SizeOfType(
+                            parse_type(inner)?,
+                            SizeOfMode::Packed,
+                            span,
+                        )),
+                        Rule::expression => Ok(Expr::SizeOfExpr(
+                            parse_expr(inner.into_inner())?.into(),
+                            DeferedType::UnresolvedType,
+                            SizeOfMode::Packed,
                             span,
                         )),
                         _ => {
