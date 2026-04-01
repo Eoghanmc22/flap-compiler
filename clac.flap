@@ -65,16 +65,37 @@ int distance_to_space_or_newline(char *buf, int acc) {
 }
 
 typedef struct {
-  str prompt;
-  str quit;
+  // str prompt;
+  // str quit;
   str inp_buf;
 } repl_strings;
 
+const void *MEM = (void *)0x6767000;
+const int MEM_SIZE = 0x8000;
+
+const auto PROMPT_DAT = "clac-clac>> \0";
+const auto WELCOME_DAT = "Welcome to clac.clac\n\0";
+const auto QUIT_DAT = "quit\0";
+
+const char *PROMPT = (char *)MEM;
+const char *WELCOME = PROMPT + sizeof(PROMPT_DAT);
+const char *QUIT = WELCOME + sizeof(WELCOME_DAT);
+
+void setup_mem() {
+  void *res = mmap(MEM, MEM_SIZE, PROT_READ + PROT_WRITE,
+                   MAP_PRIVATE + MAP_ANONYMOUS + MAP_FIXED, -1, 0);
+
+  assert(res != (void *)-1);
+
+  *PROMPT = PROMPT_DAT;
+  *WELCOME = WELCOME_DAT;
+  *QUIT = QUIT_DAT;
+}
+
 void repl(repl_strings strs) {
-  write_all(STDOUT, strs.prompt.dat, strs.prompt.len);
+  write_all(STDOUT, PROMPT, sizeof(PROMPT_DAT));
 
   int read_amt = readline(strs.inp_buf);
-
   write_all(STDOUT, strs.inp_buf.dat, read_amt);
 
   int dtt = distance_to_space_or_newline(strs.inp_buf.dat, 0);
@@ -85,7 +106,10 @@ void repl(repl_strings strs) {
             dat = strs.inp_buf.dat;
             len = dtt;
           },
-          strs.quit) == 0) {
+          struct {
+            dat = QUIT;
+            len = sizeof(QUIT_DAT);
+          }) == 0) {
     quit();
   }
 
@@ -101,24 +125,9 @@ str str_from(char *cs) {
   }
 }
 
-const int MEM = 0x6767000;
-const auto PROMPT = "clac-clac>> \0";
-const auto WELCOME = "Welcome to clac.clac\n\0";
-const auto QUIT = "quit\0";
-
 void main() {
-  char *strings = (char *)malloc(4096);
-
-  char *prompt = strings;
-  *prompt = "clac-clac>> \0";
-
-  char *welcome = prompt + strlen(prompt) + 2;
-  *welcome = "Welcome to clac.clac\n\0";
-
-  char *quit = welcome + strlen(welcome) + 2;
-  *quit = "quit\0";
-
-  write_all(STDOUT, welcome, strlen(welcome));
+  setup_mem();
+  write_all(STDOUT, WELCOME, sizeof(WELCOME_DAT));
 
   int inplen = 0x2000;
   str inpbuf = struct {
@@ -126,11 +135,7 @@ void main() {
     dat = (char *)malloc(inplen);
   };
 
-  repl(struct {
-    quit = str_from(quit);
-    inp_buf = inpbuf;
-    prompt = str_from(prompt);
-  });
+  repl(struct { inp_buf = inpbuf; });
 }
 
 main()
