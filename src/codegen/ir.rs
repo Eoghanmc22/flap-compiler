@@ -536,44 +536,61 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         Ok(return_type)
     }
 
-    // TODO: also support char?
     pub fn try_execute_const(&self, ctx: &mut CodegenCtx<'a, 'b>) -> Option<DataReference<'a>> {
         let ret = match self {
             ClacOp::Add { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.wrapping_add(rhs)))
+                DataReference::Value(Value::Cast(
+                    lhs_type.into(),
+                    Value::Int(lhs.wrapping_add(rhs)).into(),
+                ))
             }
             ClacOp::Sub { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.wrapping_sub(rhs)))
+                DataReference::Value(Value::Cast(
+                    lhs_type,
+                    Value::Int(lhs.wrapping_sub(rhs)).into(),
+                ))
             }
             ClacOp::Mul { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.wrapping_mul(rhs)))
+                DataReference::Value(Value::Cast(
+                    lhs_type,
+                    Value::Int(lhs.wrapping_mul(rhs)).into(),
+                ))
             }
             ClacOp::Div { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.wrapping_div(rhs)))
+                DataReference::Value(Value::Cast(
+                    lhs_type,
+                    Value::Int(lhs.wrapping_div(rhs)).into(),
+                ))
             }
             ClacOp::Mod { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.wrapping_rem(rhs)))
+                DataReference::Value(Value::Cast(
+                    lhs_type,
+                    Value::Int(lhs.wrapping_rem(rhs)).into(),
+                ))
             }
             ClacOp::Pow { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.wrapping_pow(rhs as u32)))
+                DataReference::Value(Value::Cast(
+                    lhs_type,
+                    Value::Int(lhs.wrapping_pow(rhs as u32)).into(),
+                ))
             }
             ClacOp::Lt { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
@@ -612,9 +629,9 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 DataReference::Value(Value::Bool(lhs != rhs))
             }
             ClacOp::Neg { value } => {
-                let (value, _value_type) = value.as_clac_value()?;
+                let (value, value_type) = value.as_clac_value()?;
 
-                DataReference::Value(Value::Int(-value))
+                DataReference::Value(Value::Cast(value_type, Value::Int(-value).into()))
             }
             ClacOp::Not { value } => {
                 let (value, _value_type) = value.as_clac_value()?;
@@ -634,22 +651,28 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 DataReference::Value(Value::Bool(lhs != 0 || rhs != 0))
             }
             ClacOp::BShl { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.unbounded_shl(rhs as u32)))
+                DataReference::Value(Value::Cast(
+                    lhs_type,
+                    Value::Int(lhs.unbounded_shl(rhs as u32)).into(),
+                ))
             }
             ClacOp::BShr { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs.unbounded_shr(rhs as u32)))
+                DataReference::Value(Value::Cast(
+                    lhs_type,
+                    Value::Int(lhs.unbounded_shr(rhs as u32)).into(),
+                ))
             }
             ClacOp::BAnd { lhs, rhs } => {
-                let (lhs, _lhs_type) = lhs.as_clac_value()?;
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Int(lhs & rhs))
+                DataReference::Value(Value::Cast(lhs_type, Value::Int(lhs & rhs).into()))
             }
             _ => return None,
         };
