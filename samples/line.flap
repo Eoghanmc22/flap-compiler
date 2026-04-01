@@ -1,0 +1,6 @@
+print(__LINE__);
+print(__LINE__);
+print(__LINE__);
+print(__LINE__);
+print(__LINE__);
+print(__LINE__);
