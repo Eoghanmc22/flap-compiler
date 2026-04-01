@@ -67,22 +67,22 @@
 : comment Start Definitions ;
 : func-accept-56 43 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
 : func-bind-47 49 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
-: func-client_loop-728 1 pick 4096 4 pick 5 pick func-copy-157 1 pick 0 - if 1 1 skip 0 3 pick 5 pick 3 pick 7 4 drop_range if func-on_true-733 2 skip drop drop ;
+: func-client_loop-1135 1 pick 4096 4 pick 5 pick func-copy-157 1 pick 0 - if 1 1 skip 0 3 pick 5 pick 3 pick 7 4 drop_range if func-on_true-1140 2 skip drop drop ;
 : func-close-32 3 2 pick 0 0 0 0 0 syscall 1 pick 3 2 drop_range func-handle_error-0 ;
 : func-copy-157 2 pick 5 pick 5 pick func-read-17 0 2 pick < 6 pick 6 pick 5 pick 5 pick 8 pick 6 pick 12 6 drop_range if func-on_true-164 1 skip func-on_false-173 ;
 : func-fork-61 57 0 0 0 0 0 0 syscall 1 pick swap drop func-handle_error-0 ;
 : func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
 : func-listen-52 50 3 pick 3 pick 0 0 0 0 syscall 1 pick 4 3 drop_range func-handle_error-0 ;
-: func-loop-738 2 pick 0 0 func-accept-56 func-fork-61 1 pick 0 - if 0 1 skip 1 4 pick 4 pick 3 pick if func-on_true-744 2 skip drop drop 3 pick func-close-32 6 pick 6 pick func-loop-738 6 6 drop_range ;
+: func-loop-1145 2 pick 0 0 func-accept-56 func-fork-61 1 pick 0 - if 0 1 skip 1 4 pick 4 pick 3 pick if func-on_true-1151 2 skip drop drop 3 pick func-close-32 6 pick 6 pick func-loop-1145 6 6 drop_range ;
 : func-malloc-99 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
 : func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
 : func-on_false-136 0 5 4 drop_range ;
 : func-on_false-173 0 6 5 drop_range ;
+: func-on_true-1140 1 pick 3 pick func-client_loop-1135 drop drop ;
+: func-on_true-1151 1 pick 3 pick func-client_loop-1135 1 pick func-close-32 quit drop drop drop ;
 : func-on_true-127 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-121 4 pick 2 pick + 1 pick 9 8 drop_range ;
 : func-on_true-164 3 pick 6 pick 4 pick func-write_all-121 6 pick 6 pick 4 pick 7 pick func-copy-157 4 pick 2 pick + 1 pick 9 8 drop_range ;
 : func-on_true-3 67676767 print quit drop ;
-: func-on_true-733 1 pick 3 pick func-client_loop-728 drop drop ;
-: func-on_true-744 1 pick 3 pick func-client_loop-728 1 pick func-close-32 quit drop drop drop ;
 : func-read-17 0 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
 : func-setsockopt-40 54 6 pick 6 pick 6 pick 6 pick 6 pick 0 syscall 1 pick 7 6 drop_range func-handle_error-0 ;
 : func-socket-35 41 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
@@ -90,4 +90,4 @@
 : func-write_all-121 3 pick 3 pick 3 pick func-write-22 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-127 1 skip func-on_false-136 ;
 
 : comment Start Main ;
-4096 func-malloc-99 4096 func-malloc-99 2 1 0 func-socket-35 3 pick 1 write_native width_native 2 pick 1 2 7 pick 5 pick func-setsockopt-40 5 pick 0 + 1 pick 2 write8 6 pick 1 + 1 pick 0 write8 7 pick 2 + 1 pick 31 write8 8 pick 3 + 1 pick 144 write8 9 pick 4 + 1 pick 0 write8 10 pick 5 + 1 pick 0 write8 11 pick 6 + 1 pick 0 write8 12 pick 7 + 1 pick 0 write8 13 pick 8 + 1 pick 0 write8 14 pick 9 + 1 pick 0 write8 15 pick 10 + 1 pick 0 write8 16 pick 11 + 1 pick 0 write8 17 pick 12 + 1 pick 0 write8 18 pick 13 + 1 pick 0 write8 19 pick 14 + 1 pick 0 write8 20 pick 15 + 1 pick 0 write8 19 pick 22 pick 16 func-bind-47 20 pick 3 func-listen-52 21 pick 23 pick func-loop-738
+4096 func-malloc-99 4096 func-malloc-99 2 1 0 func-socket-35 3 pick 1 write_native width_native 2 pick 1 2 7 pick 5 pick func-setsockopt-40 5 pick 0 + 1 pick 2 write8 6 pick 1 + 1 pick 0 write8 7 pick 2 + 1 pick 31 write8 8 pick 3 + 1 pick 144 write8 9 pick 4 + 1 pick 0 write8 10 pick 5 + 1 pick 0 write8 11 pick 6 + 1 pick 0 write8 12 pick 7 + 1 pick 0 write8 13 pick 8 + 1 pick 0 write8 14 pick 9 + 1 pick 0 write8 15 pick 10 + 1 pick 0 write8 16 pick 11 + 1 pick 0 write8 17 pick 12 + 1 pick 0 write8 18 pick 13 + 1 pick 0 write8 19 pick 14 + 1 pick 0 write8 20 pick 15 + 1 pick 0 write8 19 pick 22 pick 16 func-bind-47 20 pick 3 func-listen-52 21 pick 23 pick func-loop-1145

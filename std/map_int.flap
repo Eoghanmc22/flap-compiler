@@ -1,11 +1,12 @@
+#include "hash.flap"
 #include "io.flap"
 #include "malloc.flap"
 #include "math.flap"
 #include "memory.flap"
 
-const int MAP_INT_STATUS_FREE = 0;
-const int MAP_INT_STATUS_OCCUPIED = 1;
-const int MAP_INT_STATUS_REMOVED = 2;
+const int map_int_STATUS_FREE = 0;
+const int map_int_STATUS_OCCUPIED = 1;
+const int map_int_STATUS_REMOVED = 2;
 
 typedef int map_int_key;
 
@@ -39,8 +40,6 @@ map_int *map_int_new(int log_cap) {
   header
 }
 
-int map_int_hash(map_int_key x){(int)x * 1337}
-
 map_int_iter *map_int_iter_new(map_int *map) {
   map_int_iter *iter = (map_int_iter *)malloc(sizeof<map_int_iter>);
 
@@ -51,7 +50,7 @@ map_int_iter *map_int_iter_new(map_int *map) {
 }
 
 bool map_int_iter_has_next(map_int_iter *iter) {
-  if (iter->map->data[iter->idx].status == MAP_INT_STATUS_OCCUPIED) {
+  if (iter->map->data[iter->idx].status == map_int_STATUS_OCCUPIED) {
     true
   } else if (iter->idx >= iter->map->cap) {
     false
@@ -72,10 +71,10 @@ void *map_int_insert(map_int *map, map_int_key key, void *value) {
     int idx = (start + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry old = map->data[idx];
-    if (old.status != MAP_INT_STATUS_OCCUPIED || old.key == entry.key) {
+    if (old.status != map_int_STATUS_OCCUPIED || old.key == entry.key) {
       map->data[idx] = entry;
 
-      if (old.status == MAP_INT_STATUS_OCCUPIED) {
+      if (old.status == map_int_STATUS_OCCUPIED) {
         old.value
       } else {
         map->default
@@ -101,14 +100,14 @@ void *map_int_insert(map_int *map, map_int_key key, void *value) {
     *map = *dst;
   }
 
-  int start_cell = abs(map_int_hash(key)) % map->cap;
+  int start_cell = abs(hash_int(key)) % map->cap;
   map->len = map->len + 1;
 
   insert_probe(
       map, start_cell, 0, struct {
         key = key;
         value = value;
-        status = MAP_INT_STATUS_OCCUPIED;
+        status = map_int_STATUS_OCCUPIED;
       })
 }
 
@@ -117,16 +116,16 @@ void *map_int_get(map_int *map, map_int_key key) {
     int idx = (start + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry entry = map->data[idx];
-    if (entry.status == MAP_INT_STATUS_OCCUPIED && entry.key == key) {
+    if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
       entry.value
-    } else if (entry.status == MAP_INT_STATUS_FREE) {
+    } else if (entry.status == map_int_STATUS_FREE) {
       map->default
     } else {
       get_probe(map, start, iter + 1, key)
     }
   }
 
-  int start_cell = abs(map_int_hash(key)) % map->cap;
+  int start_cell = abs(hash_int(key)) % map->cap;
   get_probe(map, start_cell, 0, key)
 }
 
@@ -135,16 +134,16 @@ bool map_int_contains(map_int *map, map_int_key key) {
     int idx = (start + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry entry = map->data[idx];
-    if (entry.status == MAP_INT_STATUS_OCCUPIED && entry.key == key) {
+    if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
       true
-    } else if (entry.status == MAP_INT_STATUS_FREE) {
+    } else if (entry.status == map_int_STATUS_FREE) {
       false
     } else {
       contains_probe(map, start, iter + 1, key)
     }
   }
 
-  int start_cell = abs(map_int_hash(key)) % map->cap;
+  int start_cell = abs(hash_int(key)) % map->cap;
   contains_probe(map, start_cell, 0, key)
 }
 
@@ -153,17 +152,17 @@ bool map_int_remove(map_int *map, map_int_key key) {
     int idx = (start + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry entry = map->data[idx];
-    if (entry.status == MAP_INT_STATUS_OCCUPIED && entry.key == key) {
-      map->data[idx].status = MAP_INT_STATUS_REMOVED;
+    if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
+      map->data[idx].status = map_int_STATUS_REMOVED;
       true
-    } else if (entry.status == MAP_INT_STATUS_FREE) {
+    } else if (entry.status == map_int_STATUS_FREE) {
       false
     } else {
       remove_probe(map, start, iter + 1, key)
     }
   }
 
-  int start_cell = abs(map_int_hash(key)) % map->cap;
+  int start_cell = abs(hash_int(key)) % map->cap;
   remove_probe(map, start_cell, 0, key)
 }
 
