@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     ffi::OsStr,
     fmt::Debug,
     fs::{self, OpenOptions},
@@ -51,6 +51,8 @@ impl CompileContext {
 
             for file in fs::read_dir(&file)? {
                 let file = file?.path();
+                let file = fs::canonicalize(file)?;
+
                 self.collect_sources(&file)?;
                 source_file.includes.insert(file);
             }
