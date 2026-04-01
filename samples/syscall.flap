@@ -5,4 +5,7 @@ char *page = (char *)malloc(4096);
 auto string = "hello world!\n";
 *page = string;
 
-write(1, page, sizeof(string));
+print(sizeof(string));
+print(sizeof_packed(string));
+
+write(1, page, sizeof_packed(string));

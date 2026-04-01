@@ -10,7 +10,7 @@ use crate::{
     ast::{
         AsSpan, Assignment, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall,
         FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, PostfixOp, PrefixOp, Punctuation,
-        Statement, Stride, Type, Value,
+        SizeOfMode, Statement, Stride, Type, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -437,19 +437,53 @@ fn walk_expr<'a, 'b>(
     expr: &Expr<'a>,
 ) -> Result<ExpressionOutput<'a>> {
     match expr {
-        Expr::SizeOfType(inner_type, _span) => Ok(DataReference::Value(Value::Int(
-            inner_type.width(ctx.type_checker)? * (ClacValue::BITS as ClacValue / 8),
-        ))
-        .into()),
-        Expr::SizeOfExpr(_inner_expr, defered_type, _span) => {
+        Expr::SizeOfType(inner_type, mode, span) => {
+            let scale = match mode {
+                SizeOfMode::Native => ClacValue::BITS as ClacValue / 8,
+                SizeOfMode::Packed => match inner_type.resolve(ctx.type_checker)? {
+                    Type::Array(inner_type, _) => match inner_type.stride(ctx.type_checker)? {
+                        Stride::Native => ClacValue::BITS as ClacValue / 8,
+                        Stride::Byte => 1,
+                        Stride::ZST => 0,
+                    },
+                    _ => {
+                        return Err(eyre!(
+                            "Call to sizeof_packed on a type that does not have a packed repersentation"
+                        ).with_section(|| generate_span_error_section(*span)));
+                    }
+                },
+            };
+
+            Ok(
+                DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)? * scale))
+                    .into(),
+            )
+        }
+        Expr::SizeOfExpr(_inner_expr, defered_type, mode, span) => {
             let DeferedType::ResolvedType(inner_type) = defered_type else {
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
             };
 
-            Ok(DataReference::Value(Value::Int(
-                inner_type.width(ctx.type_checker)? * (ClacValue::BITS as ClacValue / 8),
-            ))
-            .into())
+            let scale = match mode {
+                SizeOfMode::Native => ClacValue::BITS as ClacValue / 8,
+                SizeOfMode::Packed => match inner_type.resolve(ctx.type_checker)? {
+                    Type::Array(inner_type, _) => match inner_type.stride(ctx.type_checker)? {
+                        Stride::Native => ClacValue::BITS as ClacValue / 8,
+                        Stride::Byte => 1,
+                        Stride::ZST => 0,
+                    },
+                    _ => {
+                        return Err(eyre!(
+                            "Call to sizeof_packed on a type that does not have a packed repersentation"
+                        ).with_section(|| generate_span_error_section(*span)));
+                    }
+                },
+            };
+
+            Ok(
+                DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)? * scale))
+                    .into(),
+            )
         }
         Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),
         Expr::Variable(ident, span) => Ok(ctx

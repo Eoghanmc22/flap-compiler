@@ -1,0 +1,17 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    const auto MEM = (void *)0x6767000;
+    
+    const auto PROMPT_DAT = "clac-calc>> \0";
+    const auto WELCOME_DAT = "Welcome to clac.calc\n\0";
+    const auto QUIT_DAT = "quit\0";
+    
+    const char *PROMPT = (char*)MEM;
+    const char *WELCOME = PROMPT + sizeof_packed(PROMPT_DAT);
+    const char *QUIT = WELCOME + sizeof_packed(WELCOME_DAT);
+;
+
+: comment Check that the clac interperter is using the correct native width ;
+64 width_native - if -100 print quit
+

@@ -63,12 +63,12 @@ void print_str(char *str) {
     write_all(STDOUT, str, len);
     new_line();
   } else {
-    char[12] error = "str = NULL\n\0";
+    auto error = "str = NULL\n\0";
 
-    char *page = (char *)malloc(sizeof(error));
+    char *page = (char *)malloc(sizeof_packed(error));
     *page = error;
 
-    write_all(STDOUT, page, sizeof(error));
+    write_all(STDOUT, page, sizeof_packed(error));
 
     free((void *)page);
   }

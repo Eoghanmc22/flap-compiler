@@ -239,7 +239,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Expr::SizeOfType(..) => Ok(Type::Int),
-            Expr::SizeOfExpr(inner_expr, defered_type, _span) => {
+            Expr::SizeOfExpr(inner_expr, defered_type, _mode, _span) => {
                 *defered_type = DeferedType::ResolvedType(inner_expr.check_and_resolve_types(ctx)?);
 
                 Ok(Type::Int)

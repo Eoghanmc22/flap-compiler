@@ -120,6 +120,12 @@ impl<'a> Display for Value<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub enum SizeOfMode {
+    Native,
+    Packed,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expr<'a> {
     Value(Value<'a>, Span<'a>),
     Variable(IdentRef<'a>, Span<'a>),
@@ -146,8 +152,8 @@ pub enum Expr<'a> {
         span: Span<'a>,
     },
     FunctionCall(FunctionCall<'a>),
-    SizeOfType(Type<'a>, Span<'a>),
-    SizeOfExpr(Box<Expr<'a>>, DeferedType<'a>, Span<'a>),
+    SizeOfType(Type<'a>, SizeOfMode, Span<'a>),
+    SizeOfExpr(Box<Expr<'a>>, DeferedType<'a>, SizeOfMode, Span<'a>),
     If(IfExpr<'a>),
 }
 
@@ -162,8 +168,8 @@ impl<'a> AsSpan<'a> for Expr<'a> {
             | Expr::PrefixOp { span, .. }
             | Expr::PostfixOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
-            | Expr::SizeOfType(_, span)
-            | Expr::SizeOfExpr(_, _, span)
+            | Expr::SizeOfType(_, _, span)
+            | Expr::SizeOfExpr(_, _, _, span)
             | Expr::If(IfExpr { span, .. }) => *span,
         }
     }
