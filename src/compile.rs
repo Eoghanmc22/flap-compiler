@@ -145,7 +145,6 @@ pub struct SourceFile {
     includes: BTreeSet<PathBuf>,
 }
 
-#[instrument]
 pub fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
     let file = file.as_ref();
 

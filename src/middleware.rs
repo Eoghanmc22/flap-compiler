@@ -19,7 +19,6 @@ use crate::{
     },
 };
 
-#[instrument(skip(ctx), fields(%block))]
 pub fn walk_block<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     block: &Block<'a>,
@@ -60,7 +59,6 @@ pub fn walk_block<'a, 'b>(
     }
 }
 
-#[instrument(skip(ctx), fields(%func_call))]
 fn walk_function_call<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     func_call: &FunctionCall<'a>,
@@ -76,7 +74,6 @@ fn walk_function_call<'a, 'b>(
         .with_section(|| generate_span_error_section(func_call.span))
 }
 
-#[instrument(skip(ctx), fields(%func_def))]
 fn walk_function_def<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     func_def: &FunctionDef<'a>,
@@ -93,7 +90,6 @@ fn walk_function_def<'a, 'b>(
     Ok(())
 }
 
-#[instrument(skip(ctx), fields(%const_def))]
 fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>) -> Result<()> {
     let ConstDef {
         name,
@@ -122,7 +118,6 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
     Ok(())
 }
 
-#[instrument(skip(ctx), fields(%local_def))]
 fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>) -> Result<()> {
     let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
     ctx.promote_to_local(data_ref, local_def.name, local_def.var_type.clone());
@@ -130,7 +125,6 @@ fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>
     Ok(())
 }
 
-#[instrument(skip(ctx), fields(%ptr_assign))]
 fn walk_assignment<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     ptr_assign: &Assignment<'a>,
@@ -222,7 +216,6 @@ fn walk_assignment<'a, 'b>(
     return Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into());
 }
 
-#[instrument(skip(ctx), fields(%if_expr))]
 fn walk_if_expr<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     if_expr: &IfExpr<'a>,
@@ -251,7 +244,6 @@ fn walk_if_expr<'a, 'b>(
     walk_if_statement_inner(ctx, &if_expr.cases, if_expr.otherwise.as_ref(), sig)
 }
 
-#[instrument(skip_all)]
 fn walk_if_statement_inner<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     if_cases: &[IfCase<'a>],
@@ -347,7 +339,7 @@ impl<'a> ExpressionOutput<'a> {
     }
 
     // FIXME: this impl is hella cooked
-    #[instrument(skip(ctx))]
+
     fn into_tail_call(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<MaybeTailCall<'a>> {
         match self {
             ExpressionOutput::TailCall(tail_call) => Ok(tail_call),
@@ -432,7 +424,6 @@ impl<'a> ExpressionOutput<'a> {
     }
 }
 
-#[instrument(skip(ctx), fields(%expr))]
 fn walk_expr<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     expr: &Expr<'a>,

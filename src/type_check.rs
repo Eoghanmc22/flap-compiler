@@ -231,14 +231,12 @@ pub trait TypeCheck<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Value<'a> {
-    #[instrument(name = "typecheck_value", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'a>> {
         Ok(self.compute_type())
     }
 }
 
 impl<'a> TypeCheck<'a> for Expr<'a> {
-    #[instrument(name = "typecheck_expr", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Expr::SizeOfType(..) => Ok(Type::Int),
@@ -540,7 +538,6 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 }
 
 impl<'a> TypeCheck<'a> for FunctionCall<'a> {
-    #[instrument(name = "typecheck_func_call", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let sig = ctx
             .lookup_function(self.function)
@@ -583,7 +580,6 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 }
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
-    #[instrument(name = "typecheck_func_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let (actual_return_type, frame) = ctx.define_function(
             self.function,
@@ -630,7 +626,6 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
-    #[instrument(name = "typecheck_const_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if actual_type != self.var_type.resolve(ctx)? {
@@ -660,7 +655,6 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
-    #[instrument(name = "typecheck_local_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if actual_type.resolve(ctx)? != self.var_type.resolve(ctx)? {
@@ -690,7 +684,6 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Assignment<'a> {
-    #[instrument(name = "typecheck_assignment", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let expr_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         let target_type = self.target.check_and_resolve_types(ctx)?.resolve(ctx)?;
@@ -727,7 +720,6 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Typedef<'a> {
-    #[instrument(name = "typecheck_type_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         ctx.define_type(self.name, self.type_alias.clone())?;
 
@@ -737,7 +729,6 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for IfCase<'a> {
-    #[instrument(name = "typecheck_if_case", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let case_type = self.condition.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if case_type != Type::Bool {
@@ -764,7 +755,6 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
 }
 
 impl<'a> TypeCheck<'a> for IfExpr<'a> {
-    #[instrument(name = "typecheck_if_expr", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let expected_type = self
             .cases
@@ -833,7 +823,6 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Statement<'a> {
-    #[instrument(name = "typecheck_statement", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Statement::FunctionDef(function_def) => function_def.check_and_resolve_types(ctx),
@@ -851,7 +840,6 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Block<'a> {
-    #[instrument(name = "typecheck_block", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let mut actual_return_type = Type::Void;
 

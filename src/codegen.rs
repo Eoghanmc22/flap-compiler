@@ -66,7 +66,6 @@ pub enum MaybeTailCall<'a> {
 }
 
 impl<'a> MaybeTailCall<'a> {
-    #[instrument(skip(ctx))]
     pub fn into_data_ref(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<DataReference<'a>> {
         match self {
             MaybeTailCall::Regular(data_reference) => Ok(data_reference),
@@ -256,7 +255,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         );
     }
 
-    #[instrument(skip(self, scope))]
     pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
         &mut self,
         ident: IdentRef<'a>,
@@ -440,7 +438,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     /// Copies the data pointed to by the references to the top of the stack
     /// Stack after call: S, r_1, ..., r_n
     // TODO: Check types instead of widths
-    #[instrument(skip(self))]
+
     pub fn bring_up_references(
         &mut self,
         references: &[impl Borrow<DataReference<'a>> + Debug],
@@ -533,7 +531,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         Ok(())
     }
 
-    #[instrument(skip(self))]
     pub fn call_function_like(
         &mut self,
         ident: IdentRef<'a>,

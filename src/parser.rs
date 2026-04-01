@@ -51,7 +51,6 @@ lazy_static::lazy_static! {
 #[grammar = "../grammars/flap.pest"]
 struct FlapParser;
 
-#[instrument]
 pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
     let mut pairs = FlapParser::parse(Rule::program, input).wrap_err("Autogen parser")?;
     trace!("Input program tokens: {pairs:#?}");
@@ -81,7 +80,6 @@ pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
     unreachable!()
 }
 
-#[instrument]
 fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
     let kind = pair.into_inner().next().unwrap();
 
@@ -102,7 +100,6 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
     }
 }
 
-#[instrument]
 fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     trace!("Input block_like tokens: {pair:#?}");
     let span = pair.as_span();
@@ -291,7 +288,6 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     })
 }
 
-#[instrument]
 fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     let span = pair.as_span();
     let inner = pair.into_inner();
@@ -322,7 +318,6 @@ fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     })
 }
 
-#[instrument]
 fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
@@ -336,7 +331,6 @@ fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     })
 }
 
-#[instrument]
 fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     let span = pair.as_span();
     let mut tokens = pair.into_inner();
@@ -385,7 +379,6 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     })
 }
 
-#[instrument]
 fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     if !matches!(pair.as_rule(), Rule::ident) {
         return Err(eyre!("Got {:?}, expected ident", pair)
@@ -395,7 +388,6 @@ fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     Ok(pair.as_str())
 }
 
-#[instrument]
 fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
     PRATT_PARSER
         .map_primary(|primary| {
@@ -539,7 +531,6 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         .parse(pairs)
 }
 
-#[instrument]
 fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
@@ -555,12 +546,10 @@ fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
     })
 }
 
-#[instrument]
 fn parse_number(pair: Pair<Rule>) -> Result<ClacValue> {
     parse_int::parse(pair.as_str()).with_section(|| generate_span_error_section(pair.as_span()))
 }
 
-#[instrument]
 fn parse_value(pair: Pair<Rule>) -> Result<Value> {
     let target = pair.into_inner().next().unwrap();
 
