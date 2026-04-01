@@ -26,7 +26,7 @@ impl Display for ClacProgram {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MangledIdent(pub Arc<Ident>);
 
 /// A Clac Source Code Token

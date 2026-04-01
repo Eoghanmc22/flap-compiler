@@ -27,9 +27,9 @@
 
 : comment Start Definitions ;
 : func-test-0 100 print ;
+: func-test-12 1 print ;
 : func-test-4 25 print ;
 : func-test-8 1 print ;
-: func-test-12 1 print ;
 
 : comment Start Main ;
 func-test-0 func-test-4 func-test-8 func-test-12
