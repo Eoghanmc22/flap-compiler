@@ -1,5 +1,5 @@
-#include "syscall.flap"
 #include "malloc.flap"
+#include "syscall.flap"
 
 int read_all(int fd, char *buf, int count) {
   int new = read(fd, buf, count);
@@ -42,7 +42,9 @@ int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
 }
 
 void new_line() {
-  char *new_line = malloc(1);
+  char *new_line = (char *)malloc(1);
   *new_line = "\n";
   write(STDOUT, new_line, 1);
+
+  free((void *)new_line);
 }

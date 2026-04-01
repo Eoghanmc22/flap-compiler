@@ -13,7 +13,7 @@ list_string *parse_args() {
   }
 
   int len = 4096;
-  char *page = malloc(len);
+  char *page = (char *)malloc(len);
 
   // Put /proc/self/cmdline into page
   *page = "/proc/self/cmdline\0";

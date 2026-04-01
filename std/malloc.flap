@@ -1,9 +1,44 @@
-#include "syscall.flap"
 #include "constants.flap"
+#include "syscall.flap"
 
-char *malloc(int size) {
+typedef struct {
+  int size;
+} malloc_block;
+
+void *malloc(int size) {
   const int prot = PROT_READ + PROT_WRITE;
-  const int flags = MAP_PRIVATE + MAP_ANON;
+  const int flags = MAP_PRIVATE + MAP_ANONYMOUS;
 
-  mmap((char *)NULL, size, prot, flags, -1, 0)
+  int size = size + sizeof<malloc_block>;
+  malloc_block *block =
+      (malloc_block *)mmap((void *)NULL, size, prot, flags, -1, 0);
+
+  *block = struct {
+    size = size;
+  };
+
+  (void *)(block + 1)
+}
+
+void free(void *block) {
+  malloc_block *block = (malloc_block *)block - 1;
+
+  munmap((void *)block, block->size);
+}
+
+void *realloc(void *block, int size) {
+  if (block != (void *)NULL) {
+    if (size != 0) {
+      malloc_block *block = (malloc_block *)block - 1;
+
+      int size = size + sizeof<malloc_block>;
+      mremap((void *)block, block->size, size, MREMAP_MAYMOVE, (void *)NULL)
+    } else {
+      free((void *)block);
+
+      (void *)NULL
+    }
+  } else {
+    malloc(size)
+  }
 }

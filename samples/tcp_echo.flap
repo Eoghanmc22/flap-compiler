@@ -3,8 +3,8 @@
 const int BUFFER_SIZE = 4096;
 const int PORT = 8080;
 
-char *scratch = malloc(BUFFER_SIZE);
-char *buf = malloc(BUFFER_SIZE);
+char *scratch = (char *)malloc(BUFFER_SIZE);
+char *buf = (char *)malloc(BUFFER_SIZE);
 
 // Create Socket
 int server_fd = socket(AF_INET, SOCK_STREAM, 0);

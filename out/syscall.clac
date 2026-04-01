@@ -3,7 +3,7 @@
 : comment flap source code:
     #include "../std"
     
-    char *page = malloc(4096);
+    char *page = (char *)malloc(4096);
     
     *page = "hello world!\n";
     
@@ -15,10 +15,10 @@
 
 : comment Start Definitions ;
 : func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
-: func-malloc-63 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
+: func-malloc-74 1 pick 8 + 0 2 pick 3 34 -1 0 func-mmap-9 2 pick 2 pick 2 pick write_native 2 pick 8 + 1 pick 6 5 drop_range ;
 : func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
 : func-on_true-3 67676767 print quit drop ;
-: func-write-22 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-write-33 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
 
 : comment Start Main ;
-4096 func-malloc-63 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 1 14 pick 13 func-write-22
+4096 func-malloc-74 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 1 14 pick 13 func-write-33

@@ -40,6 +40,11 @@ map_int *map_int_new(int log_cap) {
   header
 }
 
+void map_int_free(map_int *map) {
+  free((void *)map->data);
+  free((void *)map);
+}
+
 map_int_iter *map_int_iter_new(map_int *map) {
   map_int_iter *iter = (map_int_iter *)malloc(sizeof<map_int_iter>);
 
@@ -48,6 +53,8 @@ map_int_iter *map_int_iter_new(map_int *map) {
 
   iter
 }
+
+void map_int_iter_free(map_int_iter *iter) { free((void *)iter); }
 
 bool map_int_iter_has_next(map_int_iter *iter) {
   if (iter->map->data[iter->idx].status == map_int_STATUS_OCCUPIED) {

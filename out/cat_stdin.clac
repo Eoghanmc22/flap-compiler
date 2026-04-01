@@ -4,7 +4,7 @@
     #include "../std"
     
     int len = 4096;
-    char *page = malloc(len);
+    char *page = (char *) malloc(len);
     
     int count = read_all(STDIN, page, len);
     write8(page + count, (char)0);
@@ -17,21 +17,21 @@
 64 width_native - if -100 print quit
 
 : comment Start Definitions ;
-: func-copy_all-105 2 pick 5 pick 5 pick func-read_all-65 0 2 pick < 6 pick 6 pick 5 pick 5 pick 8 pick 6 pick 12 6 drop_range if func-on_true-112 5 skip drop drop drop drop drop ;
+: func-copy_all-149 2 pick 5 pick 5 pick func-read_all-109 0 2 pick < 6 pick 6 pick 5 pick 5 pick 8 pick 6 pick 12 6 drop_range if func-on_true-156 5 skip drop drop drop drop drop ;
 : func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
-: func-malloc-63 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
+: func-malloc-74 1 pick 8 + 0 2 pick 3 34 -1 0 func-mmap-9 2 pick 2 pick 2 pick write_native 2 pick 8 + 1 pick 6 5 drop_range ;
 : func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
-: func-on_false-100 0 5 4 drop_range ;
-: func-on_false-80 0 5 4 drop_range ;
-: func-on_true-112 3 pick 6 pick 4 pick func-write_all-85 6 pick 6 pick 4 pick 7 pick func-copy_all-105 6 6 drop_range ;
+: func-on_false-124 0 5 4 drop_range ;
+: func-on_false-144 0 5 4 drop_range ;
+: func-on_true-115 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-read_all-109 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_true-135 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-129 4 pick 2 pick + 1 pick 9 8 drop_range ;
+: func-on_true-156 3 pick 6 pick 4 pick func-write_all-129 6 pick 6 pick 4 pick 7 pick func-copy_all-149 6 6 drop_range ;
 : func-on_true-3 67676767 print quit drop ;
-: func-on_true-71 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-read_all-65 4 pick 2 pick + 1 pick 9 8 drop_range ;
-: func-on_true-91 4 pick 2 pick + 4 pick 3 pick - 4 pick 3 pick 3 pick func-write_all-85 4 pick 2 pick + 1 pick 9 8 drop_range ;
-: func-open-27 2 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
-: func-read-17 0 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
-: func-read_all-65 3 pick 3 pick 3 pick func-read-17 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-71 1 skip func-on_false-80 ;
-: func-write-22 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
-: func-write_all-85 3 pick 3 pick 3 pick func-write-22 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-91 1 skip func-on_false-100 ;
+: func-open-38 2 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-read-28 0 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-read_all-109 3 pick 3 pick 3 pick func-read-28 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-115 1 skip func-on_false-124 ;
+: func-write-33 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+: func-write_all-129 3 pick 3 pick 3 pick func-write-33 1 pick 0 - if 1 1 skip 0 4 pick 4 pick 7 pick 5 pick 5 pick 10 5 drop_range if func-on_true-135 1 skip func-on_false-144 ;
 
 : comment Start Main ;
-4096 func-malloc-63 0 2 pick 4096 func-read_all-65 2 pick 2 pick + 1 pick 0 write8 3 pick 0 0 func-open-27 4 pick 4096 3 pick 1 func-copy_all-105
+4096 func-malloc-74 0 2 pick 4096 func-read_all-109 2 pick 2 pick + 1 pick 0 write8 3 pick 0 0 func-open-38 4 pick 4096 3 pick 1 func-copy_all-149

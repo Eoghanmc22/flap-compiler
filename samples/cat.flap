@@ -11,7 +11,7 @@ char *get_last_arg(char *buf, char *last_ptr, int len) {
 }
 
 int len = 4096;
-char *page = malloc(len);
+char *page = (char *)malloc(len);
 
 // Put /proc/self/cmdline into page
 *page = "/proc/self/cmdline\0";

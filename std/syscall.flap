@@ -9,8 +9,14 @@ const int PROT_READ = 1;
 const int PROT_WRITE = 2;
 const int PROT_NONE = 0;
 
+const int MAP_SHARED = 1;
 const int MAP_PRIVATE = 2;
-const int MAP_ANON = 32;
+const int MAP_FIXED = 16;
+const int MAP_ANONYMOUS = 32;
+const int MAP_FIXED_NOREPLACE = 1048576;
+
+const int MREMAP_MAYMOVE = 1;
+const int MREMAP_FIXED = 2;
 
 const int STDIN = 0;
 const int STDOUT = 1;
@@ -25,9 +31,19 @@ int handle_error(int res) {
   res
 }
 
-char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
-  (char *)handle_error(
+void *mmap(void *addr, int length, int prot, int flags, int fd, int pgoffset) {
+  (void *)handle_error(
       syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
+}
+
+int munmap(void *addr, int length) {
+  handle_error(syscall(0x0b, (int)addr, length, 0, 0, 0, 0))
+}
+
+void *mremap(void *addr, int old_length, int new_length, int flags,
+             void *new_addr) {
+  (void *)handle_error(
+      syscall(0x19, (int)addr, old_length, new_length, flags, (int)new_addr, 0))
 }
 
 int read(int fd, char *buf, int count) {

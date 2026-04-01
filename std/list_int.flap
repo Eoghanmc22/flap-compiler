@@ -19,15 +19,17 @@ list_int *list_int_new(int cap) {
   header
 }
 
+void list_int_free(list_int *list) {
+  free((void *)list->data);
+  free((void *)list);
+}
+
 void list_int_push(list_int *list, list_int_value value) {
   if (list->len == list->cap) {
     int new_cap = list->cap * 2;
-    list_int_value *new_data =
-        (list_int_value *)malloc(new_cap * sizeof<list_int_value>);
+    list->data = (list_int_value *)realloc((void *)list->data,
+                                           new_cap * sizeof<list_int_value>);
 
-    memcpy((int *)list->data, (int *)new_data, list->len);
-
-    list->data = new_data;
     list->cap = new_cap;
   }
 

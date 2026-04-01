@@ -17,9 +17,11 @@ void print_str(char *str) {
   } else {
     char[12] error = "str = NULL\n\0";
 
-    char *page = malloc(sizeof(error));
+    char *page = (char *)malloc(sizeof(error));
     *page = error;
 
     write_all(STDOUT, page, sizeof(error));
+
+    free((void *)page);
   }
 }
