@@ -8,7 +8,7 @@ use color_eyre::{
     eyre::{Context, ContextCompat, OptionExt, Result, bail, eyre},
 };
 use pest::Span;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, trace};
 
 use std::{
     borrow::Borrow,
