@@ -87,4 +87,4 @@
 : func-strlen-24 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-28 1 skip func-on_false-30 ;
 
 : comment Start Main ;
-2 func-malloc-22 1 pick 1 write_native 1 pick 8 + 1 pick 5 write_native 2 pick read_native 3 pick 8 + read_native 2 pick print 4 pick read_native 5 pick 8 + read_native 1 pick print
+2 func-malloc-22 1 pick 1 write_native 1 pick 8 + 1 pick 5 write_native 2 pick 0 + 1 pick read_native 1 pick print 4 pick 8 + 1 pick read_native 1 pick print

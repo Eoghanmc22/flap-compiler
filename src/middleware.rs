@@ -840,37 +840,71 @@ fn walk_expr<'a, 'b>(
                         },
                     )
                 }
-                (Type::Array(inner, len), PostfixOp::ArrayIndex(expr)) => {
-                    let field_width = inner.width(ctx.type_checker)?;
-
+                (Type::Array(inner_type, len), PostfixOp::ArrayIndex(idx_expr)) => {
                     let value = walk_expr(ctx, operand)?;
-                    // TODO: this emits redundant code when the array is behind a pointer
-                    let data_ref = value.into_data_ref(ctx)?;
 
-                    let idx = walk_expr(ctx, expr)?;
-                    let ExpressionOutput::TailCall(MaybeTailCall::Regular(DataReference::Value(
-                        Value::Int(idx),
-                    ))) = idx
-                    else {
-                        return Err(eyre!(
-                            "UNIMPLEMENTED: Can not index into an array with a index that is not known at compile time"
-                        ));
-                    };
+                    match value {
+                        ExpressionOutput::TailCall(maybe_tail_call) => {
+                            let field_width = inner_type.width(ctx.type_checker)?;
+                            let data_ref = maybe_tail_call.into_data_ref(ctx)?;
+                            let idx = walk_expr(ctx, idx_expr)?;
 
-                    assert!(*len >= 0);
-                    if idx < 0 || idx >= *len {
-                        return Err(eyre!("Array Index out of bounds").with_section(|| {
+                            let ExpressionOutput::TailCall(MaybeTailCall::Regular(
+                                DataReference::Value(Value::Int(idx)),
+                            )) = idx
+                            else {
+                                return Err(eyre!(
+                                    "UNIMPLEMENTED: Can not index into a stack array with a index that is not known at compile time"
+                                ));
+                            };
+
+                            assert!(*len >= 0);
+                            if idx < 0 || idx >= *len {
+                                return Err(eyre!("Array Index out of bounds").with_section(|| {
                                 generate_span_error_section_with_annotations(
                                     *span,
                                     &[
-                                        (expr.as_span(), &format!("This index is computed to be {idx}, but the length is only {len}"))
+                                        (idx_expr.as_span(), &format!("This index is computed to be {idx}, but the length is only {len}"))
                                     ])
-                        }));
-                    }
+                                }));
+                            }
 
-                    Ok(ctx
-                        .reference_relative((**inner).clone(), data_ref, Offset(field_width * idx))?
-                        .into())
+                            Ok(ctx
+                                .reference_relative(
+                                    (**inner_type).clone(),
+                                    data_ref,
+                                    Offset(field_width * idx),
+                                )?
+                                .into())
+                        }
+                        ExpressionOutput::Dereference(expr, expr_type, span) => {
+                            // TODO: Do a similar value propagation optimization as the other cases
+                            // TODO: Dont omit an add when the index is a comptime 0
+                            // TODO: when index is comptime known, do bounds checking
+
+                            walk_expr(
+                                ctx,
+                                &Expr::PrefixOp {
+                                    op: PrefixOp::Dereference,
+                                    operand: Expr::BinaryOp {
+                                        op: BinaryOp::Add,
+                                        left: expr.clone(),
+                                        left_type: DeferedType::ResolvedType(Type::Pointer(
+                                            inner_type.clone(),
+                                        )),
+                                        right: idx_expr.clone(),
+                                        right_type: DeferedType::ResolvedType(Type::Int),
+                                        span,
+                                    }
+                                    .into(),
+                                    operand_type: DeferedType::ResolvedType(Type::Pointer(
+                                        inner_type.clone(),
+                                    )),
+                                    span,
+                                },
+                            )
+                        }
+                    }
                 }
                 (Type::Pointer(inner), PostfixOp::ArrayIndex(expr)) => {
                     let offset = match (**operand).clone() {
