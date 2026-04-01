@@ -9,4 +9,4 @@
 64 width_native - if -100 print quit
 
 : comment Start Main ;
-113 32 - if 0 1 skip 1 113 10 - if 0 1 skip 1 2 pick 2 pick if 0 1 skip 1 if 0 1 skip 1 * 1 swap - 1 pick print
+113 32 - if 0 1 skip 1 113 10 - if 0 1 skip 1 2 pick 2 pick if 0 1 skip 1 swap if 0 1 skip 1 * 1 swap - 1 pick print

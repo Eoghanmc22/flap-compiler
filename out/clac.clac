@@ -405,7 +405,7 @@
 : func-strcmp-371 3 pick 2 pick - if 0 1 skip 1 5 pick 5 pick 5 pick 5 pick 5 pick 10 5 drop_range if func-on_true-377 1 skip func-on_false-383 ;
 : func-on_true-399 2 pick 3 2 drop_range ;
 : func-on_false-402 1 pick 1 + 3 pick 1 + 2 pick 2 pick 6 4 drop_range func-distance_to_space_or_newline-389 ;
-: func-distance_to_space_or_newline-389 2 pick read8 1 pick 32 - if 0 1 skip 1 4 pick read8 1 pick 10 - if 0 1 skip 1 3 pick 2 pick if 0 1 skip 1 if 0 1 skip 1 * 1 swap - 6 pick 8 pick 3 pick 10 7 drop_range if func-on_true-399 1 skip func-on_false-402 ;
+: func-distance_to_space_or_newline-389 2 pick read8 1 pick 32 - if 0 1 skip 1 4 pick read8 1 pick 10 - if 0 1 skip 1 3 pick 2 pick if 0 1 skip 1 swap if 0 1 skip 1 * 1 swap - 6 pick 8 pick 3 pick 10 7 drop_range if func-on_true-399 1 skip func-on_false-402 ;
 : func-on_true-430 quit 7 7 drop_range ;
 : func-repl-407 1 5 pick 5 pick func-write_all-51 7 pick 7 pick func-readline-140 1 9 pick 3 pick func-write_all-51 9 pick 0 func-distance_to_space_or_newline-389 1 pick print 10 pick 2 pick 2 pick 2 pick 10 pick 10 pick func-strcmp-371 1 pick 0 - if 0 1 skip 1 5 pick 15 pick 15 pick 15 pick 15 pick 15 pick 15 pick 8 pick if func-on_true-430 7 skip drop drop drop drop drop drop drop 17 pick 17 pick 17 pick 67 func-uba_push-248 3 pick 3 pick 3 pick 20 pick 20 pick 20 pick 20 pick 20 pick 20 pick func-repl-407 20 20 drop_range ;
 : func-str_from-439 1 pick func-strlen-107 2 pick 2 pick 2 pick 2 pick 6 4 drop_range ;
