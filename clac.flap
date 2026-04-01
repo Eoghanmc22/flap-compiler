@@ -92,18 +92,24 @@ void setup_mem() {
   *QUIT = QUIT_DAT;
 }
 
-void repl(repl_strings strs) {
+void repl(str inp) {
   write_all(STDOUT, PROMPT, sizeof(PROMPT_DAT) / 8);
 
-  int read_amt = readline(strs.inp_buf);
-  write_all(STDOUT, strs.inp_buf.dat, read_amt);
+  int read_amt = readline(inp);
+  // write_all(STDOUT, inp.dat, read_amt);
 
-  int dtt = distance_to_space_or_newline(strs.inp_buf.dat, 0);
+  int dtt = distance_to_space_or_newline(inp.dat, 0);
+  // print(dtt);
 
-  print(dtt);
+  inp.dat[dtt] = '\0';
+
+  atoi_result res = atoi(inp.dat);
+  print((int)res.success);
+  print(res.result);
+
   if (strcmp(
           struct {
-            dat = strs.inp_buf.dat;
+            dat = inp.dat;
             len = dtt;
           },
           struct {
@@ -115,7 +121,7 @@ void repl(repl_strings strs) {
 
   // uba_print(ub);
 
-  repl(strs);
+  repl(inp);
 }
 
 str str_from(char *cs) {
@@ -136,7 +142,7 @@ void main() {
     dat = (char *)malloc(inplen);
   };
 
-  repl(struct { inp_buf = inpbuf; });
+  repl(inpbuf);
 }
 
 main()
