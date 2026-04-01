@@ -9,7 +9,7 @@ use std::{
 
 use color_eyre::eyre::{Context, Result};
 use pest::Span;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
     ast::{Block, Directive},
@@ -95,6 +95,7 @@ impl CompileContext {
         Ok(())
     }
 
+    // TODO: Is this correct?
     pub fn flatten_imports<'a>(&'a self) -> Result<Block<'a>> {
         let mut seen = HashSet::new();
         let mut already_included = HashSet::new();
@@ -126,6 +127,12 @@ impl CompileContext {
                 for include in &source.includes {
                     if !seen.contains(include) {
                         stack.push(include);
+                    }
+                }
+                if let Some(top) = stack.last() {
+                    if *top == next {
+                        warn!("Cyclical imports detected");
+                        stack.pop();
                     }
                 }
             }
