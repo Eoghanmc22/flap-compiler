@@ -1,0 +1,190 @@
+#include "hash.flap"
+#include "io.flap"
+#include "malloc.flap"
+#include "math.flap"
+#include "memory.flap"
+
+const int map_int_STATUS_FREE = 0;
+const int map_int_STATUS_OCCUPIED = 1;
+const int map_int_STATUS_REMOVED = 2;
+
+typedef int map_int_key;
+
+typedef struct {
+  map_int_key key;
+  void *value;
+  int status;
+} map_int_entry;
+
+typedef struct {
+  map_int_entry *data;
+  int len;
+  int cap;
+  void *default;
+} map_int;
+
+typedef struct {
+  map_int *map;
+  int idx;
+} map_int_iter;
+
+map_int *map_int_new(int log_cap) {
+  map_int *header = (map_int *)malloc(sizeof<map_int>);
+
+  int cap = pow(2, log_cap);
+  header->data = (map_int_entry *)malloc(cap * sizeof<map_int_entry>);
+  header->cap = cap;
+  header->len = 0;
+  header->default = (void *)0;
+
+  header
+}
+
+void map_int_free(map_int *map) {
+  free((void *)map->data);
+  free((void *)map);
+}
+
+map_int_iter *map_int_iter_new(map_int *map) {
+  map_int_iter *iter = (map_int_iter *)malloc(sizeof<map_int_iter>);
+
+  iter->map = map;
+  iter->idx = 0;
+
+  iter
+}
+
+void map_int_iter_free(map_int_iter *iter) { free((void *)iter); }
+
+bool map_int_iter_has_next(map_int_iter *iter) {
+  if (iter->map->data[iter->idx].status == map_int_STATUS_OCCUPIED) {
+    true
+  } else if (iter->idx >= iter->map->cap) {
+    false
+  } else {
+    iter->idx = iter->idx + 1;
+    map_int_iter_has_next(iter)
+  }
+}
+
+map_int_entry map_int_iter_next(map_int_iter *iter) {
+  int old_idx = iter->idx;
+  iter->idx = old_idx + 1;
+  iter->map->data[old_idx]
+}
+
+void *map_int_insert(map_int *map, map_int_key key, void *value) {
+  void *insert_probe(map_int * map, int start, int iter, map_int_entry entry) {
+    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+
+    map_int_entry old = map->data[idx];
+    if (old.status != map_int_STATUS_OCCUPIED || old.key == entry.key) {
+      map->data[idx] = entry;
+
+      if (old.status == map_int_STATUS_OCCUPIED) {
+        old.value
+      } else {
+        map->default
+      }
+    } else {
+      insert_probe(map, start, iter + 1, entry)
+    }
+  }
+
+  void extend_from_iter(map_int * dst, map_int_iter * src_iter) {
+    if (map_int_iter_has_next(src_iter)) {
+      map_int_entry entry = map_int_iter_next(src_iter);
+      map_int_insert(dst, entry.key, entry.value);
+      extend_from_iter(dst, src_iter);
+    }
+  }
+
+  if (map->len >= map->cap / 2) {
+    map_int *dst = map_int_new(map->cap * 2);
+    map_int_iter *iter = map_int_iter_new(map);
+
+    extend_from_iter(dst, iter);
+    *map = *dst;
+  }
+
+  int start_cell = abs(hash_int(key)) % map->cap;
+  map->len = map->len + 1;
+
+  insert_probe(
+      map, start_cell, 0, struct {
+        key = key;
+        value = value;
+        status = map_int_STATUS_OCCUPIED;
+      })
+}
+
+void *map_int_get(map_int *map, map_int_key key) {
+  void *get_probe(map_int * map, int start, int iter, map_int_key key) {
+    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+
+    map_int_entry entry = map->data[idx];
+    if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
+      entry.value
+    } else if (entry.status == map_int_STATUS_FREE) {
+      map->default
+    } else {
+      get_probe(map, start, iter + 1, key)
+    }
+  }
+
+  int start_cell = abs(hash_int(key)) % map->cap;
+  get_probe(map, start_cell, 0, key)
+}
+
+bool map_int_contains(map_int *map, map_int_key key) {
+  bool contains_probe(map_int * map, int start, int iter, map_int_key key) {
+    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+
+    map_int_entry entry = map->data[idx];
+    if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
+      true
+    } else if (entry.status == map_int_STATUS_FREE) {
+      false
+    } else {
+      contains_probe(map, start, iter + 1, key)
+    }
+  }
+
+  int start_cell = abs(hash_int(key)) % map->cap;
+  contains_probe(map, start_cell, 0, key)
+}
+
+bool map_int_remove(map_int *map, map_int_key key) {
+  bool remove_probe(map_int * map, int start, int iter, map_int_key key) {
+    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+
+    map_int_entry entry = map->data[idx];
+    if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
+      map->data[idx].status = map_int_STATUS_REMOVED;
+      true
+    } else if (entry.status == map_int_STATUS_FREE) {
+      false
+    } else {
+      remove_probe(map, start, iter + 1, key)
+    }
+  }
+
+  int start_cell = abs(hash_int(key)) % map->cap;
+  remove_probe(map, start_cell, 0, key)
+}
+
+void map_int_print(map_int *map) {
+  void inner(map_int_iter * iter) {
+    if (map_int_iter_has_next(iter)) {
+      map_int_entry entry = map_int_iter_next(iter);
+
+      print((int)entry.key);
+      print((int)entry.value);
+      new_line();
+
+      inner(iter);
+    }
+  }
+
+  inner(map_int_iter_new(map));
+}

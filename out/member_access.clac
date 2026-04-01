@@ -1,0 +1,92 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    #include "../std"
+    
+    typedef struct {
+      int a;
+      char *b;
+      int[5] x;
+    } inner;
+    
+    typedef struct {
+      int a;
+      char *b;
+      inner nested;
+    } test;
+    
+    test it = struct {
+      a = 20;
+      b = (char *)NULL;
+      nested = struct {
+        a = 50;
+        b = (char *)NULL;
+        x = [ 1, 5, 2, 1, 3 ];
+      };
+    };
+    
+    test *heap = (test *)malloc(sizeof(it));
+    *heap = it;
+    
+    print(heap->a);        // 20
+    print(heap->nested.a); // 50
+    
+    heap->b = (char *)malloc(4096);
+    heap->nested.b = (char *)malloc(4096);
+    
+    *(heap->b) = "hello world!\n\0";
+    *(heap->nested.b) = "hi from inner!\n\0";
+    
+    heap->a = 30;
+    heap->nested.a = 60;
+    
+    print(heap->a);        // 30
+    print(heap->nested.a); // 60
+    
+    write(STDOUT, heap->b, strlen(heap->b));               // "hello world!"
+    write(STDOUT, heap->nested.b, strlen(heap->nested.b)); // "hi from inner!"
+    
+    print((int)'i');
+    print((int)(heap->nested.b[1]));
+    
+    print(heap->nested.x[0]);
+    print(heap->nested.x[1]);
+    print(heap->nested.x[2]);
+    print(heap->nested.x[3]);
+    print(heap->nested.x[4]);
+    
+    test copy_back = *heap;
+    
+    print(copy_back.nested.x[0]);
+    print(copy_back.nested.x[1]);
+    print(copy_back.nested.x[2]);
+    print(copy_back.nested.x[3]);
+    print(copy_back.nested.x[4]);
+    
+    int[5] tmp = copy_back.nested.x;
+    heap->nested.x = [ tmp[0] + 1, tmp[1] + 1, tmp[2] + 1, tmp[3] + 1, tmp[4] + 1 ];
+    
+    print(heap->nested.x[0]);
+    print(heap->nested.x[1]);
+    print(heap->nested.x[2]);
+    print(heap->nested.x[3]);
+    print(heap->nested.x[4]);
+    
+    print((int)heap);
+;
+
+: comment Check that the clac interperter is using the correct native width ;
+64 width_native - if -100 print quit
+
+: comment Start Definitions ;
+: func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
+: func-malloc-74 1 pick 8 + 0 2 pick 3 34 -1 0 func-mmap-9 2 pick 2 pick 2 pick write_native 2 pick 8 + 1 pick 6 5 drop_range ;
+: func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
+: func-on_false-200 1 pick 1 + 1 pick func-strlen-194 1 2 pick + 1 pick 5 4 drop_range ;
+: func-on_true-198 0 swap drop ;
+: func-on_true-3 67676767 print quit drop ;
+: func-strlen-194 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-198 1 skip func-on_false-200 ;
+: func-write-33 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+
+: comment Start Main ;
+72 func-malloc-74 1 pick 20 write_native 1 pick 8 + 1 pick 0 write_native 2 pick 16 + 1 pick 50 write_native 3 pick 24 + 1 pick 0 write_native 4 pick 32 + 1 pick 1 write_native 5 pick 40 + 1 pick 5 write_native 6 pick 48 + 1 pick 2 write_native 7 pick 56 + 1 pick 1 write_native 8 pick 64 + 1 pick 3 write_native 9 pick read_native 1 pick print 10 pick 16 + 1 pick read_native 1 pick print 4096 func-malloc-74 13 pick 8 + 1 pick 3 pick write_native 4096 func-malloc-74 15 pick 16 + 1 pick 8 + 1 pick 4 pick write_native 17 pick 8 + 1 pick read_native 1 pick 104 write8 1 pick 1 + 1 pick 101 write8 2 pick 2 + 1 pick 108 write8 3 pick 3 + 1 pick 108 write8 4 pick 4 + 1 pick 111 write8 5 pick 5 + 1 pick 32 write8 6 pick 6 + 1 pick 119 write8 7 pick 7 + 1 pick 111 write8 8 pick 8 + 1 pick 114 write8 9 pick 9 + 1 pick 108 write8 10 pick 10 + 1 pick 100 write8 11 pick 11 + 1 pick 33 write8 12 pick 12 + 1 pick 10 write8 13 pick 13 + 1 pick 0 write8 32 pick 16 + 1 pick 8 + 1 pick read_native 1 pick 104 write8 1 pick 1 + 1 pick 105 write8 2 pick 2 + 1 pick 32 write8 3 pick 3 + 1 pick 102 write8 4 pick 4 + 1 pick 114 write8 5 pick 5 + 1 pick 111 write8 6 pick 6 + 1 pick 109 write8 7 pick 7 + 1 pick 32 write8 8 pick 8 + 1 pick 105 write8 9 pick 9 + 1 pick 110 write8 10 pick 10 + 1 pick 110 write8 11 pick 11 + 1 pick 101 write8 12 pick 12 + 1 pick 114 write8 13 pick 13 + 1 pick 33 write8 14 pick 14 + 1 pick 10 write8 15 pick 15 + 1 pick 0 write8 50 pick 30 write_native 50 pick 16 + 1 pick 60 write_native 51 pick read_native 1 pick print 52 pick 16 + 1 pick read_native 1 pick print 54 pick 8 + 1 pick read_native 56 pick 8 + 1 pick read_native 1 pick func-strlen-194 1 5 pick 3 pick func-write-33 60 pick 16 + 1 pick 8 + 1 pick read_native 63 pick 16 + 1 pick 8 + 1 pick read_native 1 pick func-strlen-194 1 6 pick 3 pick func-write-33 105 print 68 pick 16 + 1 pick 8 + 1 pick read_native 1 pick 1 + 1 pick read8 1 pick print 73 pick 16 + 1 pick 16 + 1 pick 0 + 1 pick read_native 1 pick print 77 pick 16 + 1 pick 16 + 1 pick 8 + 1 pick read_native 1 pick print 81 pick 16 + 1 pick 16 + 1 pick 16 + 1 pick read_native 1 pick print 85 pick 16 + 1 pick 16 + 1 pick 24 + 1 pick read_native 1 pick print 89 pick 16 + 1 pick 16 + 1 pick 32 + 1 pick read_native 1 pick print 93 pick read_native 94 pick 8 + read_native 95 pick 16 + read_native 96 pick 24 + read_native 97 pick 32 + read_native 98 pick 40 + read_native 99 pick 48 + read_native 100 pick 56 + read_native 101 pick 64 + read_native 5 pick print 4 pick print 3 pick print 2 pick print 1 pick print 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 1 + 5 pick 5 pick 5 pick 5 pick 5 pick 112 pick 16 + 1 pick 16 + 1 pick 8 pick write_native 1 pick 8 + 1 pick 8 pick write_native 2 pick 16 + 1 pick 8 pick write_native 3 pick 24 + 1 pick 8 pick write_native 4 pick 32 + 1 pick 8 pick write_native 118 pick 16 + 1 pick 16 + 1 pick 0 + 1 pick read_native 1 pick print 122 pick 16 + 1 pick 16 + 1 pick 8 + 1 pick read_native 1 pick print 126 pick 16 + 1 pick 16 + 1 pick 16 + 1 pick read_native 1 pick print 130 pick 16 + 1 pick 16 + 1 pick 24 + 1 pick read_native 1 pick print 134 pick 16 + 1 pick 16 + 1 pick 32 + 1 pick read_native 1 pick print 138 pick print

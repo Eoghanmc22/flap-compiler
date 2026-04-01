@@ -8,7 +8,7 @@ use color_eyre::{
     eyre::{Context, ContextCompat, OptionExt, Result, bail, eyre},
 };
 use pest::Span;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument, trace, warn};
 
 use std::{
     borrow::Borrow,
@@ -18,6 +18,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    usize,
 };
 
 use crate::{
@@ -65,7 +66,6 @@ pub enum MaybeTailCall<'a> {
 }
 
 impl<'a> MaybeTailCall<'a> {
-    #[instrument(skip(ctx))]
     pub fn into_data_ref(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<DataReference<'a>> {
         match self {
             MaybeTailCall::Regular(data_reference) => Ok(data_reference),
@@ -203,9 +203,16 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 ))),
                 Type::Void => Ok(DataReference::Tempoary(self.allocate_tempoary(Type::Void)?)),
                 _ => {
-                    return Err(eyre!(
-                        "UNIMPLEMENTED: reference_relative on a value only supports numeric types"
-                    ));
+                    let start = rel_offset.0 as usize;
+                    let end = start + var_type.width(self.type_checker)? as usize;
+
+                    // TODO: is this actually a problem?
+                    // warn!("Comptime Value::Flat emitted, value propagation may be impacted");
+
+                    Ok(DataReference::Value(Value::Flat(
+                        var_type.clone(),
+                        value.as_repr()[start..end].to_vec(),
+                    )))
                 }
             },
             DataReference::Tempoary(tempoary_ident) => {
@@ -248,7 +255,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         );
     }
 
-    #[instrument(skip(self, scope))]
     pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
         &mut self,
         ident: IdentRef<'a>,
@@ -387,8 +393,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 } else if needs_dropping > 0 {
                     self.push_token(ClacToken::Number(needs_dropping + retain_width))?;
                     self.push_token(ClacToken::Number(needs_dropping))?;
-                    self.push_token(ClacToken::Call {
-                        mangled_ident: MangledIdent(Arc::new("drop_range".to_string())),
+                    self.push_token(ClacToken::DropRange {
                         stack_delta: -needs_dropping - 2,
                     })?;
                 }
@@ -433,7 +438,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     /// Copies the data pointed to by the references to the top of the stack
     /// Stack after call: S, r_1, ..., r_n
     // TODO: Check types instead of widths
-    #[instrument(skip(self))]
+
     pub fn bring_up_references(
         &mut self,
         references: &[impl Borrow<DataReference<'a>> + Debug],
@@ -526,7 +531,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         Ok(())
     }
 
-    #[instrument(skip(self))]
     pub fn call_function_like(
         &mut self,
         ident: IdentRef<'a>,
@@ -617,56 +621,56 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         None
     }
 
-    pub fn lookup_ident_path(
-        &mut self,
-        mut var_path: &[IdentRef<'a>],
-    ) -> Result<AnnotatedDataRef<'a>> {
-        let Some(var) = var_path.split_off_first() else {
-            return Err(eyre!("Can not look up empty variable path"));
-        };
-
-        let Some(mut lookup) = self.lookup_ident(var) else {
-            return Err(eyre!("Variable {var}.{var_path:?} is not in scope"));
-        };
-
-        while let [next, rem @ ..] = var_path {
-            let (next_type, delta) = lookup
-                .data_type
-                .member_and_offset(self.type_checker, next)?;
-
-            match self.dereference_data_ref(&lookup.reference)? {
-                DataReference::Tempoary(tempoary_ident) => {
-                    let (_type, offset) = self
-                        .lookup_temporary(tempoary_ident)
-                        .ok_or_eyre("Bad tempoary")?;
-
-                    lookup.data_type = next_type.clone();
-                    lookup.reference = DataReference::Tempoary(
-                        self.allocate_tempoary_at(next_type, Offset(offset.0 + delta)),
-                    );
-                }
-                DataReference::Value(Value::Struct(items)) => {
-                    if let Some(value) = items.get(next) {
-                        lookup.data_type = next_type.clone();
-                        lookup.reference = DataReference::Value(value.clone());
-                    } else {
-                        return Err(eyre!(
-                            "COMPILER BUG: Comptime struct value is missing field {next}"
-                        ));
-                    }
-                }
-                _ => {
-                    return Err(eyre!(
-                        "UNIMPLEMENTED: Can not access membors of a value that is not a temporary or a struct value"
-                    ));
-                }
-            }
-
-            var_path = rem;
-        }
-
-        Ok(lookup)
-    }
+    // pub fn lookup_ident_path(
+    //     &mut self,
+    //     mut var_path: &[IdentRef<'a>],
+    // ) -> Result<AnnotatedDataRef<'a>> {
+    //     let Some(var) = var_path.split_off_first() else {
+    //         return Err(eyre!("Can not look up empty variable path"));
+    //     };
+    //
+    //     let Some(mut lookup) = self.lookup_ident(var) else {
+    //         return Err(eyre!("Variable {var}.{var_path:?} is not in scope"));
+    //     };
+    //
+    //     while let [next, rem @ ..] = var_path {
+    //         let (next_type, delta) = lookup
+    //             .data_type
+    //             .member_and_offset(self.type_checker, next)?;
+    //
+    //         match self.dereference_data_ref(&lookup.reference)? {
+    //             DataReference::Tempoary(tempoary_ident) => {
+    //                 let (_type, offset) = self
+    //                     .lookup_temporary(tempoary_ident)
+    //                     .ok_or_eyre("Bad tempoary")?;
+    //
+    //                 lookup.data_type = next_type.clone();
+    //                 lookup.reference = DataReference::Tempoary(
+    //                     self.allocate_tempoary_at(next_type, Offset(offset.0 + delta)),
+    //                 );
+    //             }
+    //             DataReference::Value(Value::Struct(items)) => {
+    //                 if let Some(value) = items.get(next) {
+    //                     lookup.data_type = next_type.clone();
+    //                     lookup.reference = DataReference::Value(value.clone());
+    //                 } else {
+    //                     return Err(eyre!(
+    //                         "COMPILER BUG: Comptime struct value is missing field {next}"
+    //                     ));
+    //                 }
+    //             }
+    //             _ => {
+    //                 return Err(eyre!(
+    //                     "UNIMPLEMENTED: Can not access membors of a value that is not a temporary or a struct value"
+    //                 ));
+    //             }
+    //         }
+    //
+    //         var_path = rem;
+    //     }
+    //
+    //     Ok(lookup)
+    // }
 
     pub fn dereference_data_ref(&self, data_ref: &DataReference<'a>) -> Result<DataReference<'a>> {
         match data_ref {

@@ -13,9 +13,9 @@ use tracing::instrument;
 
 use crate::{
     ast::{
-        AsSpan, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType, Expr,
-        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
-        PtrAssign, Punctuation, Statement, Type, Typedef, UnaryOp, Value,
+        AsSpan, Assignment, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType,
+        Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
+        PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
@@ -169,19 +169,9 @@ impl<'a> TypeChecker<'a> {
         None
     }
 
-    pub fn lookup_variable_path(&mut self, mut var_path: &[IdentRef<'a>]) -> Result<Type<'a>> {
-        let Some(var) = var_path.split_off_first() else {
-            return Err(eyre!("Can not look up empty variable path"));
-        };
-
+    pub fn lookup_variable(&mut self, var: IdentRef<'a>) -> Result<Type<'a>> {
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
             if let Some((var_type, kind)) = frame.variables.get(var).cloned() {
-                let mut leaf_type = var_type.clone();
-                while let [next, rem @ ..] = var_path {
-                    leaf_type = leaf_type.member(self, next)?;
-                    var_path = rem
-                }
-
                 // TODO: Should this capture the outer most var or inner most?
                 for frame in self.scope_stack.iter_mut().rev().take(idx) {
                     match kind {
@@ -195,12 +185,45 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
 
-                return Ok(leaf_type);
+                return Ok(var_type);
             }
         }
 
-        Err(eyre!("Variable {var}.{var_path:?} is not in scope"))
+        Err(eyre!("Variable {var} is not in scope"))
     }
+
+    // pub fn lookup_variable_path(&mut self, mut var_path: &[IdentRef<'a>]) -> Result<Type<'a>> {
+    //     let Some(var) = var_path.split_off_first() else {
+    //         return Err(eyre!("Can not look up empty variable path"));
+    //     };
+    //
+    //     for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
+    //         if let Some((var_type, kind)) = frame.variables.get(var).cloned() {
+    //             let mut leaf_type = var_type.clone();
+    //             while let [next, rem @ ..] = var_path {
+    //                 leaf_type = leaf_type.member(self, next)?;
+    //                 var_path = rem
+    //             }
+    //
+    //             // TODO: Should this capture the outer most var or inner most?
+    //             for frame in self.scope_stack.iter_mut().rev().take(idx) {
+    //                 match kind {
+    //                     VariableKind::Local | VariableKind::Capture => {
+    //                         let prev = frame
+    //                             .variables
+    //                             .insert(var, (var_type.clone(), VariableKind::Capture));
+    //                         assert!(prev.is_none());
+    //                     }
+    //                     VariableKind::Constant => {}
+    //                 }
+    //             }
+    //
+    //             return Ok(leaf_type);
+    //         }
+    //     }
+    //
+    //     Err(eyre!("Variable {var}.{var_path:?} is not in scope"))
+    // }
 }
 
 pub trait TypeCheck<'a> {
@@ -208,14 +231,12 @@ pub trait TypeCheck<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Value<'a> {
-    #[instrument(name = "typecheck_value", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker) -> Result<Type<'a>> {
         Ok(self.compute_type())
     }
 }
 
 impl<'a> TypeCheck<'a> for Expr<'a> {
-    #[instrument(name = "typecheck_expr", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Expr::SizeOfType(..) => Ok(Type::Int),
@@ -229,9 +250,9 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 .and_then(|it| it.resolve(ctx))
                 .wrap_err("Could not type check expr value")
                 .with_section(|| generate_span_error_section(*span)),
-            Expr::Path(ident, span) => {
+            Expr::Variable(ident, span) => {
                 let var_type = ctx
-                    .lookup_variable_path(ident)
+                    .lookup_variable(ident)
                     .and_then(|it| it.resolve(ctx))
                     .wrap_err_with(|| format!("Could not find identifier: `{ident:?}`"))
                     .with_section(|| generate_span_error_section(*span))?;
@@ -370,7 +391,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 Ok(output_type)
             }
-            Expr::UnaryOp {
+            Expr::PrefixOp {
                 op,
                 operand,
                 span,
@@ -379,12 +400,12 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 let operand_type_computed = operand.check_and_resolve_types(ctx)?.resolve(ctx)?;
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
-                let (allowed_type, return_type) = match op {
-                    UnaryOp::Negate => (Type::Int, Type::Int),
-                    UnaryOp::LNot => (Type::Bool, Type::Bool),
-                    UnaryOp::Cast(to) => {
+                let (valid_types, return_type) = match op {
+                    PrefixOp::Negate => (operand_type_computed == Type::Int, Type::Int),
+                    PrefixOp::LNot => (operand_type_computed == Type::Bool, Type::Bool),
+                    PrefixOp::Cast(to) => {
                         if operand_type_computed.width(ctx)? == to.width(ctx)? {
-                            (operand_type_computed.clone(), to.clone())
+                            (true, to.clone())
                         } else {
                             return Err(eyre!("Can not cast between types of differing width")
                         .with_section(|| {
@@ -397,30 +418,112 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         }));
                         }
                     }
-                    UnaryOp::Dereference => {
+                    PrefixOp::Dereference => {
                         if let Type::Pointer(target) = operand_type_computed.clone() {
-                            (operand_type_computed.clone(), *target)
+                            (true, *target)
                         } else {
                             return Err(eyre!("Can not dereference a non pointer type")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                *span,
-                                &[
-                                    (*span, &format!("has the type `{operand_type_computed:?}`, which is not a pointer type")),
-                                ],
-                            )
-                        }));
+                                .with_section(|| {
+                                    generate_span_error_section_with_annotations(
+                                        *span,
+                                        &[
+                                            (*span, &format!("has the type `{operand_type_computed:?}`, which is not a pointer type")),
+                                        ],
+                                    )
+                                }));
                         }
                     }
                 };
 
-                if operand_type_computed != allowed_type {
-                    return Err(eyre!("Unary op uses a disallowed type")
+                if !valid_types {
+                    return Err(eyre!("Prefix op uses a disallowed type")
                         .with_section(|| {
                             generate_span_error_section_with_annotations(
                                 *span,
                                 &[
-                                    (*span, &format!("has the type `{operand_type_computed:?}`, but only the type `{allowed_type:?}` is permitted")),
+                                    (*span, &format!("has the type `{operand_type_computed:?}`, which is not permitted")),
+                                ],
+                            )
+                        }));
+                }
+
+                Ok(return_type)
+            }
+            Expr::PostfixOp {
+                op,
+                operand,
+                span,
+                operand_type,
+            } => {
+                let operand_type_computed = operand.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
+
+                let (valid_types, return_type) = match (&operand_type_computed, &mut *op) {
+                    (Type::Struct(map), PostfixOp::Member(ident)) => {
+                        if let Some(val_type) = map.get(ident) {
+                            (true, val_type.clone())
+                        } else {
+                            return Err(eyre!("Attempting to access non-existant field {ident} on struct {operand_type_computed}")
+                                .with_section(|| {
+                                    generate_span_error_section(
+                                        *span,
+                                    )
+                                }));
+                        }
+                    }
+                    (Type::Pointer(inner_type), PostfixOp::MemberDeref(ident)) => {
+                        match &**inner_type {
+                            Type::Struct(map) => {
+                                if let Some(val_type) = map.get(ident) {
+                                    (true, val_type.clone())
+                                } else {
+                                    return Err(eyre!("Attempting to access non-existant field {ident} on struct {operand_type_computed} with arrow operator")
+                                .with_section(|| {
+                                    generate_span_error_section(
+                                        *span,
+                                    )
+                                }));
+                                }
+                            }
+                            _ => {
+                                return Err(eyre!("Attempting to use arrow on a pointer to a non-struct type {inner_type}")
+                                .with_section(|| {
+                                    generate_span_error_section(
+                                        *span,
+                                    )
+                                }));
+                            }
+                        }
+                    }
+                    (
+                        Type::Array(inner_type, _) | Type::Pointer(inner_type),
+                        PostfixOp::ArrayIndex(expr),
+                    ) => {
+                        let idx_type = expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                        let Type::Int = idx_type else {
+                            return Err(eyre!("Attempting to index into an array or pointer with a expression of non Int type: {idx_type}")
+                                .with_section(|| {
+                                    generate_span_error_section_with_annotations(
+                                        *span,
+                                        &[
+                                            (expr.as_span(), "here")
+                                        ]
+                                    )
+                                }));
+                        };
+
+                        (true, (**inner_type).clone())
+                    }
+                    _ => (false, Type::Void),
+                };
+
+                if !valid_types {
+                    return Err(eyre!("Postfix op {op} a disallowed type {operand_type_computed}")
+                        .with_section(|| {
+                            generate_span_error_section_with_annotations(
+                                *span,
+                                &[
+                                    (*span, &format!("has the type `{operand_type_computed:?}`, which is not permitted")),
                                 ],
                             )
                         }));
@@ -435,7 +538,6 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 }
 
 impl<'a> TypeCheck<'a> for FunctionCall<'a> {
-    #[instrument(name = "typecheck_func_call", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let sig = ctx
             .lookup_function(self.function)
@@ -478,7 +580,6 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 }
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
-    #[instrument(name = "typecheck_func_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let (actual_return_type, frame) = ctx.define_function(
             self.function,
@@ -525,7 +626,6 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
-    #[instrument(name = "typecheck_const_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if actual_type != self.var_type.resolve(ctx)? {
@@ -555,7 +655,6 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
-    #[instrument(name = "typecheck_local_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if actual_type.resolve(ctx)? != self.var_type.resolve(ctx)? {
@@ -584,40 +683,27 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
     }
 }
 
-impl<'a> TypeCheck<'a> for PtrAssign<'a> {
-    #[instrument(name = "typecheck_ptr_assign", fields(%self, %ctx))]
+impl<'a> TypeCheck<'a> for Assignment<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let expr_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
         let target_type = self.target.check_and_resolve_types(ctx)?.resolve(ctx)?;
 
-        let Type::Pointer(target_type) = target_type else {
-            return Err(
-                eyre!("Assignment only support pointer types").with_section(|| {
-                    generate_span_error_section_with_annotations(
-                        self.span,
-                        &[(
-                            self.expr.as_span(),
-                            &format!("the type `{target_type:?}`, is not a pointer type",),
-                        )],
-                    )
-                }),
-            );
-        };
-
         let mismatched_type = match (&target_type, &expr_type) {
-            (target_type, Type::Array(array_type, _len)) => target_type != array_type,
-            (target_type, expr_type) => &**target_type != expr_type,
+            (target_type, Type::Array(array_type, _len)) if target_type != &expr_type => {
+                target_type != &**array_type
+            }
+            (target_type, expr_type) => target_type != expr_type,
         };
 
         if mismatched_type {
             return Err(
-                eyre!("Pointer assignment mismatching types").with_section(|| {
+                eyre!("Assignment mismatching types").with_section(|| {
                     generate_span_error_section_with_annotations(
                         self.span,
                         &[(
                             self.expr.as_span(),
                             &format!(
-                                "the type `{expr_type:?}`, can not be assigned to a pointer of type a `{target_type:?}`",
+                                "the type `{expr_type:?}`, can not be assigned to a place of type a `{target_type:?}`",
                             ),
                         )],
                     )
@@ -626,7 +712,7 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
         }
 
         self.expr_type = DeferedType::ResolvedType(expr_type);
-        self.target_type = DeferedType::ResolvedType(*target_type);
+        self.target_type = DeferedType::ResolvedType(target_type);
 
         // The pointer assignment itself should not have a return type
         Ok(Type::Void)
@@ -634,7 +720,6 @@ impl<'a> TypeCheck<'a> for PtrAssign<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Typedef<'a> {
-    #[instrument(name = "typecheck_type_def", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         ctx.define_type(self.name, self.type_alias.clone())?;
 
@@ -644,7 +729,6 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for IfCase<'a> {
-    #[instrument(name = "typecheck_if_case", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let case_type = self.condition.check_and_resolve_types(ctx)?.resolve(ctx)?;
         if case_type != Type::Bool {
@@ -671,7 +755,6 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
 }
 
 impl<'a> TypeCheck<'a> for IfExpr<'a> {
-    #[instrument(name = "typecheck_if_expr", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let expected_type = self
             .cases
@@ -720,7 +803,7 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
                                     .unwrap_or_else(|| otherwise.as_span()),
                                 &format!(
                                     "has the type `{case_return_type:?}`, but a `{:?}` is required",
-                                    Type::Bool
+                                    expected_type
                                 ),
                             )],
                         )
@@ -740,7 +823,6 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Statement<'a> {
-    #[instrument(name = "typecheck_statement", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Statement::FunctionDef(function_def) => function_def.check_and_resolve_types(ctx),
@@ -751,14 +833,13 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
                 expr.check_and_resolve_types(ctx)?;
                 Ok(Type::Void)
             }
-            Statement::PtrAssign(ptr_assign) => ptr_assign.check_and_resolve_types(ctx),
+            Statement::Assignment(ptr_assign) => ptr_assign.check_and_resolve_types(ctx),
             Statement::Typedef(typedef) => typedef.check_and_resolve_types(ctx),
         }
     }
 }
 
 impl<'a> TypeCheck<'a> for Block<'a> {
-    #[instrument(name = "typecheck_block", fields(%self, %ctx))]
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         let mut actual_return_type = Type::Void;
 

@@ -1,0 +1,112 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    #include "../std"
+    
+    map_int *map = map_int_new(0);
+    map_int_print(map);
+    
+    new_line();
+    new_line();
+    new_line();
+    
+    map_int_insert(map, 1, (void *)2);
+    map_int_insert(map, 10, (void *)3);
+    map_int_insert(map, 15213, (void *)42);
+    map_int_insert(map, 67, (void *)1);
+    map_int_insert(map, 42, (void *)9);
+    map_int_remove(map, 10);
+    map_int_insert(map, -37, (void *)2);
+    map_int_insert(map, 1, (void *)7);
+    map_int_insert(map, 6, (void *)7);
+    map_int_print(map);
+    
+    print((int)map_int_contains(map, 1));
+    print((int)map_int_contains(map, 10));
+    print((int)map_int_contains(map, 15213));
+    print((int)map_int_contains(map, 67));
+    print((int)map_int_contains(map, 42));
+    print((int)map_int_contains(map, 37));
+    print((int)map_int_contains(map, -37));
+    print((int)map_int_contains(map, 1));
+    print((int)map_int_contains(map, 6));
+    print((int)map_int_contains(map, 45));
+    
+    new_line();
+    
+    print((int)map_int_contains(map, 10));
+    map_int_insert(map, 10, (void *)14);
+    print((int)map_int_contains(map, 10));
+    
+    new_line();
+    new_line();
+    
+    print((int)map_int_get(map, 1));
+    print((int)map_int_get(map, 10));
+    print((int)map_int_get(map, 15213));
+    print((int)map_int_get(map, 67));
+    print((int)map_int_get(map, 42));
+    print((int)map_int_get(map, 37));
+    print((int)map_int_get(map, -37));
+    print((int)map_int_get(map, 1));
+    print((int)map_int_get(map, 6));
+    print((int)map_int_get(map, 45));
+;
+
+: comment Check that the clac interperter is using the correct native width ;
+64 width_native - if -100 print quit
+
+: comment Start Definitions ;
+: func-abs-261 1 pick 0 < 1 swap - 2 pick 2 pick 4 2 drop_range if func-on_true-264 1 skip func-on_false-266 ;
+: func-contains_probe-954 2 pick 3 pick * 3 pick 2 pick + 1 pick 2 / 6 pick 2 pick + 8 pick read_native 2 pick 2 pick % 10 pick 8 + 1 pick read_native 24 4 pick * 2 pick 2 pick + 1 pick read_native 2 pick 8 + read_native 3 pick 16 + read_native 2 pick 1 - if 0 1 skip 1 4 pick 16 pick - if 0 1 skip 1 2 pick 2 pick if 1 1 skip 0 swap if 1 1 skip 0 * 6 pick 6 pick 6 pick 21 pick 21 pick 25 pick 25 pick 8 pick 28 20 drop_range if func-on_true-977 1 skip func-on_false-983 ;
+: func-extend_from_iter-837 1 pick func-map_int_iter_has_next-726 3 pick 3 pick 3 pick 6 3 drop_range if func-on_true-841 2 skip drop drop ;
+: func-free-82 1 pick 8 - 1 pick read_native 2 pick 2 pick func-munmap-17 4 4 drop_range ;
+: func-get_probe-894 2 pick 3 pick * 3 pick 2 pick + 1 pick 2 / 6 pick 2 pick + 8 pick read_native 2 pick 2 pick % 10 pick 8 + 1 pick read_native 24 4 pick * 2 pick 2 pick + 1 pick read_native 2 pick 8 + read_native 3 pick 16 + read_native 2 pick 1 - if 0 1 skip 1 4 pick 16 pick - if 0 1 skip 1 2 pick 2 pick if 1 1 skip 0 swap if 1 1 skip 0 * 6 pick 6 pick 6 pick 21 pick 21 pick 25 pick 25 pick 8 pick 28 20 drop_range if func-on_true-917 1 skip func-on_false-924 ;
+: func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
+: func-hash_int-283 1 pick 1337 * 1 pick 3 2 drop_range ;
+: func-inner-1078 1 pick func-map_int_iter_has_next-726 2 pick 2 pick 4 2 drop_range if func-on_true-1081 1 skip drop ;
+: func-insert_probe-774 4 pick 5 pick * 5 pick 2 pick + 1 pick 2 / 8 pick 2 pick + 10 pick read_native 2 pick 2 pick % 12 pick 8 + 1 pick read_native 24 4 pick * 2 pick 2 pick + 1 pick read_native 2 pick 8 + read_native 3 pick 16 + read_native 2 pick 1 - if 1 1 skip 0 4 pick 18 pick - if 0 1 skip 1 2 pick 2 pick if 0 1 skip 1 swap if 0 1 skip 1 * 1 swap - 19 pick 19 pick 19 pick 14 pick 24 pick 27 pick 12 pick 12 pick 12 pick 30 pick 11 pick 33 22 drop_range if func-on_true-798 1 skip func-on_false-829 ;
+: func-malloc-74 1 pick 8 + 0 2 pick 3 34 -1 0 func-mmap-9 2 pick 2 pick 2 pick write_native 2 pick 8 + 1 pick 6 5 drop_range ;
+: func-map_int_contains-951 1 pick func-hash_int-283 1 pick func-abs-261 4 pick read_native 2 pick 2 pick % 6 pick 2 pick 0 8 pick 10 6 drop_range func-contains_probe-954 ;
+: func-map_int_get-891 1 pick func-hash_int-283 1 pick func-abs-261 4 pick read_native 2 pick 2 pick % 6 pick 2 pick 0 8 pick 10 6 drop_range func-get_probe-894 ;
+: func-map_int_insert-770 3 pick 24 + 1 pick read_native 5 pick read_native 1 pick 2 / 3 pick 2 pick < 1 swap - 8 pick 2 pick if func-on_true-855 1 skip drop 7 pick func-hash_int-283 1 pick func-abs-261 10 pick read_native 2 pick 2 pick % 12 pick 24 + 1 pick read_native 1 pick 1 + 15 pick 24 + 1 pick 3 pick write_native 15 pick 1 16 pick 19 pick 9 pick 0 6 pick 6 pick 6 pick 25 19 drop_range func-insert_probe-774 ;
+: func-map_int_iter_has_next-726 1 pick 8 + 1 pick read_native 1 pick 8 + 1 pick read_native 5 pick read_native 24 2 pick * 3 pick 2 pick + 1 pick 8 + 1 pick read_native 1 pick 1 - if 0 1 skip 1 11 pick 2 pick 13 11 drop_range if func-on_true-738 1 skip func-on_false-740 ;
+: func-map_int_iter_new-714 16 func-malloc-74 1 pick 8 + 1 pick 4 pick write_native 2 pick 0 write_native 2 pick 4 3 drop_range ;
+: func-map_int_iter_next-755 1 pick read_native 1 pick 1 + 3 pick 2 pick write_native 3 pick 8 + 1 pick read_native 1 pick 8 + 1 pick read_native 24 7 pick * 2 pick 2 pick + 1 pick read_native 2 pick 8 + read_native 3 pick 16 + read_native 3 pick 3 pick 3 pick 15 12 drop_range ;
+: func-map_int_new-690 32 func-malloc-74 2 3 pick ** 1 pick 24 * 1 pick func-malloc-74 4 pick 8 + 1 pick 3 pick write_native 5 pick 5 pick write_native 5 pick 24 + 1 pick 0 write_native 6 pick 16 + 1 pick 0 write_native 7 pick 9 8 drop_range ;
+: func-map_int_print-1076 1 pick func-map_int_iter_new-714 1 pick func-inner-1078 drop drop ;
+: func-map_int_remove-1008 1 pick func-hash_int-283 1 pick func-abs-261 4 pick read_native 2 pick 2 pick % 6 pick 2 pick 0 8 pick 10 6 drop_range func-remove_probe-1011 ;
+: func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
+: func-munmap-17 11 3 pick 3 pick 0 0 0 0 syscall 1 pick 4 3 drop_range func-handle_error-0 ;
+: func-new_line-187 1 func-malloc-74 1 pick 10 write8 1 2 pick 1 func-write-33 2 pick func-free-82 drop drop ;
+: func-on_false-1048 7 pick 0 - if 0 1 skip 1 9 pick 9 pick 9 pick 9 pick 9 pick 9 pick 9 pick 9 pick 9 pick 18 9 drop_range if func-on_true-1057 1 skip func-on_false-1064 ;
+: func-on_false-1064 4 pick 1 + 3 pick 3 pick 3 pick 7 pick 13 9 drop_range func-remove_probe-1011 ;
+: func-on_false-266 1 pick 0 swap - 1 pick 3 2 drop_range ;
+: func-on_false-740 1 pick read_native 2 pick 8 + 1 pick read_native 1 pick read_native 4 pick 2 pick < 1 swap - 6 pick 2 pick 8 6 drop_range if func-on_true-747 1 skip func-on_false-749 ;
+: func-on_false-749 1 pick read_native 1 pick 1 + 3 pick 2 pick write_native 3 pick 4 3 drop_range func-map_int_iter_has_next-726 ;
+: func-on_false-824 4 pick 16 + 1 pick read_native 1 pick 7 6 drop_range ;
+: func-on_false-829 6 pick 1 + 6 pick 3 pick 3 pick 14 pick 14 pick 14 pick 17 11 drop_range func-insert_probe-774 ;
+: func-on_false-924 6 pick 0 - if 0 1 skip 1 8 pick 8 pick 8 pick 8 pick 8 pick 8 pick 8 pick 8 pick 16 8 drop_range if func-on_true-932 1 skip func-on_false-940 ;
+: func-on_false-940 4 pick 1 + 3 pick 3 pick 3 pick 7 pick 12 8 drop_range func-get_probe-894 ;
+: func-on_false-983 6 pick 0 - if 0 1 skip 1 8 pick 8 pick 8 pick 8 pick 8 pick 8 pick 8 pick 8 pick 16 8 drop_range if func-on_true-991 1 skip func-on_false-997 ;
+: func-on_false-997 4 pick 1 + 3 pick 3 pick 3 pick 7 pick 12 8 drop_range func-contains_probe-954 ;
+: func-on_true-1034 2 pick 8 + 1 pick read_native 24 8 pick * 2 pick 2 pick + 1 pick 8 + 1 pick 2 write_native 1 14 13 drop_range ;
+: func-on_true-1057 0 9 8 drop_range ;
+: func-on_true-1081 1 pick func-map_int_iter_next-755 3 pick print 1 pick print func-new_line-187 4 pick func-inner-1078 4 4 drop_range ;
+: func-on_true-264 1 pick swap drop ;
+: func-on_true-3 67676767 print quit drop ;
+: func-on_true-738 1 swap drop ;
+: func-on_true-747 0 swap drop ;
+: func-on_true-798 5 pick 8 + 1 pick read_native 24 10 pick * 2 pick 2 pick + 1 pick 15 pick write_native 1 pick 8 + 1 pick 15 pick write_native 2 pick 16 + 1 pick 15 pick write_native 9 pick 1 - if 0 1 skip 1 12 pick 12 pick 12 pick 12 pick 5 pick 22 17 drop_range if func-on_true-820 1 skip func-on_false-824 ;
+: func-on_true-820 1 pick 5 4 drop_range ;
+: func-on_true-841 1 pick func-map_int_iter_next-755 5 pick 4 pick 3 pick func-map_int_insert-770 6 pick 6 pick func-extend_from_iter-837 6 6 drop_range ;
+: func-on_true-855 1 pick read_native 1 pick 2 * 1 pick func-map_int_new-690 4 pick func-map_int_iter_new-714 2 pick 2 pick func-extend_from_iter-837 2 pick read_native 3 pick 8 + read_native 4 pick 16 + read_native 5 pick 24 + read_native 9 pick 5 pick write_native 9 pick 8 + 1 pick 5 pick write_native 10 pick 16 + 1 pick 5 pick write_native 11 pick 24 + 1 pick 5 pick write_native 12 12 drop_range ;
+: func-on_true-917 5 pick 8 7 drop_range ;
+: func-on_true-932 2 pick 16 + 1 pick read_native 1 pick 10 9 drop_range ;
+: func-on_true-977 1 8 7 drop_range ;
+: func-on_true-991 0 8 7 drop_range ;
+: func-remove_probe-1011 2 pick 3 pick * 3 pick 2 pick + 1 pick 2 / 6 pick 2 pick + 8 pick read_native 2 pick 2 pick % 10 pick 8 + 1 pick read_native 24 4 pick * 2 pick 2 pick + 1 pick read_native 2 pick 8 + read_native 3 pick 16 + read_native 2 pick 1 - if 0 1 skip 1 4 pick 16 pick - if 0 1 skip 1 2 pick 2 pick if 1 1 skip 0 swap if 1 1 skip 0 * 6 pick 6 pick 6 pick 14 pick 22 pick 22 pick 26 pick 26 pick 9 pick 29 20 drop_range if func-on_true-1034 1 skip func-on_false-1048 ;
+: func-write-33 1 4 pick 4 pick 4 pick 0 0 0 syscall 1 pick 5 4 drop_range func-handle_error-0 ;
+
+: comment Start Main ;
+0 func-map_int_new-690 1 pick func-map_int_print-1076 func-new_line-187 func-new_line-187 func-new_line-187 1 pick 1 2 func-map_int_insert-770 2 pick 10 3 func-map_int_insert-770 3 pick 15213 42 func-map_int_insert-770 4 pick 67 1 func-map_int_insert-770 5 pick 42 9 func-map_int_insert-770 6 pick 10 func-map_int_remove-1008 7 pick -37 2 func-map_int_insert-770 8 pick 1 7 func-map_int_insert-770 9 pick 6 7 func-map_int_insert-770 10 pick func-map_int_print-1076 10 pick 1 func-map_int_contains-951 1 pick print 11 pick 10 func-map_int_contains-951 1 pick print 12 pick 15213 func-map_int_contains-951 1 pick print 13 pick 67 func-map_int_contains-951 1 pick print 14 pick 42 func-map_int_contains-951 1 pick print 15 pick 37 func-map_int_contains-951 1 pick print 16 pick -37 func-map_int_contains-951 1 pick print 17 pick 1 func-map_int_contains-951 1 pick print 18 pick 6 func-map_int_contains-951 1 pick print 19 pick 45 func-map_int_contains-951 1 pick print func-new_line-187 20 pick 10 func-map_int_contains-951 1 pick print 21 pick 10 14 func-map_int_insert-770 22 pick 10 func-map_int_contains-951 1 pick print func-new_line-187 func-new_line-187 23 pick 1 func-map_int_get-891 1 pick print 24 pick 10 func-map_int_get-891 1 pick print 25 pick 15213 func-map_int_get-891 1 pick print 26 pick 67 func-map_int_get-891 1 pick print 27 pick 42 func-map_int_get-891 1 pick print 28 pick 37 func-map_int_get-891 1 pick print 29 pick -37 func-map_int_get-891 1 pick print 30 pick 1 func-map_int_get-891 1 pick print 31 pick 6 func-map_int_get-891 1 pick print 32 pick 45 func-map_int_get-891 1 pick print

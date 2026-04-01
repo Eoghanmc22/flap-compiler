@@ -1,0 +1,6 @@
+void memcpy(int *src, int *dest, int len) {
+  if (len > 0) {
+    *dest = *src;
+    memcpy(src + 1, dest + 1, len - 1);
+  }
+}

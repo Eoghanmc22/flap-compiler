@@ -1,0 +1,12 @@
+#include "../std"
+
+list_string *args = parse_args();
+list_string_print(args);
+new_line();
+
+print_str(arg_get_positional(args, 0));
+print_str(arg_get_positional(args, 1));
+print_str(arg_get_positional(args, 2));
+new_line();
+
+print_str(arg_get_opt(args, 'f'));

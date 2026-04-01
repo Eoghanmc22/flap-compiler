@@ -1,23 +1,6 @@
-const int PROT_EXEC = 4;
-const int PROT_READ = 1;
-const int PROT_WRITE = 2;
-const int PROT_NONE = 0;
+#include "../std"
 
-const int MAP_PRIVATE = 2;
-const int MAP_ANON = 32;
-
-const int NULL = 0;
-
-char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
-  (char *)syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset)
-}
-
-int write(int fd, char *buf, int count) {
-  syscall(1, fd, (int)buf, count, 0, 0, 0)
-}
-
-char *page = mmap((char *)NULL, 4096, PROT_READ + PROT_WRITE,
-                  MAP_PRIVATE + MAP_ANON, -1, 0);
+char *page = (char *)malloc(4096);
 
 *page = "hello world!\n";
 

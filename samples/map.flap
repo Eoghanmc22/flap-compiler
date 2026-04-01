@@ -1,0 +1,50 @@
+#include "../std"
+
+map_int *map = map_int_new(0);
+map_int_print(map);
+
+new_line();
+new_line();
+new_line();
+
+map_int_insert(map, 1, (void *)2);
+map_int_insert(map, 10, (void *)3);
+map_int_insert(map, 15213, (void *)42);
+map_int_insert(map, 67, (void *)1);
+map_int_insert(map, 42, (void *)9);
+map_int_remove(map, 10);
+map_int_insert(map, -37, (void *)2);
+map_int_insert(map, 1, (void *)7);
+map_int_insert(map, 6, (void *)7);
+map_int_print(map);
+
+print((int)map_int_contains(map, 1));
+print((int)map_int_contains(map, 10));
+print((int)map_int_contains(map, 15213));
+print((int)map_int_contains(map, 67));
+print((int)map_int_contains(map, 42));
+print((int)map_int_contains(map, 37));
+print((int)map_int_contains(map, -37));
+print((int)map_int_contains(map, 1));
+print((int)map_int_contains(map, 6));
+print((int)map_int_contains(map, 45));
+
+new_line();
+
+print((int)map_int_contains(map, 10));
+map_int_insert(map, 10, (void *)14);
+print((int)map_int_contains(map, 10));
+
+new_line();
+new_line();
+
+print((int)map_int_get(map, 1));
+print((int)map_int_get(map, 10));
+print((int)map_int_get(map, 15213));
+print((int)map_int_get(map, 67));
+print((int)map_int_get(map, 42));
+print((int)map_int_get(map, 37));
+print((int)map_int_get(map, -37));
+print((int)map_int_get(map, 1));
+print((int)map_int_get(map, 6));
+print((int)map_int_get(map, 45));

@@ -1,0 +1,27 @@
+#include "io.flap"
+
+int strlen(char *str) {
+  if (*str == '\0') {
+    0
+  } else {
+    1 + strlen(str + 1)
+  }
+}
+
+void print_str(char *str) {
+  if (str != (char *)NULL) {
+    int len = strlen(str);
+
+    write_all(STDOUT, str, len);
+    new_line();
+  } else {
+    char[12] error = "str = NULL\n\0";
+
+    char *page = (char *)malloc(sizeof(error));
+    *page = error;
+
+    write_all(STDOUT, page, sizeof(error));
+
+    free((void *)page);
+  }
+}

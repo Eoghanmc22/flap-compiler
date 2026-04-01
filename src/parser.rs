@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::Path,
+};
 
 use color_eyre::{
     Section,
@@ -14,9 +17,9 @@ use tracing::{instrument, trace};
 
 use crate::{
     ast::{
-        BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Expr, FunctionAttribute,
-        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
-        PtrAssign, Punctuation, Statement, Type, Typedef, UnaryOp, Value,
+        Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Directive, Expr,
+        FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr,
+        LocalDef, PostfixOp, PrefixOp, Program, Punctuation, Statement, Type, Typedef, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -31,16 +34,16 @@ lazy_static::lazy_static! {
             // Lowest precedence first
             .op(Op::infix(logical_or, Left))           // ||
             .op(Op::infix(logical_and, Left))          // &&
+            .op(Op::infix(bit_and, Left))
             .op(Op::infix(eq, Left) | Op::infix(ne, Left))                    // == !=
             .op(Op::infix(le, Left) | Op::infix(ge, Left) | Op::infix(lt, Left) | Op::infix(gt, Left))  // <= >= < >
+            .op(Op::infix(shl, Left) | Op::infix(shr, Left))
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))             // + -
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))  // * / %
-            .op(Op::infix(power, Right))               // ^ ** (right-associative)
-            .op(Op::infix(shl, Left) | Op::infix(shr, Left))
-            .op(Op::infix(bit_and, Left))
             .op(Op::prefix(cast))
-            // Highest precedence
             .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
+            // Highest precedence
+            .op(Op::postfix(member) | Op::postfix(member_deref) | Op::postfix(array_idx))
     };
 }
 
@@ -48,17 +51,55 @@ lazy_static::lazy_static! {
 #[grammar = "../grammars/flap.pest"]
 struct FlapParser;
 
-#[instrument]
-pub fn parse_program<'a>(input: &'a str) -> Result<Block<'a>> {
+pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
     let mut pairs = FlapParser::parse(Rule::program, input).wrap_err("Autogen parser")?;
     trace!("Input program tokens: {pairs:#?}");
 
-    let program_contents_pair = pairs.next().unwrap();
+    let mut directives = Vec::new();
 
-    parse_block_like(program_contents_pair)
+    let pairs = pairs.next().unwrap().into_inner();
+    for pair in pairs {
+        match pair.as_rule() {
+            Rule::directive => {
+                directives.push(parse_directive(pair)?);
+            }
+            Rule::program_inner => {
+                let code = parse_block_like(pair)?;
+
+                return Ok(Program { directives, code });
+            }
+            _ => {
+                return Err(
+                    eyre!("Unsupported token at top level: {:?}", pair.as_rule())
+                        .with_section(|| generate_span_error_section(pair.as_span())),
+                );
+            }
+        }
+    }
+
+    unreachable!()
 }
 
-#[instrument]
+fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
+    let kind = pair.into_inner().next().unwrap();
+
+    match kind.as_rule() {
+        Rule::include => Ok(Directive::Include(Path::new(
+            kind.into_inner()
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .as_str(),
+        ))),
+        _ => {
+            return Err(eyre!("Unsupported directive: {:?}", kind.as_rule())
+                .with_section(|| generate_span_error_section(kind.as_span())));
+        }
+    }
+}
+
 fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     trace!("Input block_like tokens: {pair:#?}");
     let span = pair.as_span();
@@ -199,7 +240,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     expr_span,
                 })
             }
-            Rule::pointer_assign => {
+            Rule::assignment => {
                 let mut inner = target.into_inner();
 
                 let target_pair = inner.next().unwrap();
@@ -209,7 +250,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                 let expr_span = expr_pair.as_span();
                 let expr = parse_expr(expr_pair.into_inner())?;
 
-                Statement::PtrAssign(PtrAssign {
+                Statement::Assignment(Assignment {
                     target,
                     expr,
                     span,
@@ -247,7 +288,6 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     })
 }
 
-#[instrument]
 fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     let span = pair.as_span();
     let inner = pair.into_inner();
@@ -278,7 +318,6 @@ fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     })
 }
 
-#[instrument]
 fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
@@ -292,7 +331,6 @@ fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
     })
 }
 
-#[instrument]
 fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     let span = pair.as_span();
     let mut tokens = pair.into_inner();
@@ -341,7 +379,6 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     })
 }
 
-#[instrument]
 fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     if !matches!(pair.as_rule(), Rule::ident) {
         return Err(eyre!("Got {:?}, expected ident", pair)
@@ -351,7 +388,6 @@ fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     Ok(pair.as_str())
 }
 
-#[instrument]
 fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
     PRATT_PARSER
         .map_primary(|primary| {
@@ -360,13 +396,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             // Handle primary expressions (atoms)
             match primary.as_rule() {
                 Rule::value => Ok(Expr::Value(parse_value(primary)?, span)),
-                Rule::field_path => Ok(Expr::Path(
-                    primary
-                        .into_inner()
-                        .map(parse_ident)
-                        .collect::<Result<_>>()?,
-                    span,
-                )),
+                Rule::ident => Ok(Expr::Variable(parse_ident(primary)?, span)),
                 Rule::expression => {
                     // Parenthesized expression
                     Ok(parse_expr(primary.into_inner())?)
@@ -430,7 +460,6 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 Rule::multiply => BinaryOp::Mul,
                 Rule::divide => BinaryOp::Div,
                 Rule::modulo => BinaryOp::Mod,
-                Rule::power => BinaryOp::Pow,
                 Rule::eq => BinaryOp::Eq,
                 Rule::ne => BinaryOp::Ne,
                 Rule::le => BinaryOp::Le,
@@ -458,19 +487,43 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         })
         .map_prefix(|op, rhs| {
             // Handle unary operations
-            let un_op = match op.as_rule() {
-                Rule::cast => UnaryOp::Cast(parse_type(op.clone().into_inner().next().unwrap())?),
-                Rule::dereference => UnaryOp::Dereference,
-                Rule::negate => UnaryOp::Negate,
-                Rule::logical_not => UnaryOp::LNot,
+            let pre_op = match op.as_rule() {
+                Rule::cast => PrefixOp::Cast(parse_type(op.clone().into_inner().next().unwrap())?),
+                Rule::dereference => PrefixOp::Dereference,
+                Rule::negate => PrefixOp::Negate,
+                Rule::logical_not => PrefixOp::LNot,
                 _ => {
                     return Err(eyre!("Unexpected prefix op: {:?}", op)
                         .with_section(|| generate_span_error_section(op.as_span())));
                 }
             };
-            Ok(Expr::UnaryOp {
-                op: un_op,
+            Ok(Expr::PrefixOp {
+                op: pre_op,
                 operand: Box::new(rhs?),
+                span: op.as_span(),
+                operand_type: DeferedType::UnresolvedType,
+            })
+        })
+        .map_postfix(|lhs, op| {
+            let post_op = match op.as_rule() {
+                Rule::member => {
+                    PostfixOp::Member(parse_ident(op.clone().into_inner().next().unwrap())?)
+                }
+                Rule::member_deref => {
+                    PostfixOp::MemberDeref(parse_ident(op.clone().into_inner().next().unwrap())?)
+                }
+                Rule::array_idx => {
+                    PostfixOp::ArrayIndex(parse_expr(op.clone().into_inner())?.into())
+                }
+                _ => {
+                    return Err(eyre!("Unexpected postfix op: {:?}", op)
+                        .with_section(|| generate_span_error_section(op.as_span())));
+                }
+            };
+
+            Ok(Expr::PostfixOp {
+                op: post_op,
+                operand: Box::new(lhs?),
                 span: op.as_span(),
                 operand_type: DeferedType::UnresolvedType,
             })
@@ -478,7 +531,6 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         .parse(pairs)
 }
 
-#[instrument]
 fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
@@ -494,12 +546,10 @@ fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
     })
 }
 
-#[instrument]
 fn parse_number(pair: Pair<Rule>) -> Result<ClacValue> {
     parse_int::parse(pair.as_str()).with_section(|| generate_span_error_section(pair.as_span()))
 }
 
-#[instrument]
 fn parse_value(pair: Pair<Rule>) -> Result<Value> {
     let target = pair.into_inner().next().unwrap();
 

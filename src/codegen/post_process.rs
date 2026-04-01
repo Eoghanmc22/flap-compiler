@@ -1,4 +1,7 @@
-use std::mem;
+use std::{
+    collections::{BTreeMap, HashMap},
+    mem,
+};
 
 use crate::codegen::clac::{ClacProgram, ClacToken, ClacValue, MangledIdent};
 
@@ -7,20 +10,22 @@ pub trait PostProcesser {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
-pub struct ExtractDefinitionsPostProcessor;
+pub struct ExtractDefinitionsPostProcessor {
+    pub tree_shaking: bool,
+}
 
 impl PostProcesser for ExtractDefinitionsPostProcessor {
     fn process(&mut self, program: &mut ClacProgram) {
         let mut original = mem::take(program).0;
 
-        let mut definitions = vec![];
+        let mut definitions = HashMap::new();
 
         while let Some((end, _token)) = original
             .iter()
             .enumerate()
             .find(|(_, token)| matches!(token, ClacToken::EndDef))
         {
-            let Some((start, _token)) = original
+            let Some((start, ClacToken::StartDef { mangled_ident })) = original
                 .iter()
                 .enumerate()
                 .take(end)
@@ -30,7 +35,11 @@ impl PostProcesser for ExtractDefinitionsPostProcessor {
                 panic!("ExtractDefinitions post processer encountered an unclosed definition");
             };
 
-            definitions.push(original.drain(start..=end).collect::<Vec<_>>());
+            let old = definitions.insert(
+                mangled_ident.clone(),
+                original.drain(start..=end).collect::<Vec<_>>(),
+            );
+            assert!(old.is_none());
         }
 
         assert!(
@@ -41,13 +50,60 @@ impl PostProcesser for ExtractDefinitionsPostProcessor {
             "ExtractDefinitions post processer encountered an unclosed definition"
         );
 
-        let has_definitions = !definitions.is_empty();
+        let mut referenced_definitions = BTreeMap::new();
+
+        fn build_referenced_definitions<'b, 'a: 'b>(
+            referenced_definitions: &'b mut BTreeMap<&'a MangledIdent, &'a [ClacToken]>,
+            definitions: &mut HashMap<&'a MangledIdent, &'a [ClacToken]>,
+            code: &'a [ClacToken],
+        ) {
+            for token in code {
+                match token.canonicalize() {
+                    ClacToken::Call { mangled_ident, .. } => {
+                        if let Some(defn) = definitions.remove(mangled_ident) {
+                            let old = referenced_definitions.insert(mangled_ident, &defn);
+                            assert!(old.is_none());
+
+                            build_referenced_definitions(
+                                referenced_definitions,
+                                definitions,
+                                &defn,
+                            );
+                        } else {
+                            assert!(
+                                referenced_definitions.contains_key(mangled_ident),
+                                "{mangled_ident:?}"
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if self.tree_shaking {
+            build_referenced_definitions(
+                &mut referenced_definitions,
+                &mut definitions
+                    .iter()
+                    .map(|(key, val)| (key, val.as_slice()))
+                    .collect(),
+                &original,
+            );
+        } else {
+            referenced_definitions = definitions
+                .iter()
+                .map(|(key, val)| (key, val.as_slice()))
+                .collect();
+        }
+
+        let has_definitions = !referenced_definitions.is_empty();
         if has_definitions {
             program
                 .0
                 .push(ClacToken::Comment("Start Definitions".to_string()));
-            for definition in definitions {
-                program.0.extend_from_slice(&definition);
+            for definition in referenced_definitions.values() {
+                program.0.extend_from_slice(definition);
                 program.0.push(ClacToken::NewLine);
             }
         }

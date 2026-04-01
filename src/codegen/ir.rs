@@ -21,7 +21,6 @@ pub trait TokenConsumer<'a, 'b> {
 }
 
 impl<'a, 'b> TokenConsumer<'a, 'b> for &mut CodegenCtx<'a, 'b> {
-    #[instrument]
     fn consume(&mut self, token: ClacToken) -> Result<()> {
         self.push_token(token)
     }
@@ -32,7 +31,6 @@ impl<'a, 'b> TokenConsumer<'a, 'b> for &mut CodegenCtx<'a, 'b> {
 }
 
 impl<'a, 'b> TokenConsumer<'a, 'b> for (&mut ClacProgram, &mut CodegenCtx<'a, 'b>) {
-    #[instrument]
     fn consume(&mut self, token: ClacToken) -> Result<()> {
         self.0.0.push(token);
 
@@ -149,7 +147,6 @@ pub enum ClacOp<'a> {
 }
 
 impl<'b, 'a: 'b> ClacOp<'a> {
-    #[instrument(skip(ctx))]
     pub fn load_inputs(&self, ctx: &mut CodegenCtx<'a, '_>) -> Result<()> {
         match self {
             ClacOp::Print { value } => ctx.bring_up_references(&[value], 1),
@@ -188,7 +185,6 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         }
     }
 
-    #[instrument(skip(out))]
     pub fn execute<C: TokenConsumer<'a, 'b>>(&self, mut out: C) -> Result<Type<'a>> {
         let return_type = match self {
             ClacOp::Print { .. } => {
@@ -281,6 +277,8 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 out.consume(ClacToken::Sub)?;
                 Type::Bool
             }
+            // TODO: we can optimize this since the type checker makes sure
+            // the inputs will be 1 or 0
             ClacOp::LAnd { .. } => {
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(1))?;
@@ -300,6 +298,8 @@ impl<'b, 'a: 'b> ClacOp<'a> {
 
                 Type::Bool
             }
+            // TODO: we can optimize this since the type checker makes sure
+            // the inputs will be 1 or 0
             ClacOp::LOr { .. } => {
                 out.consume(ClacToken::If)?;
                 out.consume(ClacToken::Number(0))?;
@@ -756,7 +756,6 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         Some(ret)
     }
 
-    #[instrument(skip(ctx))]
     pub fn append_into(&self, ctx: &mut CodegenCtx<'a, 'b>) -> Result<DataReference<'a>> {
         if let Some(res) = self.try_execute_const(ctx) {
             return Ok(res);

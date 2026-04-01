@@ -1,0 +1,135 @@
+: comment Compiled using Eoghan's flap to clac compiler https://github.com/Eoghanmc22/flap-compiler ;
+
+: comment flap source code:
+    const int AF_INET = 2;
+    const int SOCK_STREAM = 1;
+    const int SOL_SOCKET = 1;
+    const int SO_REUSEADDR = 2;
+    const int INADDR_ANY = 0;
+    
+    const int PROT_EXEC = 4;
+    const int PROT_READ = 1;
+    const int PROT_WRITE = 2;
+    const int PROT_NONE = 0;
+    
+    const int MAP_PRIVATE = 2;
+    const int MAP_ANON = 32;
+    
+    const int STDIN = 0;
+    const int STDOUT = 1;
+    const int STDERR = 2;
+    
+    const int NULL = 0;
+    
+    int handle_error(int res) {
+      if (res == -1) {
+        print(67676767);
+        quit();
+      }
+    
+      res
+    }
+    
+    char *mmap(char *addr, int length, int prot, int flags, int fd, int pgoffset) {
+      (char *)handle_error(
+          syscall(0x09, (int)addr, length, prot, flags, fd, pgoffset))
+    }
+    
+    int read(int fd, char *buf, int count) {
+      handle_error(syscall(0x00, fd, (int)buf, count, 0, 0, 0))
+    }
+    
+    int write(int fd, char *buf, int count) {
+      handle_error(syscall(0x01, fd, (int)buf, count, 0, 0, 0))
+    }
+    
+    int open(char *name, int flags, int mode) {
+      handle_error(syscall(0x02, (int)name, flags, mode, 0, 0, 0))
+    }
+    
+    int close(int fd) { handle_error(syscall(0x03, fd, 0, 0, 0, 0, 0)) }
+    
+    int socket(int domain, int type, int protocol) {
+      handle_error(syscall(0x29, (int)domain, type, protocol, 0, 0, 0))
+    }
+    
+    int setsockopt(int sockfd, int level, int optname, char *optvalue, int optlen) {
+      handle_error(syscall(0x36, sockfd, level, optname, (int)optvalue, optlen, 0))
+    }
+    
+    typedef void sockaddr;
+    int bind(int sockfd, sockaddr *addr_struct, int addr_struct_len) {
+      handle_error(
+          syscall(0x31, sockfd, (int)addr_struct, addr_struct_len, 0, 0, 0))
+    }
+    
+    int listen(int sockfd, int backlog) {
+      handle_error(syscall(0x32, sockfd, backlog, 0, 0, 0, 0))
+    }
+    
+    int accept(int sockfd, sockaddr *addr_struct, int *addr_struct_len) {
+      handle_error(
+          syscall(0x2b, sockfd, (int)addr_struct, (int)addr_struct_len, 0, 0, 0))
+    }
+    
+    int fork() { handle_error(syscall(0x39, 0, 0, 0, 0, 0, 0)) }
+    
+    int read_all(int fd, char *buf, int count) {
+      int new = read(fd, buf, count);
+    
+      if (new != 0) {
+        new + read_all(fd, buf + new, count - new)
+      } else {
+        0
+      }
+    }
+    
+    int write_all(int fd, char *buf, int count) {
+      int new = write(fd, buf, count);
+    
+      if (new != 0) {
+        new + write_all(fd, buf + new, count - new)
+      } else {
+        0
+      }
+    }
+    
+    void copy_all(char *buf, int buf_len, int src_fd, int dst_fd) {
+      int in = read_all(src_fd, buf, buf_len);
+    
+      if (in > 0) {
+        write_all(dst_fd, buf, in);
+        copy_all(buf, buf_len, src_fd, dst_fd);
+      }
+    }
+    
+    int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
+      int in = read(src_fd, buf, buf_len);
+    
+      if (in > 0) {
+        write_all(dst_fd, buf, in);
+        in + copy(buf, buf_len, src_fd, dst_fd)
+      } else {
+        0
+      }
+    }
+    
+    char *malloc(int size) {
+      const int prot = PROT_READ + PROT_WRITE;
+      const int flags = MAP_PRIVATE + MAP_ANON;
+    
+      mmap((char *)NULL, size, prot, flags, -1, 0)
+    }
+    
+    int strlen(char *str) {
+      if (*str == '\0') {
+        0
+      } else {
+        1 + strlen(str + 1)
+      }
+    }
+;
+
+: comment Check that the clac interperter is using the correct native width ;
+64 width_native - if -100 print quit
+
