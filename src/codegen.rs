@@ -395,8 +395,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 } else if needs_dropping > 0 {
                     self.push_token(ClacToken::Number(needs_dropping + retain_width))?;
                     self.push_token(ClacToken::Number(needs_dropping))?;
-                    self.push_token(ClacToken::Call {
-                        mangled_ident: MangledIdent(Arc::new("drop_range".to_string())),
+                    self.push_token(ClacToken::DropRange {
                         stack_delta: -needs_dropping - 2,
                     })?;
                 }

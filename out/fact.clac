@@ -23,6 +23,7 @@
 : comment Start Definitions ;
 : fact 1 2 pick rot drop func-fact_inner-2 ;
 : func-fact_inner-2 1 2 pick < 1 swap - 3 pick 3 pick 3 pick 6 3 drop_range if func-on_true-6 1 skip func-on_false-9 ;
+: func-on_false-9 2 pick 2 pick * 2 pick 1 - 2 pick 2 pick 6 4 drop_range func-fact_inner-2 ;
 : func-on_true-6 2 pick 3 2 drop_range ;
 
 : comment Start Main ;

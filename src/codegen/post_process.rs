@@ -10,7 +10,9 @@ pub trait PostProcesser {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
-pub struct ExtractDefinitionsPostProcessor;
+pub struct ExtractDefinitionsPostProcessor {
+    pub tree_shaking: bool,
+}
 
 impl PostProcesser for ExtractDefinitionsPostProcessor {
     fn process(&mut self, program: &mut ClacProgram) {
@@ -33,10 +35,11 @@ impl PostProcesser for ExtractDefinitionsPostProcessor {
                 panic!("ExtractDefinitions post processer encountered an unclosed definition");
             };
 
-            definitions.insert(
+            let old = definitions.insert(
                 mangled_ident.clone(),
                 original.drain(start..=end).collect::<Vec<_>>(),
             );
+            assert!(old.is_none());
         }
 
         assert!(
@@ -55,30 +58,44 @@ impl PostProcesser for ExtractDefinitionsPostProcessor {
             code: &'a [ClacToken],
         ) {
             for token in code {
-                match token {
+                match token.canonicalize() {
                     ClacToken::Call { mangled_ident, .. } => {
                         if let Some(defn) = definitions.remove(mangled_ident) {
+                            let old = referenced_definitions.insert(mangled_ident, &defn);
+                            assert!(old.is_none());
+
                             build_referenced_definitions(
                                 referenced_definitions,
                                 definitions,
                                 &defn,
                             );
-
-                            referenced_definitions.insert(mangled_ident, &defn);
+                        } else {
+                            assert!(
+                                referenced_definitions.contains_key(mangled_ident),
+                                "{mangled_ident:?}"
+                            );
                         }
                     }
                     _ => {}
                 }
             }
         }
-        build_referenced_definitions(
-            &mut referenced_definitions,
-            &mut definitions
+
+        if self.tree_shaking {
+            build_referenced_definitions(
+                &mut referenced_definitions,
+                &mut definitions
+                    .iter()
+                    .map(|(key, val)| (key, val.as_slice()))
+                    .collect(),
+                &original,
+            );
+        } else {
+            referenced_definitions = definitions
                 .iter()
                 .map(|(key, val)| (key, val.as_slice()))
-                .collect(),
-            &original,
-        );
+                .collect();
+        }
 
         let has_definitions = !referenced_definitions.is_empty();
         if has_definitions {

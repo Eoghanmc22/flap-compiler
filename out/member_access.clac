@@ -82,6 +82,7 @@
 : func-handle_error-0 1 pick -1 - if 0 1 skip 1 2 pick 2 pick if func-on_true-3 1 skip drop 2 pick 3 2 drop_range ;
 : func-malloc-141 0 2 pick 3 34 -1 0 7 1 drop_range func-mmap-9 ;
 : func-mmap-9 9 7 pick 7 pick 7 pick 7 pick 7 pick 7 pick syscall 1 pick 8 7 drop_range func-handle_error-0 ;
+: func-on_false-149 1 pick 1 + 1 pick func-strlen-143 1 2 pick + 1 pick 5 4 drop_range ;
 : func-on_true-147 0 swap drop ;
 : func-on_true-3 67676767 print quit drop ;
 : func-strlen-143 1 pick read8 1 pick 0 - if 0 1 skip 1 3 pick 2 pick 5 3 drop_range if func-on_true-147 1 skip func-on_false-149 ;

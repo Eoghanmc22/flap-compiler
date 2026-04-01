@@ -153,7 +153,7 @@ pub fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
 
     let source_code = &ctx.sources.get(&ctx.root).unwrap().contents;
     let post_processors: [&mut dyn PostProcesser; _] = [
-        &mut ExtractDefinitionsPostProcessor,
+        &mut ExtractDefinitionsPostProcessor { tree_shaking: true },
         &mut CheckNativeWidth,
         &mut SourceCodeCommentPostProcessor(source_code),
         &mut AttributionPostProcessor,

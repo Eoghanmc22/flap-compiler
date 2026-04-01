@@ -69,6 +69,9 @@ pub enum ClacToken {
     Read8,
     ReadNative,
     WidthNative,
+    DropRange {
+        stack_delta: ClacValue,
+    },
 }
 
 impl ClacToken {
@@ -102,6 +105,14 @@ impl ClacToken {
             ClacToken::Read8 => 0,
             ClacToken::ReadNative => 0,
             ClacToken::WidthNative => 1,
+            ClacToken::DropRange { stack_delta } => *stack_delta,
+        }
+    }
+
+    pub fn canonicalize(&self) -> &ClacToken {
+        match self {
+            ClacToken::Silent(token) => token.canonicalize(),
+            token => token,
         }
     }
 }
@@ -154,6 +165,7 @@ impl Display for ClacToken {
             ClacToken::Read8 => write!(f, "read8"),
             ClacToken::ReadNative => write!(f, "read_native"),
             ClacToken::WidthNative => write!(f, "width_native"),
+            ClacToken::DropRange { .. } => write!(f, "drop_range"),
         }
     }
 }

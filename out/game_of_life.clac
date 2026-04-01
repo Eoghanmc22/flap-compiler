@@ -174,6 +174,14 @@
 : func-make_decimal_row-157 3 pick 3 pick 0 4 pick 0 8 3 drop_range func-make_decimal_row-161 ;
 : func-make_decimal_row-161 3 pick 7 < 6 pick 6 pick 4 pick 7 pick 7 pick 6 pick 12 6 drop_range if func-on_true-168 1 skip func-on_false-181 ;
 : func-offset-25 1 pick 0 < 1 swap - 2 pick 4 pick 3 pick 6 3 drop_range if func-on_true-29 1 skip func-on_false-34 ;
+: func-on_false-101 0 3 2 drop_range ;
+: func-on_false-124 1 pick 5 4 drop_range ;
+: func-on_false-152 1 pick 5 4 drop_range ;
+: func-on_false-181 3 pick 6 5 drop_range ;
+: func-on_false-19 2 pick 2 pick 2 swap ** / 1 pick 0 2 pick 2 % 1 pick * + 1 pick 7 6 drop_range ;
+: func-on_false-34 1 pick 7 + 1 pick 4 pick + 1 pick 7 % 1 pick 6 5 drop_range ;
+: func-on_false-87 1 pick 2 - if 0 1 skip 1 3 pick 3 pick 3 pick 6 3 drop_range if func-on_true-91 1 skip func-on_false-94 ;
+: func-on_false-94 1 pick 3 - if 0 1 skip 1 3 pick 3 pick 3 pick 6 3 drop_range if func-on_true-98 1 skip func-on_false-101 ;
 : func-on_true-113 4 pick func-idx_to_x-40 5 pick func-idx_to_y-43 5 pick 5 pick 4 pick 4 pick func-update_cell-46 1 pick 8 pick 2 swap ** * 5 pick 2 pick + 9 pick 1 + 9 pick 9 pick 4 pick 4 pick 14 10 drop_range func-compute_next_data_low-107 ;
 : func-on_true-12 1 pick 30 - 4 pick 2 pick 2 swap ** / 1 pick 0 2 pick 2 % 1 pick * + 1 pick 8 7 drop_range ;
 : func-on_true-139 4 pick 30 + 1 pick func-idx_to_x-40 6 pick 30 + 1 pick func-idx_to_y-43 7 pick 7 pick 5 pick 4 pick func-update_cell-46 1 pick 10 pick 2 swap ** * 7 pick 2 pick + 11 pick 1 + 11 pick 11 pick 4 pick 4 pick 16 12 drop_range func-compute_next_data_high-132 ;
@@ -181,6 +189,8 @@
 : func-on_true-195 3 pick 3 pick 3 pick func-make_decimal_row-157 1 pick print 2 pick 1 + 5 pick 5 pick 3 pick func-print_game-190 5 5 drop_range ;
 : func-on_true-29 1 pick 3 pick + 1 pick 7 % 1 pick 5 4 drop_range ;
 : func-on_true-84 0 3 2 drop_range ;
+: func-on_true-91 2 pick 3 2 drop_range ;
+: func-on_true-98 1 3 2 drop_range ;
 : func-print_game-187 2 pick 2 pick 0 5 2 drop_range func-print_game-190 ;
 : func-print_game-190 1 pick 7 < 4 pick 4 pick 4 pick 4 pick 8 4 drop_range if func-on_true-195 3 skip drop drop drop ;
 : func-update_cell-46 2 pick -1 func-offset-25 2 pick -1 func-offset-25 6 pick 6 pick 4 pick 4 pick func-get_cell_state-5 5 pick 0 func-offset-25 5 pick -1 func-offset-25 9 pick 9 pick 4 pick 4 pick func-get_cell_state-5 4 pick 2 pick + 9 pick 1 func-offset-25 9 pick -1 func-offset-25 13 pick 13 pick 4 pick 4 pick func-get_cell_state-5 4 pick 2 pick + 13 pick -1 func-offset-25 13 pick 0 func-offset-25 17 pick 17 pick 4 pick 4 pick func-get_cell_state-5 4 pick 2 pick + 17 pick 1 func-offset-25 17 pick 0 func-offset-25 21 pick 21 pick 4 pick 4 pick func-get_cell_state-5 4 pick 2 pick + 21 pick -1 func-offset-25 21 pick 1 func-offset-25 25 pick 25 pick 4 pick 4 pick func-get_cell_state-5 4 pick 2 pick + 25 pick 0 func-offset-25 25 pick 1 func-offset-25 29 pick 29 pick 4 pick 4 pick func-get_cell_state-5 4 pick 2 pick + 29 pick 1 func-offset-25 29 pick 1 func-offset-25 33 pick 33 pick 4 pick 4 pick func-get_cell_state-5 4 pick 2 pick + 35 pick 35 pick 35 pick 35 pick func-get_cell_state-5 2 pick 2 < 2 pick 4 pick 3 pick 40 37 drop_range if func-on_true-84 1 skip func-on_false-87 ;
