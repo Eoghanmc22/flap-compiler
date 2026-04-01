@@ -27,3 +27,39 @@ list_string *parse_args() {
 
   parsed
 }
+
+char *arg_get_positional(list_string *parsed, int idx) {
+  char *inner(list_string * parsed, int idx, int next_idx) {
+    if (next_idx >= parsed->len) {
+      (char *)NULL
+    } else if (*parsed->data[next_idx] == '-') {
+      inner(parsed, idx, next_idx + 1)
+    } else if (idx == 0) {
+      parsed->data[next_idx]
+    } else {
+      inner(parsed, idx - 1, next_idx + 1)
+    }
+  }
+
+  inner(parsed, idx, 0)
+}
+
+char *arg_get_opt(list_string *parsed, char opt) {
+  char *inner(list_string * parsed, char opt, int next_idx) {
+    if (next_idx >= parsed->len) {
+      (char *)NULL
+    } else if (*parsed->data[next_idx] == '-') {
+      char *option = parsed->data[next_idx];
+
+      if (option[1] == opt) {
+        option + 2
+      } else {
+        inner(parsed, opt, next_idx + 1)
+      }
+    } else {
+      inner(parsed, opt, next_idx + 1)
+    }
+  }
+
+  inner(parsed, opt, 0)
+}

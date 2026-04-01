@@ -9,8 +9,17 @@ int strlen(char *str) {
 }
 
 void print_str(char *str) {
-  int len = strlen(str);
+  if (str != (char *)NULL) {
+    int len = strlen(str);
 
-  write_all(STDOUT, str, len);
-  new_line();
+    write_all(STDOUT, str, len);
+    new_line();
+  } else {
+    char[12] error = "str = NULL\n\0";
+
+    char *page = malloc(sizeof(error));
+    *page = error;
+
+    write_all(STDOUT, page, sizeof(error));
+  }
 }
