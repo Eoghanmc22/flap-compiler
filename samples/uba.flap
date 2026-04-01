@@ -1,0 +1,29 @@
+#include "../std"
+
+char *new_line = malloc(1);
+*new_line = "\n";
+
+list_int *list = list_int_new(10);
+
+list_int_push(list, 1);
+list_int_push(list, 5);
+list_int_push(list, 2);
+list_int_push(list, 1);
+list_int_push(list, 3);
+
+list_int_print(list);
+
+write(STDOUT, new_line, 1);
+write(STDOUT, new_line, 1);
+
+print(list_int_pop(list));
+print(list_int_pop(list));
+
+write(STDOUT, new_line, 1);
+write(STDOUT, new_line, 1);
+
+list_int_push(list, 6);
+list_int_push(list, 7);
+list_int_print(list);
+
+quit();

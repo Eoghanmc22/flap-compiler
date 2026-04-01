@@ -10,4 +10,4 @@
 64 width_native - if -100 print quit
 
 : comment Start Main ;
-5 print 1 print
+40 print 8 print

@@ -438,15 +438,19 @@ fn walk_expr<'a, 'b>(
     expr: &Expr<'a>,
 ) -> Result<ExpressionOutput<'a>> {
     match expr {
-        Expr::SizeOfType(inner_type, _span) => {
-            Ok(DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)?)).into())
-        }
+        Expr::SizeOfType(inner_type, _span) => Ok(DataReference::Value(Value::Int(
+            inner_type.width(ctx.type_checker)? * (ClacValue::BITS as ClacValue / 8),
+        ))
+        .into()),
         Expr::SizeOfExpr(_inner_expr, defered_type, _span) => {
             let DeferedType::ResolvedType(inner_type) = defered_type else {
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
             };
 
-            Ok(DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)?)).into())
+            Ok(DataReference::Value(Value::Int(
+                inner_type.width(ctx.type_checker)? * (ClacValue::BITS as ClacValue / 8),
+            ))
+            .into())
         }
         Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),
         Expr::Variable(ident, span) => Ok(ctx
