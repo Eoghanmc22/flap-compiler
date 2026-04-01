@@ -1,0 +1,4 @@
+#include "../std"
+
+list_string *args = parse_args();
+list_string_print(args);

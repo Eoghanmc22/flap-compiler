@@ -1,8 +1,10 @@
 #include "malloc.flap"
 #include "memory.flap"
 
+typedef int list_int_value;
+
 typedef struct {
-  int *data;
+  list_int_value *data;
   int len;
   int cap;
 } list_int;
@@ -10,19 +12,20 @@ typedef struct {
 list_int *list_int_new(int cap) {
   list_int *header = (list_int *)malloc(sizeof<list_int>);
 
-  header->data = (int *)malloc(cap * sizeof<int>);
+  header->data = (list_int_value *)malloc(cap * sizeof<list_int_value>);
   header->cap = cap;
   header->len = 0;
 
   header
 }
 
-void list_int_push(list_int *list, int value) {
+void list_int_push(list_int *list, list_int_value value) {
   if (list->len == list->cap) {
     int new_cap = list->cap * 2;
-    int *new_data = (int *)malloc(new_cap * sizeof<int>);
+    list_int_value *new_data =
+        (list_int_value *)malloc(new_cap * sizeof<list_int_value>);
 
-    memcpy(list->data, new_data, list->len);
+    memcpy((int *)list->data, (int *)new_data, list->len);
 
     list->data = new_data;
     list->cap = new_cap;
@@ -32,15 +35,15 @@ void list_int_push(list_int *list, int value) {
   list->len = list->len + 1;
 }
 
-int list_int_pop(list_int *list) {
+list_int_value list_int_pop(list_int *list) {
   list->len = list->len - 1;
   list->data[list->len]
 }
 
 void list_int_print(list_int *list) {
-  void inner(list_int *list, int idx) {
+  void inner(list_int * list, int idx) {
     if (idx < list->len) {
-      print(list->data[idx]);
+      print((int)list->data[idx]);
       inner(list, idx + 1);
     }
   }
