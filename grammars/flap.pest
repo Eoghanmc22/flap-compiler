@@ -116,3 +116,5 @@ code  = _{ statement* ~ expression? }
 
 program_inner = { code }
 program = { SOI ~ directive* ~ program_inner ~ EOI }
+
+program_directives = { SOI ~ directive* ~ ANY* ~ EOI }

@@ -69,10 +69,10 @@ impl CompileContext {
 
         let contents = fs::read_to_string(&file).wrap_err("Read file")?;
 
-        let program = parser::parse_program(&contents).wrap_err("Parse program")?;
+        let directives = parser::parse_directives(&contents).wrap_err("Parse program")?;
 
         let mut includes = BTreeSet::new();
-        for directive in program.directives {
+        for directive in directives {
             match directive {
                 Directive::Include(include_path) => {
                     let include_path = file.parent().unwrap().join(include_path);

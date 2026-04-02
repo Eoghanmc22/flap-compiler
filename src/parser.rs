@@ -81,6 +81,32 @@ pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
     unreachable!()
 }
 
+pub fn parse_directives<'a>(input: &'a str) -> Result<Vec<Directive<'a>>> {
+    let mut pairs =
+        FlapParser::parse(Rule::program_directives, input).wrap_err("Autogen parser")?;
+    trace!("Input program tokens: {pairs:#?}");
+
+    let mut directives = Vec::new();
+
+    let pairs = pairs.next().unwrap().into_inner();
+    for pair in pairs {
+        match pair.as_rule() {
+            Rule::directive => {
+                directives.push(parse_directive(pair)?);
+            }
+            Rule::EOI => continue,
+            _ => {
+                return Err(
+                    eyre!("Unsupported token at top level: {:?}", pair.as_rule())
+                        .with_section(|| generate_span_error_section(pair.as_span())),
+                );
+            }
+        }
+    }
+
+    return Ok(directives);
+}
+
 fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
     let kind = pair.into_inner().next().unwrap();
 
