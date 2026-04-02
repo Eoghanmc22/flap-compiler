@@ -19,7 +19,7 @@
 // Pointer arithmetic
 #![feature(try_blocks)]
 
-use std::{path::PathBuf, time::Instant};
+use std::{path::PathBuf, thread, time::Instant};
 
 use clap::Parser;
 use color_eyre::eyre::Result;
@@ -66,10 +66,26 @@ fn main() -> Result<()> {
     info!("Starting flap to clac compiler");
     match cli.command {
         Commands::Compile { files } => {
-            for file in files {
-                info!("Compiling {file:?}");
-                compile::compile(&file)?;
-            }
+            thread::scope(|spawner| -> Result<()> {
+                let mut handles = Vec::new();
+
+                for file in files {
+                    let handle = spawner.spawn(move || -> Result<()> {
+                        info!("Compiling {file:?}");
+                        compile::compile(&file)?;
+
+                        Ok(())
+                    });
+
+                    handles.push(handle);
+                }
+
+                for handle in handles {
+                    handle.join().unwrap()?;
+                }
+
+                Ok(())
+            })?;
         }
     }
     info!("Done in {:.2}s!", start.elapsed().as_secs_f64());
