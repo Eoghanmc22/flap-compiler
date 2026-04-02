@@ -1,0 +1,30 @@
+#include "list_int.flap"
+#include "malloc.flap"
+
+char *convert_int_to_string(int x) {
+  void collect_digits(list_int * list, int rem) {
+    if (rem != 0) {
+      list_int_push(list, rem % 10);
+      collect_digits(list, rem / 10);
+    }
+  }
+
+  void write_digits(char *str, list_int *list) {
+    if (list->len == 0) {
+      *str = '\0';
+    } else {
+      int digit = list_int_pop(list);
+      *str = (char)digit + '0';
+      write_digits(str + 1, list);
+    }
+  }
+
+  list_int *list = list_int_new(10);
+  collect_digits(list, x);
+
+  char *string = (char *)malloc(list->len);
+  write_digits(string, list);
+  list_int_free(list);
+
+  string
+}

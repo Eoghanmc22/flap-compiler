@@ -32,7 +32,14 @@ void *realloc(void *block, int size) {
       malloc_block *block = (malloc_block *)block - 1;
 
       int size = size + sizeof<malloc_block>;
-      mremap((void *)block, block->size, size, MREMAP_MAYMOVE, (void *)NULL)
+      malloc_block *block = (malloc_block *)mremap(
+          (void *)block, block->size, size, MREMAP_MAYMOVE, (void *)NULL);
+
+      *block = struct {
+        size = size;
+      };
+
+      (void *)(block + 1)
     } else {
       free((void *)block);
 

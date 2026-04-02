@@ -604,6 +604,7 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
             target
                 .as_str()
                 .replace("\\n", "\n")
+                .replace("\\r", "\r")
                 .replace("\\t", "\t")
                 .replace("\\0", "\0")
                 .chars()
@@ -617,6 +618,7 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value> {
                 .unwrap()
                 .as_str()
                 .replace("\\n", "\n")
+                .replace("\\r", "\r")
                 .replace("\\t", "\t")
                 .replace("\\0", "\0")
                 .into(),

@@ -8,3 +8,4 @@ char *scratch = (char *)malloc(len);
 
 int file_fd = open(path, 0, 0);
 copy_all(scratch, len, file_fd, STDOUT);
+close(file_fd);

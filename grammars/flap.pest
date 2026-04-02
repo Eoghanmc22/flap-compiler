@@ -6,7 +6,7 @@ COMMENT            = _{ multiline_comment | singleline_comment }
 WHITESPACE         = _{ " " | "\t" | "\r" | "\n" }
 
 
-escape       = _{ "\\n" | "\\t" | "\\0" }
+escape       = _{ "\\n" | "\\r" | "\\t" | "\\0" }
 char         = @{ "'" ~ (escape | ASCII) ~ "'" }
 string_inner = @{ (!"\"" ~ ASCII)* }
 string       = ${ "\"" ~ string_inner ~ "\"" }

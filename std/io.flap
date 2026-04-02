@@ -11,6 +11,34 @@ int read_all(int fd, char *buf, int count) {
   }
 }
 
+typedef struct {
+  char *data;
+  int len;
+} read_all2_result;
+
+read_all2_result read_all2(int fd) {
+  read_all2_result inner(int fd, char *buf, int read, int len) {
+    int new = read_all(fd, buf + read, len - read);
+
+    if (read + new >= len) {
+      int len = len * 2;
+      char *buf = (char *)realloc((void *)buf, len);
+
+      inner(fd, buf, read + new, len)
+    } else {
+      struct {
+        data = buf;
+        len = read + new;
+      }
+    }
+  }
+
+  int len = 4096;
+  char *buf = (char *)malloc(len);
+
+  inner(fd, buf, 0, len)
+}
+
 int write_all(int fd, char *buf, int count) {
   int new = write(fd, buf, count);
 
