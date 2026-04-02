@@ -82,6 +82,8 @@ void loop(int server_fd, char *file_contents, int content_len) {
   }
   close(client_fd);
 
+  reap_children();
+
   loop(server_fd, file_contents, content_len);
 }
 
