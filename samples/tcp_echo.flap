@@ -44,6 +44,7 @@ void loop(int server_fd, char *buf) {
   int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
 
   if (fork() == 0) {
+    close(server_fd);
     client_loop(client_fd, buf);
     close(client_fd);
 

@@ -74,6 +74,7 @@ void loop(int server_fd, char *file_contents, int content_len) {
   int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
 
   if (fork() == 0) {
+    close(server_fd);
     handle_client(client_fd, file_contents, content_len);
     close(client_fd);
 
