@@ -265,13 +265,13 @@ fn walk_if_statement_inner<'a, 'b>(
             .into_data_ref(ctx)?;
 
         let on_true =
-            ctx.define_function("on_true", signature.clone(), &Default::default(), |ctx| {
+            ctx.define_function("on_true!", signature.clone(), &Default::default(), |ctx| {
                 walk_block(ctx, &next_case.contents)
             })?;
 
         let on_false = if !remaining.is_empty() || otherwise.is_some() {
             Some(ctx.define_function(
-                "on_false",
+                "on_false!",
                 signature.clone(),
                 &Default::default(),
                 |ctx| walk_if_statement_inner(ctx, remaining, otherwise, signature.clone()),
