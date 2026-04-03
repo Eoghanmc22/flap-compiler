@@ -171,7 +171,6 @@ impl<'a> TypeChecker<'a> {
     pub fn lookup_variable(&mut self, var: IdentRef<'a>) -> Result<Type<'a>> {
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
             if let Some((var_type, kind)) = frame.variables.get(var).cloned() {
-                // TODO: Should this capture the outer most var or inner most?
                 for frame in self.scope_stack.iter_mut().rev().take(idx) {
                     match kind {
                         VariableKind::Local | VariableKind::Capture => {
