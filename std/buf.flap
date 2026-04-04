@@ -45,7 +45,7 @@ void buf_assert_readable(buf *buffer, int bytes) {
 
 void buf_advance_write(buf *buffer, int bytes) {
   buf_assert_writable(buffer, bytes);
-  buffer->size = buffer->size + 1;
+  buffer->size = buffer->size + bytes;
 }
 
 void buf_advance_read(buf *buffer, int bytes) {

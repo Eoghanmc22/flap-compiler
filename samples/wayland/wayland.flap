@@ -825,19 +825,19 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     assert(announced_size == 4 + 2 + 2 + 4 + 4 + padded_interface_len + 4,
            __LINE__);
 
-    *scratch = "wl_shm";
+    *scratch = "wl_shm\0";
     if (strcmp(scratch, interface) == 0) {
       state->wl_shm = wayland_wl_registry_bind(
           fd, state->wl_registry, name, interface, interface_len, version);
     }
 
-    *scratch = "xdg_wm_base";
+    *scratch = "xdg_wm_base\0";
     if (strcmp(scratch, interface) == 0) {
       state->xdg_wm_base = wayland_wl_registry_bind(
           fd, state->wl_registry, name, interface, interface_len, version);
     }
 
-    *scratch = "wl_compositor";
+    *scratch = "wl_compositor\0";
     if (strcmp(scratch, interface) == 0) {
       state->wl_compositor = wayland_wl_registry_bind(
           fd, state->wl_registry, name, interface, interface_len, version);
