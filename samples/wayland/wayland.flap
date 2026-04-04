@@ -130,6 +130,26 @@ int wayland_wl_display_get_registry(int fd) {
 
   /* printf("-> wl_display@%u.get_registry: wl_registry=%u\n", */
   /*        wayland_display_object_id, wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto stack_str = "-> wl_display@";
+  *print_buffer = stack_str;
+  write_all(STDOUT, print_buffer, sizeof_packed(stack_str));
+
+  char *num_buffer = convert_int_to_string(id);
+  write_all(STDOUT, num_buffer, strlen(num_buffer));
+  free(num_buffer);
+
+  auto stack_str = ".get_registry: wl_registry=";
+  *print_buffer = stack_str;
+  write_all(STDOUT, print_buffer, sizeof_packed(stack_str));
+
+  char *num_buffer = convert_int_to_string(id);
+  write_all(STDOUT, num_buffer, strlen(num_buffer));
+  free(num_buffer);
+  print_new_line();
+
+  free(print_buffer);
 
   buf_free(buffer);
 
@@ -167,6 +187,40 @@ int wayland_wl_registry_bind(int fd, int registry, int name, char *interface,
 
   /* printf("-> wl_registry@%u.bind: name=%u interface=%.*s version=%u\n", */
   /*        registry, name, interface_len, interface, version); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_registry@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num_reg = convert_int_to_string(registry);
+  write_all(STDOUT, num_reg, strlen(num_reg));
+  free(num_reg);
+
+  auto s2 = ".bind: name=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num_name = convert_int_to_string(name);
+  write_all(STDOUT, num_name, strlen(num_name));
+  free(num_name);
+
+  auto s3 = " interface=";
+  *print_buffer = s3;
+  write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+  write_all(STDOUT, interface, interface_len);
+
+  auto s4 = " version=";
+  *print_buffer = s4;
+  write_all(STDOUT, print_buffer, sizeof_packed(s4));
+
+  char *num_ver = convert_int_to_string(version);
+  write_all(STDOUT, num_ver, strlen(num_ver));
+  free(num_ver);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 
@@ -196,6 +250,26 @@ int wayland_wl_compositor_create_surface(int fd, state_t *state) {
 
   /* printf("-> wl_compositor@%u.create_surface: wl_surface=%u\n", */
   /*        state->wl_compositor, wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_compositor@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_compositor);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".create_surface: wl_surface=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 
@@ -240,6 +314,26 @@ void wayland_xdg_wm_base_pong(int fd, state_t *state, int ping) {
   }
 
   /* printf("-> xdg_wm_base@%u.pong: ping=%u\n", state->xdg_wm_base, ping); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_wm_base@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_wm_base);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".pong: ping=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(ping);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 }
@@ -264,8 +358,27 @@ void wayland_xdg_surface_ack_configure(int fd, state_t *state, int configure) {
   }
 
   /* printf("-> xdg_surface@%u.ack_configure: configure=%u\n",
-   * state->xdg_surface, */
-  /*        configure); */
+   * state->xdg_surface, configure); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".ack_configure: configure=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(configure);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 }
@@ -346,6 +459,26 @@ int wayland_wl_shm_create_pool(int fd, state_t *state) {
 
   /* printf("-> wl_shm@%u.create_pool: wl_shm_pool=%u\n", state->wl_shm, */
   /*        wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_shm@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_shm);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".create_pool: wl_shm_pool=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 
@@ -377,9 +510,37 @@ int wayland_xdg_wm_base_get_xdg_surface(int fd, state_t *state) {
     quit();
   }
 
-  /* printf("-> xdg_wm_base@%u.get_xdg_surface: xdg_surface=%u
-   * wl_surface=%u\n", */
+  /* printf("-> xdg_wm_base@%u.get_xdg_surface: xdg_surface=%u wl_surface=%u\n",
+   */
   /*        state->xdg_wm_base, wayland_current_id, state->wl_surface); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_wm_base@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_wm_base);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".get_xdg_surface: xdg_surface=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  auto s3 = " wl_surface=";
+  *print_buffer = s3;
+  write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+  char *num3 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num3, strlen(num3));
+  free(num3);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 
@@ -420,6 +581,26 @@ int wayland_wl_shm_pool_create_buffer(int fd, state_t *state) {
   /* printf("-> wl_shm_pool@%u.create_buffer: wl_buffer=%u\n",
    * state->wl_shm_pool, */
   /*        wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_shm_pool@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_shm_pool);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".create_buffer: wl_buffer=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 
@@ -455,6 +636,26 @@ void wayland_wl_surface_attach(int fd, state_t *state) {
 
   /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
   /*        state->wl_buffer); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ": wl_buffer=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(state->wl_buffer);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 }
@@ -482,6 +683,26 @@ int wayland_xdg_surface_get_toplevel(int fd, state_t *state) {
 
   /* printf("-> xdg_surface@%u.get_toplevel: xdg_toplevel=%u\n", */
   /*        state->xdg_surface, wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".get_toplevel: xdg_toplevel=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 
@@ -505,6 +726,22 @@ void wayland_wl_surface_commit(int fd, state_t *state) {
   }
 
   /* printf("-> wl_surface@%u.commit: \n", state->wl_surface); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".commit: ";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  print_new_line();
+  free(print_buffer);
 
   buf_free(buffer);
 }
@@ -527,23 +764,17 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
 
   if (object_id == state->wl_registry &&
       opcode == wayland_wl_registry_event_global) {
-    print(424242);
     int name = buf_read_u32(buffer);
-    print(name);
 
     int interface_len = buf_read_u32(buffer);
-    print(interface_len);
     int padded_interface_len = roundup_4(interface_len);
-    print(padded_interface_len);
 
     char *interface = state->scratch;
     char *scratch = state->scratch + padded_interface_len;
-    print_str(interface);
     assert(padded_interface_len <= state->scratch_len, __LINE__);
 
     buf_read_n(buffer, interface, padded_interface_len);
     // The length includes the NULL terminator.
-    write(STDOUT, interface, interface_len);
     assert(interface[interface_len - 1] == (char)0, __LINE__);
 
     int version = buf_read_u32(buffer);
@@ -551,6 +782,40 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     /* printf("<- wl_registry@%u.global: name=%u interface=%.*s version=%u\n",
      */
     /*        state->wl_registry, name, interface_len, interface, version); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- wl_registry@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->wl_registry);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".global: name=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(name);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " interface=";
+    *print_buffer = s3;
+    write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+    write_all(STDOUT, interface, interface_len);
+
+    auto s4 = " version=";
+    *print_buffer = s4;
+    write_all(STDOUT, print_buffer, sizeof_packed(s4));
+
+    char *num3 = convert_int_to_string(version);
+    write_all(STDOUT, num3, strlen(num3));
+    free(num3);
+
+    print_new_line();
+    free(print_buffer);
 
     /* assert(announced_size == sizeof(object_id) + sizeof(announced_size) + */
     /*                              sizeof(opcode) + sizeof(name) + */
@@ -587,22 +852,99 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     buf_read_n(buffer, error, roundup_4(error_len));
 
     /* fprintf(stderr, "fatal error: target_object_id=%u code=%u error=%s\n", */
-    /* target_object_id, code, error); */
+    /*         target_object_id, code, error); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "fatal error: target_object_id=";
+    *print_buffer = s1;
+    write_all(STDERR, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(target_object_id);
+    write_all(STDERR, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = " code=";
+    *print_buffer = s2;
+    write_all(STDERR, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(code);
+    write_all(STDERR, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " error=";
+    *print_buffer = s3;
+    write_all(STDERR, print_buffer, sizeof_packed(s3));
+
+    char *error_str = error; // error is char*
+    write_all(STDERR, error_str, strlen(error_str));
+
+    print_new_line();
+    free(print_buffer);
     quit();
   } else if (object_id == state->wl_shm &&
              opcode == wayland_shm_pool_event_format) {
 
     int format = buf_read_u32(buffer);
     /* printf("<- wl_shm: format=%#x\n", format); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- wl_shm: format=";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_hex(format); // Hex conversion
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    print_new_line();
+    free(print_buffer);
   } else if (object_id == state->wl_buffer &&
              opcode == wayland_wl_buffer_event_release) {
     // No-op, for now.
 
     /* printf("<- xdg_wl_buffer@%u.release\n", state->wl_buffer); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_wl_buffer@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->wl_buffer);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".release";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    print_new_line();
+    free(print_buffer);
   } else if (object_id == state->xdg_wm_base &&
              opcode == wayland_xdg_wm_base_event_ping) {
     int ping = buf_read_u32(buffer);
+
     /* printf("<- xdg_wm_base@%u.ping: ping=%u\n", state->xdg_wm_base, ping); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_wm_base@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_wm_base);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".ping: ping=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(ping);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    print_new_line();
+    free(print_buffer);
+
     wayland_xdg_wm_base_pong(fd, state, ping);
   } else if (object_id == state->xdg_toplevel &&
              opcode == wayland_xdg_toplevel_event_configure) {
@@ -612,24 +954,133 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     buf_advance_read(buffer, len);
 
     /* printf("<- xdg_toplevel@%u.configure: w=%u h=%u states[%u]\n", */
-    /* state->xdg_toplevel, w, h, len); */
+    /*        state->xdg_toplevel, w, h, len); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_toplevel@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_toplevel);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".configure: w=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(w);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " h=";
+    *print_buffer = s3;
+    write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+    char *num3 = convert_int_to_string(h);
+    write_all(STDOUT, num3, strlen(num3));
+    free(num3);
+
+    auto s4 = " states[";
+    *print_buffer = s4;
+    write_all(STDOUT, print_buffer, sizeof_packed(s4));
+
+    char *num4 = convert_int_to_string(len);
+    write_all(STDOUT, num4, strlen(num4));
+    free(num4);
+
+    auto s5 = "]";
+    *print_buffer = s5;
+    write_all(STDOUT, print_buffer, sizeof_packed(s5));
+
+    print_new_line();
+    free(print_buffer);
   } else if (object_id == state->xdg_surface &&
              opcode == wayland_xdg_surface_event_configure) {
     int configure = buf_read_u32(buffer);
+
     /* printf("<- xdg_surface@%u.configure: configure=%u\n", state->xdg_surface,
      */
     /*        configure); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_surface@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_surface);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".configure: configure=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(configure);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    print_new_line();
+    free(print_buffer);
+
     wayland_xdg_surface_ack_configure(fd, state, configure);
     state->state = STATE_SURFACE_ACKED_CONFIGURE;
   } else if (object_id == state->xdg_toplevel &&
              opcode == wayland_xdg_toplevel_event_close) {
+
     /* printf("<- xdg_toplevel@%u.close\n", state->xdg_toplevel); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_toplevel@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_toplevel);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".close";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    print_new_line();
+    free(print_buffer);
+
     quit();
   } else {
     /* fprintf(stderr, "object_id=%u opcode=%u buffer->size=%lu\n", object_id,
-     * opcode, */
-    /*         *buffer->size); */
-    /* assert(0 && "todo"); */
+     */
+    /*         opcode, *buffer->size); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "object_id=";
+    *print_buffer = s1;
+    write_all(STDERR, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(object_id);
+    write_all(STDERR, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = " opcode=";
+    *print_buffer = s2;
+    write_all(STDERR, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(opcode);
+    write_all(STDERR, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " buffer->size=";
+    *print_buffer = s3;
+    write_all(STDERR, print_buffer, sizeof_packed(s3));
+
+    char *num3 = convert_int_to_string(buffer->size); // Hex/Long conversion
+    write_all(STDERR, num3, strlen(num3));
+    free(num3);
+
+    print_new_line();
+    free(print_buffer);
+
+    assert(false, __LINE__);
   }
 }
 
@@ -696,6 +1147,9 @@ void main_loop(int fd, buf *read_buf, state_t *state) {
 
   main_loop(fd, read_buf, state);
 }
+
+// Ids need to start at 1
+next_wayland_id();
 
 int fd = wayland_display_connect();
 int scratch_len = 4096;

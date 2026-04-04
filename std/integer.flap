@@ -20,9 +20,50 @@ char *convert_int_to_string(int x) {
   }
 
   list_int *list = list_int_new(10);
-  collect_digits(list, x);
+  if (x == 0) {
+    list_int_push(list, 0);
+  } else {
+    collect_digits(list, x);
+  }
 
-  char *string = malloc(list->len);
+  char *string = malloc(list->len + 1);
+  write_digits(string, list);
+  list_int_free(list);
+
+  string
+}
+
+char *convert_int_to_hex(int x) {
+  void collect_digits(list_int * list, int rem) {
+    if (rem != 0) {
+      list_int_push(list, rem % 16);
+      collect_digits(list, rem / 16);
+    }
+  }
+
+  void write_digits(char *str, list_int *list) {
+    if (list->len == 0) {
+      *str = '\0';
+    } else {
+      int digit = list_int_pop(list);
+      if (digit < 10) {
+        *str = (char)digit + '0';
+      } else {
+        *str = (char)(digit - 10) + 'A';
+      }
+      write_digits(str + 1, list);
+    }
+  }
+
+  list_int *list = list_int_new(10);
+
+  if (x == 0) {
+    list_int_push(list, 0);
+  } else {
+    collect_digits(list, x);
+  }
+
+  char *string = malloc(list->len + 1);
   write_digits(string, list);
   list_int_free(list);
 

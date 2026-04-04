@@ -18,16 +18,16 @@ void map_global(void *at, int size) {
   mmap(at, size, prot, flags, -1, 0);
 }
 
-void memcpy_int(int *dest, int *src, int len) {
+void memcpy_int(int *dst, int *src, int len) {
   if (len > 0) {
-    *dest = *src;
-    memcpy_int(src + 1, dest + 1, len - 1);
+    *dst = *src;
+    memcpy_int(dst + 1, src + 1, len - 1);
   }
 }
 
-void memcpy_char(char *dest, char *src, int len) {
+void memcpy_char(char *dst, char *src, int len) {
   if (len > 0) {
-    *dest = *src;
-    memcpy_char(src + 1, dest + 1, len - 1);
+    *dst = *src;
+    memcpy_char(dst + 1, src + 1, len - 1);
   }
 }

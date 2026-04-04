@@ -323,7 +323,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 }
 
                 let (valid_types, output_type) =
-                    match (op, &left_type_computed, &right_type_computed) {
+                    match (&op, &left_type_computed, &right_type_computed) {
                         (
                             BinaryOp::Add
                             | BinaryOp::Sub
@@ -360,13 +360,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     };
 
                 if !valid_types {
-                    return Err(eyre!("Binary op uses a disallowed type").with_section(|| {
+                    return Err(eyre!("Binary op {op} uses a disallowed type").with_section(|| {
                         generate_span_error_section_with_annotations(
                             *span,
                             &[(
                                 *span,
                                 &format!(
-                                    "has the type `{left_type_computed:?}`, which is not permitted"
+                                    "lhs has the type `{left_type_computed:?}` and rhs has the type `{right_type_computed:?}`, which is not permitted"
                                 ),
                             )],
                         )
