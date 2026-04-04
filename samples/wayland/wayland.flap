@@ -73,47 +73,38 @@ int next_wayland_id() {
 }
 
 int wayland_display_connect() {
-  char *scratch = malloc(128);
+  int scratch_len = 128;
+  char *scratch = malloc(scratch_len);
   map_string *env = parse_env();
 
   *scratch = "XDG_RUNTIME_DIR\0";
   char *xdg_runtime_dir = map_string_get(env, scratch);
-  assert(xdg_runtime_dir == NULL, __LINE__);
-
+  assert(xdg_runtime_dir != NULL, __LINE__);
   int xdg_runtime_dir_len = strlen(xdg_runtime_dir);
 
-  struct sockaddr_un addr = {.sun_family = AF_UNIX};
-  assert(xdg_runtime_dir_len <= cstring_len(addr.sun_path), __LINE__);
-  int socket_path_len = 0;
-
-  memcpy_char(addr.sun_path, xdg_runtime_dir, xdg_runtime_dir_len);
-  int socket_path_len = socket_path_len + xdg_runtime_dir_len;
-
-  addr.sun_path[socket_path_len++] = '/';
-
-  *scratch = "XDG_RUNTIME_DIR\0";
+  *scratch = "WAYLAND_DISPLAY\0";
   char *wayland_display = map_string_get(env, scratch);
-  int socket_path_len = if (wayland_display == NULL) {
-    auto wayland_display_default = "wayland-0";
-    int wayland_display_default_len = sizeof_packed(wayland_display_default);
 
-    memcpy(addr.sun_path + socket_path_len, wayland_display_default,
-           wayland_display_default_len);
+  if (wayland_display == NULL) {
+    auto wayland_display_default = "wayland-0\0";
+    assert(xdg_runtime_dir_len + 1 + sizeof_packed(wayland_display_default) <=
+               scratch_len,
+           __LINE__);
 
-    socket_path_len + wayland_display_default_len
+    char *next = strcpy(scratch, xdg_runtime_dir);
+    *next = '/';
+    *(next + 1) = wayland_display_default;
+  } else {
+    char *next = strcpy(scratch, xdg_runtime_dir);
+    *next = '/';
+    strcpy(next + 1, wayland_display);
   }
-  else {
-    int wayland_display_len = strlen(wayland_display);
-    memcpy(addr.sun_path + socket_path_len, wayland_display,
-           wayland_display_len);
 
-    socket_path_len + wayland_display_len
-  };
+  sockaddr_wrapped addr = mk_unix_sockaddr(scratch);
+  free(scratch);
 
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-  connect(fd, (struct sockaddr *)&addr, sizeof(addr));
-
-  free(scratch);
+  connect(fd, addr.addr, addr.len);
 
   fd
 }
@@ -304,25 +295,54 @@ int wayland_wl_shm_create_pool(int fd, state_t *state) {
 
   // Send the file descriptor as ancillary data.
   // UNIX/Macros monstrosities ahead.
-  char buf[CMSG_SPACE(sizeof(state->shm_fd))] = "";
 
-  struct iovec io = {.iov_base = msg, .iov_len = buffer->size};
-  struct msghdr socket_msg = {
-      .msg_iov = &io,
-      .msg_iovlen = 1,
-      .msg_control = buf,
-      .msg_controllen = sizeof(buf),
+  /* char buf[CMSG_SPACE(sizeof(state->shm_fd))] = ""; */
+  /**/
+  /* struct iovec io = {.iov_base = msg, .iov_len = buffer->size}; */
+  /* struct msghdr socket_msg = { */
+  /*     .msg_iov = &io, */
+  /*     .msg_iovlen = 1, */
+  /*     .msg_control = buf, */
+  /*     .msg_controllen = sizeof(buf), */
+  /* }; */
+  /**/
+  /* struct cmsghdr *cmsg = CMSG_FIRSTHDR(&socket_msg); */
+  /* cmsg->cmsg_level = SOL_SOCKET; */
+  /* cmsg->cmsg_type = SCM_RIGHTS; */
+  /* cmsg->cbuffer->size = CMSG_LEN(sizeof(state->shm_fd)); */
+  /**/
+  /* *((int *)CMSG_DATA(cmsg)) = state->shm_fd; */
+  /* socket_msg.msg_controllen = CMSG_SPACE(sizeof(state->shm_fd)); */
+
+  int cmsg_size = 24;
+  int iovec_size = sizeof<iovec>;
+  int msghdr_size = sizeof<msghdr>;
+  char *scratch = malloc(24 + iovec_size + msghdr_size);
+
+  cmsghdr *cmsg = (cmsghdr *)scratch;
+  cmsg->cmsg2_level_type_PACKED = SOL_SOCKET + (SCM_RIGHTS << 32);
+  cmsg->cmsg1_len = 20;
+  *((int *)(cmsg + 1)) = state->shm_fd;
+
+  iovec *io = (iovec *)(scratch + cmsg_size);
+  *io = struct {
+    iov1_base = buffer->buf;
+    iov2_len = buffer->size;
   };
 
-  struct cmsghdr *cmsg = CMSG_FIRSTHDR(&socket_msg);
-  cmsg->cmsg_level = SOL_SOCKET;
-  cmsg->cmsg_type = SCM_RIGHTS;
-  cmsg->cbuffer->size = Cbuffer->size(sizeof(state->shm_fd));
+  msghdr *socket_msg = (msghdr *)(scratch + cmsg_size + iovec_size);
+  *socket_msg = struct {
+    msg1_name = NULL;
+    msg2_namelen = 0;
+    msg3_iov = io;
+    msg4_iovlen = 1;
+    msg5_control = cmsg;
+    msg6_controllen = cmsg_size;
+    msg7_flags = 0;
+  };
 
-  *((int *)CMSG_DATA(cmsg)) = state->shm_fd;
-  socket_msg.msg_controllen = CMSG_SPACE(sizeof(state->shm_fd));
-
-  sendmsg(fd, &socket_msg, 0);
+  sendmsg(fd, socket_msg, 0);
+  free(scratch);
 
   /* printf("-> wl_shm@%u.create_pool: wl_shm_pool=%u\n", state->wl_shm, */
   /*        wayland_current_id); */
@@ -502,22 +522,28 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
 
   /* int header_size = sizeof(object_id) + sizeof(opcode) +
    * sizeof(announced_size); */
-  int header_size = 4 + 4 + 4;
+  int header_size = 4 + 2 + 2;
   assert(announced_size <= header_size + buffer->size, __LINE__);
 
   if (object_id == state->wl_registry &&
       opcode == wayland_wl_registry_event_global) {
+    print(424242);
     int name = buf_read_u32(buffer);
+    print(name);
 
     int interface_len = buf_read_u32(buffer);
+    print(interface_len);
     int padded_interface_len = roundup_4(interface_len);
+    print(padded_interface_len);
 
     char *interface = state->scratch;
     char *scratch = state->scratch + padded_interface_len;
+    print_str(interface);
     assert(padded_interface_len <= state->scratch_len, __LINE__);
 
     buf_read_n(buffer, interface, padded_interface_len);
     // The length includes the NULL terminator.
+    write(STDOUT, interface, interface_len);
     assert(interface[interface_len - 1] == (char)0, __LINE__);
 
     int version = buf_read_u32(buffer);
@@ -698,7 +724,7 @@ state_t *state = malloc(sizeof<state_t>);
 
 // Single buffering.
 state->shm_pool_size = state->h * state->stride;
-create_shared_memory_file(state->shm_pool_size, &state);
+create_shared_memory_file(state->shm_pool_size, state);
 
 buf *read_buf = buf_new(4096);
 main_loop(fd, read_buf, state);

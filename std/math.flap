@@ -11,6 +11,9 @@ int abs(int x) {
 // rounds x to the next multiple of 4
 int roundup_4(int x){(x + 3) & -4}
 
+// rounds x to the next multiple of 8
+int roundup_8(int x){(x + 7) & -8}
+
 int roundup_page_size(int x) {
   (x + PAGE_SIZE - 1) & -PAGE_SIZE
 }

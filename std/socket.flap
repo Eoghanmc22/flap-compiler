@@ -1,0 +1,29 @@
+#include "math.flap"
+#include "strings.flap"
+#include "syscall.flap"
+#include "assert.flap"
+#include "malloc.flap"
+
+const int SOL_SOCKET = 1;
+const int SCM_RIGHTS = 1;
+
+typedef struct {
+  sockaddr *addr;
+  int len;
+} sockaddr_wrapped;
+
+sockaddr_wrapped mk_unix_sockaddr(char *path) {
+  int len = strlen(path);
+  assert(len < 108, __LINE__);
+
+  char *addr = malloc(110);
+  addr[0] = (char)AF_UNIX;
+  addr[1] = (char)0;
+
+  strcpy(addr + 2, path);
+
+  struct {
+    addr = (sockaddr *)addr;
+    len = 110;
+  }
+}

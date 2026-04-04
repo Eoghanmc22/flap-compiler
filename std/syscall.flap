@@ -1,4 +1,7 @@
-// socket apits
+#include "constants.flap"
+
+// socket apis
+const int AF_UNIX = 1;
 const int AF_INET = 2;
 const int SOCK_STREAM = 1;
 const int SOL_SOCKET = 1;
@@ -81,6 +84,11 @@ int bind(int sockfd, sockaddr *addr_struct, int addr_struct_len) {
       syscall(0x31, sockfd, (int)addr_struct, addr_struct_len, 0, 0, 0))
 }
 
+int connect(int sockfd, sockaddr *addr_struct, int addr_struct_len) {
+  handle_error(
+      syscall(0x2a, sockfd, (int)addr_struct, addr_struct_len, 0, 0, 0))
+}
+
 int listen(int sockfd, int backlog) {
   handle_error(syscall(0x32, sockfd, backlog, 0, 0, 0, 0))
 }
@@ -88,6 +96,34 @@ int listen(int sockfd, int backlog) {
 int accept(int sockfd, sockaddr *addr_struct, int *addr_struct_len) {
   handle_error(
       syscall(0x2b, sockfd, (int)addr_struct, (int)addr_struct_len, 0, 0, 0))
+}
+
+typedef struct {
+  void *iov1_base;
+  int iov2_len;
+} iovec;
+
+typedef struct {
+  void *msg1_name;
+  int msg2_namelen;
+  iovec *msg3_iov;
+  int msg4_iovlen;
+  void *msg5_control;
+  int msg6_controllen;
+  int msg7_flags;
+} msghdr;
+
+typedef struct {
+  int cmsg1_len;
+  int cmsg2_level_type_PACKED;
+} cmsghdr;
+
+int sendmsg(int sockfd, msghdr *msg, int flags) {
+  handle_error(syscall(0x2e, sockfd, (int)msg, flags, 0, 0, 0))
+}
+
+int recvmsg(int sockfd, msghdr *msg, int flags) {
+  handle_error(syscall(0x2f, sockfd, (int)msg, flags, 0, 0, 0))
 }
 
 int fork() { handle_error(syscall(0x39, 0, 0, 0, 0, 0, 0)) }
@@ -106,17 +142,25 @@ int memfd_create(char *name, int flags) {
 }
 
 int truncate(char *path, int length) {
-  handle_error(syscall(0x5c, (int)path, length, 0, 0, 0, 0))
+  handle_error(syscall(0x4c, (int)path, length, 0, 0, 0, 0))
 }
 
 int ftruncate(int fd, int length) {
-  handle_error(syscall(0x5d, fd, length, 0, 0, 0, 0))
+  handle_error(syscall(0x4d, fd, length, 0, 0, 0, 0))
+}
+
+int sendto(int fd, char *buffer, int length, int flags, sockaddr *dest_addr, int addr_len) {
+  handle_error(syscall(0x2c, fd, (int)buffer, length, flags, (int)dest_addr, addr_len))
 }
 
 int send(int fd, char *buffer, int length, int flags) {
-  handle_error(syscall(0x121, fd, (int)buffer, length, 0, 0, 0))
+  sendto(fd, buffer, length, flags, NULL, 0)
+}
+
+int recvfrom(int fd, char *buffer, int length, int flags, sockaddr *dest_addr, int *addr_len) {
+  handle_error(syscall(0x2d, fd, (int)buffer, length, flags, (int)dest_addr, (int)addr_len))
 }
 
 int recv(int fd, char *buffer, int length, int flags) {
-  handle_error(syscall(0x123, fd, (int)buffer, length, 0, 0, 0))
+  recvfrom(fd, buffer, length, flags, NULL, NULL)
 }

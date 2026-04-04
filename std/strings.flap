@@ -21,15 +21,37 @@ char *split_str(char *str, char c) {
 }
 
 int strcmp(char *a, char *b) {
-  int difference = (int)*a - (int)*b;
+  int inner(char *a, char *b) {
+    int difference = (int)*a - (int)*b;
 
-  if (difference == 0) {
-    if (*a == (char)0) {
-      0
+    if (difference == 0) {
+      if (*a == (char)0) {
+        0
+      } else {
+        strcmp(a + 1, b + 1)
+      }
     } else {
-      strcmp(a + 1, b + 1)
+      difference
     }
+  }
+
+  if (a == NULL && b == NULL) {
+    0
+  } else if (a == NULL) {
+    -1
+  } else if (b == NULL) {
+    1
   } else {
-    difference
+    inner(a, b)
+  }
+}
+
+char *strcpy(char *dst, char *src) {
+  *dst = *src;
+
+  if (*src != (char)0) {
+    strcpy(dst + 1, src + 1)
+  } else {
+    dst
   }
 }

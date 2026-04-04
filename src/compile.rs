@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{Context, Result, eyre};
 use pest::Span;
 use tracing::{debug, warn};
 
@@ -80,7 +80,11 @@ impl CompileContext {
             match directive {
                 Directive::Include(include_path) => {
                     let include_path = file.parent().unwrap().join(include_path);
-                    let include_path = fs::canonicalize(include_path)?;
+                    let include_path = fs::canonicalize(&include_path).map_err(|err| {
+                        eyre!(
+                            "Could not canonicalize {include_path:?} referenced by {file:?}: {err}"
+                        )
+                    })?;
 
                     includes.insert(include_path);
                 }
