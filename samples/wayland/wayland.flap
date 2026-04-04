@@ -1080,7 +1080,8 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     print_new_line();
     free(print_buffer);
 
-    assert(false, __LINE__);
+    /* assert(false, __LINE__); */
+    buf_advance_read(buffer, announced_size - header_size);
   }
 }
 
@@ -1092,14 +1093,13 @@ void handle_messages(int fd, buf *read_buf, state_t *state) {
 }
 
 void render_frame(char *frame_buffer, int idx, state_t *state) {
-  // TODO:
-
-  /* for (uint32_t i = 0; i < state.w * state.h; i++) { */
-  /*   uint8_t r = wayland_logo[i * 3 + 0]; */
-  /*   uint8_t g = wayland_logo[i * 3 + 1]; */
-  /*   uint8_t b = wayland_logo[i * 3 + 2]; */
-  /*   pixels[i] = (r << 16) | (g << 8) | b; */
-  /* } */
+  if (idx < color_channels * state->w * state->h) {
+    frame_buffer[0] = (char)0;
+    frame_buffer[1] = (char)255;
+    frame_buffer[2] = (char)128;
+    frame_buffer[3] = (char)0;
+    render_frame(frame_buffer + color_channels, idx + color_channels, state);
+  }
 }
 
 void main_loop(int fd, buf *read_buf, state_t *state) {
