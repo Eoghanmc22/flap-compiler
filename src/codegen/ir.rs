@@ -439,7 +439,10 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                             format!("Unknown if false_true definition, '{on_true:?}'")
                         })?;
 
-                    assert_eq!(def_true, def_false);
+                    assert_eq!(
+                        def_true.stack_delta(out.ctx().type_checker)?,
+                        def_false.stack_delta(out.ctx().type_checker)?
+                    );
 
                     match &on_true_impl[..] {
                         [] => out.consume(ClacToken::Drop)?,

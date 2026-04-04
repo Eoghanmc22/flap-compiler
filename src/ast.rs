@@ -270,7 +270,7 @@ pub enum Stride {
     ZST,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum Type<'a> {
     Typedef(IdentRef<'a>),
     Struct(BTreeMap<IdentRef<'a>, Type<'a>>),
@@ -299,22 +299,68 @@ impl Display for Type<'_> {
 }
 
 impl<'a> Type<'a> {
-    pub fn resolve(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
+    pub fn compatible_with(&self, other: &Type<'a>, ctx: &TypeChecker<'a>) -> Result<bool> {
+        let lhs = self;
+        let rhs = other;
+
+        if let (Type::Typedef(lhs), Type::Typedef(rhs)) = (lhs, rhs) {
+            if lhs == rhs {
+                return Ok(true);
+            }
+        }
+
+        let lhs = self.resolve_once(ctx)?;
+        let rhs = other.resolve_once(ctx)?;
+
+        match (lhs, rhs) {
+            (Type::Struct(lhs_map), Type::Struct(rhs_map)) => {
+                for (lhs_key, lhs_value) in &lhs_map {
+                    let Some(rhs_value) = rhs_map.get(lhs_key) else {
+                        return Ok(false);
+                    };
+
+                    if !lhs_value.compatible_with(rhs_value, ctx)? {
+                        return Ok(false);
+                    }
+                }
+                for (rhs_key, rhs_value) in &rhs_map {
+                    let Some(lhs_value) = lhs_map.get(rhs_key) else {
+                        return Ok(false);
+                    };
+
+                    if !rhs_value.compatible_with(lhs_value, ctx)? {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (Type::Pointer(lhs_inner), Type::Pointer(rhs_inner)) => {
+                if matches!(&*lhs_inner, Type::Void) || matches!(&*rhs_inner, Type::Void) {
+                    return Ok(true);
+                }
+
+                Ok(lhs_inner.compatible_with(&*rhs_inner, ctx)?)
+            }
+            (Type::Array(lhs_inner, lhs_len), Type::Array(rhs_inner, rhs_len)) => {
+                Ok(lhs_inner.compatible_with(&rhs_inner, ctx)? && lhs_len == rhs_len)
+            }
+            (Type::Int, Type::Int) => Ok(true),
+            (Type::Char, Type::Char) => Ok(true),
+            (Type::Bool, Type::Bool) => Ok(true),
+            (Type::Void, Type::Void) => Ok(true),
+            _ => Ok(false),
+        }
+    }
+
+    pub fn resolve_once(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
         match self {
             Type::Typedef(ident) => ctx
                 .typedefs
                 .get(ident)
                 .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
-                .and_then(|it| it.resolve(ctx)),
-            Type::Struct(btree_map) => Ok(Type::Struct(
-                btree_map
-                    .into_iter()
-                    .map(|(key, val)| Ok((*key, val.resolve(ctx)?)))
-                    .collect::<Result<_>>()?,
-            )),
-            Type::Pointer(ptr) => Ok(Type::Pointer(ptr.resolve(ctx)?.into())),
-            Type::Array(inner_type, len) => Ok(Type::Array(inner_type.resolve(ctx)?.into(), *len)),
-            Type::Int | Type::Char | Type::Bool | Type::Void => Ok(self.clone()),
+                .and_then(|it| it.resolve_once(ctx)),
+            _ => Ok(self.clone()),
         }
     }
 
@@ -403,14 +449,10 @@ impl<'a> Type<'a> {
             _ => Ok(Stride::Native),
         }
     }
-
-    pub fn is_canonical(&self, ctx: &TypeChecker<'a>) -> Result<bool> {
-        Ok(&self.resolve(ctx)? == self)
-    }
 }
 
 // TODO: This is a kinda hacky solution
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum DeferedType<'a> {
     ResolvedType(Type<'a>),
     #[default]
@@ -427,6 +469,15 @@ impl Display for DeferedType<'_> {
 }
 
 impl<'a> DeferedType<'a> {
+    pub fn compatible_with(&self, other: &Type<'a>, ctx: &TypeChecker<'a>) -> Result<bool> {
+        match self {
+            DeferedType::ResolvedType(inner) => inner.compatible_with(other, ctx),
+            DeferedType::UnresolvedType => Err(eyre!(
+                "COMPILER BUG: compatible_with called on unresolved defered type"
+            )),
+        }
+    }
+
     pub fn to_option(self) -> Option<Type<'a>> {
         match self {
             DeferedType::ResolvedType(var_type) => Some(var_type),
@@ -501,7 +552,7 @@ impl<'a> AsSpan<'a> for FunctionDef<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FunctionSignature<'a> {
     pub arguements: Vec<(Type<'a>, IdentRef<'a>)>,
     pub return_type: Type<'a>,

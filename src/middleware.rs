@@ -112,10 +112,7 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
 
-    assert_eq!(
-        var_type.resolve(ctx.type_checker)?,
-        expr_value.compute_type().resolve(ctx.type_checker)?
-    );
+    assert!(var_type.compatible_with(&expr_value.compute_type(), ctx.type_checker)?);
 
     ctx.define_const(name, expr_value);
 
@@ -150,9 +147,9 @@ fn walk_assignment<'a, 'b>(
     let DeferedType::ResolvedType(target_type) = ptr_assign.target_type.clone() else {
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
-    assert_eq!(
-        Type::Pointer(target_type.clone().into()),
-        target_pointer_type
+    assert!(
+        Type::Pointer(target_type.clone().into())
+            .compatible_with(&target_pointer_type, ctx.type_checker)?
     );
 
     let DeferedType::ResolvedType(expr_type) = ptr_assign.expr_type.clone() else {
@@ -228,7 +225,11 @@ fn walk_if_expr<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     if_expr: &IfExpr<'a>,
 ) -> Result<MaybeTailCall<'a>> {
-    if if_expr.otherwise.is_none() && if_expr.return_type != DeferedType::ResolvedType(Type::Void) {
+    if if_expr.otherwise.is_none()
+        && !if_expr
+            .return_type
+            .compatible_with(&Type::Void, ctx.type_checker)?
+    {
         return Err(eyre!(
             "Got non exhustive if statement with non void return type ({:?})",
             if_expr.return_type
@@ -298,7 +299,7 @@ fn walk_if_statement_inner<'a, 'b>(
                 "Look up local for capture for if statement could not find corosponding local",
             )?;
 
-            if *arg_data_type != data_type {
+            if !arg_data_type.compatible_with(&data_type, ctx.type_checker)? {
                 return Err(eyre!(
                     "Look up local for capture for if statement failed due to type mismatch, arg_data_type: {arg_data_type}, data_type: {data_type}"
                 ));
@@ -440,7 +441,7 @@ fn walk_expr<'a, 'b>(
         Expr::SizeOfType(inner_type, mode, span) => {
             let scale = match mode {
                 SizeOfMode::Native => ClacValue::BITS as ClacValue / 8,
-                SizeOfMode::Packed => match inner_type.resolve(ctx.type_checker)? {
+                SizeOfMode::Packed => match inner_type.resolve_once(ctx.type_checker)? {
                     Type::Array(inner_type, _) => match inner_type.stride(ctx.type_checker)? {
                         Stride::Native => ClacValue::BITS as ClacValue / 8,
                         Stride::Byte => 1,
@@ -466,7 +467,7 @@ fn walk_expr<'a, 'b>(
 
             let scale = match mode {
                 SizeOfMode::Native => ClacValue::BITS as ClacValue / 8,
-                SizeOfMode::Packed => match inner_type.resolve(ctx.type_checker)? {
+                SizeOfMode::Packed => match inner_type.resolve_once(ctx.type_checker)? {
                     Type::Array(inner_type, _) => match inner_type.stride(ctx.type_checker)? {
                         Stride::Native => ClacValue::BITS as ClacValue / 8,
                         Stride::Byte => 1,
@@ -581,8 +582,8 @@ fn walk_expr<'a, 'b>(
             // Scale rhs to have correct semantics for pointer arithmetic
             let (lhs, rhs) = match (
                 op,
-                left_type.resolve(ctx.type_checker)?,
-                right_type.resolve(ctx.type_checker)?,
+                left_type.resolve_once(ctx.type_checker)?,
+                right_type.resolve_once(ctx.type_checker)?,
             ) {
                 (BinaryOp::Add | BinaryOp::Sub, Type::Pointer(inner_type), Type::Int) => {
                     let width = inner_type.width(ctx.type_checker)?;
@@ -655,8 +656,8 @@ fn walk_expr<'a, 'b>(
             // Scale ret to have correct semantics for pointer arithmetic
             let ret = match (
                 op,
-                left_type.resolve(ctx.type_checker)?,
-                right_type.resolve(ctx.type_checker)?,
+                left_type.resolve_once(ctx.type_checker)?,
+                right_type.resolve_once(ctx.type_checker)?,
             ) {
                 (BinaryOp::Sub, Type::Pointer(inner_type), Type::Pointer(_)) => {
                     let width = inner_type.width(ctx.type_checker)?;

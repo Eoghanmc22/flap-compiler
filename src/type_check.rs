@@ -245,13 +245,11 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
             }
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)
-                .and_then(|it| it.resolve(ctx))
                 .wrap_err("Could not type check expr value")
                 .with_section(|| generate_span_error_section(*span)),
             Expr::Variable(ident, span) => {
                 let var_type = ctx
                     .lookup_variable(ident)
-                    .and_then(|it| it.resolve(ctx))
                     .wrap_err_with(|| format!("Could not find identifier: `{ident:?}`"))
                     .with_section(|| generate_span_error_section(*span))?;
 
@@ -260,13 +258,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
             Expr::Struct(map, defered_type, _span) => {
                 let map = map
                     .into_iter()
-                    .map(|(key, expr)| {
-                        Ok((
-                            *key,
-                            expr.check_and_resolve_types(ctx)
-                                .and_then(|it| it.resolve(ctx))?,
-                        ))
-                    })
+                    .map(|(key, expr)| Ok((*key, expr.check_and_resolve_types(ctx)?)))
                     .collect::<Result<BTreeMap<_, _>>>()?;
 
                 *defered_type = DeferedType::ResolvedType(Type::Struct(map.clone()));
@@ -276,19 +268,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
             Expr::Array(exprs, defered_type, span) => {
                 let types = exprs
                     .into_iter()
-                    .map(|expr| {
-                        Ok((
-                            expr.as_span(),
-                            expr.check_and_resolve_types(ctx)
-                                .and_then(|it| it.resolve(ctx))?,
-                        ))
-                    })
+                    .map(|expr| Ok((expr.as_span(), expr.check_and_resolve_types(ctx)?)))
                     .collect::<Result<Vec<_>>>()?;
 
                 let mut inner_type: Option<(Span, &Type)> = None;
                 for (span, expr_type) in &types {
                     if let Some((first, inner_type)) = inner_type {
-                        if inner_type != expr_type {
+                        if !inner_type.compatible_with(expr_type, ctx)? {
                             return Err(eyre!("All array elements must be of the same type")
                                 .with_section(|| {
                                     generate_span_error_section_with_annotations(
@@ -325,8 +311,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 left_type,
                 right_type,
             } => {
-                let left_type_computed = left.check_and_resolve_types(ctx)?.resolve(ctx)?;
-                let right_type_computed = right.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                let left_type_computed = left.check_and_resolve_types(ctx)?;
+                let right_type_computed = right.check_and_resolve_types(ctx)?;
 
                 *left_type = DeferedType::ResolvedType(left_type_computed.clone());
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
@@ -350,12 +336,12 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                             | BinaryOp::BAnd,
                             left @ (Type::Int | Type::Char),
                             right,
-                        ) => (left == right, left.clone()),
+                        ) => (left.compatible_with(right, ctx)?, left.clone()),
                         (BinaryOp::Add | BinaryOp::Sub, left @ Type::Pointer(_), Type::Int) => {
                             (true, left.clone())
                         }
                         (BinaryOp::Sub, Type::Pointer(left), Type::Pointer(right)) => {
-                            (left == right, Type::Int)
+                            (left.compatible_with(right, ctx)?, Type::Int)
                         }
                         (
                             BinaryOp::Eq
@@ -366,7 +352,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                             | BinaryOp::Gt,
                             left,
                             right,
-                        ) => (left == right, Type::Bool),
+                        ) => (left.compatible_with(right, ctx)?, Type::Bool),
                         (BinaryOp::LAnd | BinaryOp::LOr, Type::Bool, Type::Bool) => {
                             (true, Type::Bool)
                         }
@@ -395,12 +381,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 span,
                 operand_type,
             } => {
-                let operand_type_computed = operand.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                let operand_type_computed =
+                    operand.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (valid_types, return_type) = match op {
-                    PrefixOp::Negate => (operand_type_computed == Type::Int, Type::Int),
-                    PrefixOp::LNot => (operand_type_computed == Type::Bool, Type::Bool),
+                    PrefixOp::Negate => (matches!(operand_type_computed, Type::Int), Type::Int),
+                    PrefixOp::LNot => (matches!(operand_type_computed, Type::Bool), Type::Bool),
                     PrefixOp::Cast(to) => {
                         if operand_type_computed.width(ctx)? == to.width(ctx)? {
                             (true, to.clone())
@@ -453,7 +440,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 span,
                 operand_type,
             } => {
-                let operand_type_computed = operand.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                let operand_type_computed =
+                    operand.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (valid_types, return_type) = match (&operand_type_computed, &mut *op) {
@@ -497,7 +485,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         Type::Array(inner_type, _) | Type::Pointer(inner_type),
                         PostfixOp::ArrayIndex(expr),
                     ) => {
-                        let idx_type = expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                        let idx_type = expr.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
                         let Type::Int = idx_type else {
                             return Err(eyre!("Attempting to index into an array or pointer with a expression of non Int type: {idx_type}")
                                 .with_section(|| {
@@ -529,8 +517,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 Ok(return_type)
             }
-            Expr::FunctionCall(func_call) => func_call.check_and_resolve_types(ctx)?.resolve(ctx),
-            Expr::If(if_expr) => if_expr.check_and_resolve_types(ctx)?.resolve(ctx),
+            Expr::FunctionCall(func_call) => func_call.check_and_resolve_types(ctx),
+            Expr::If(if_expr) => if_expr.check_and_resolve_types(ctx),
         }
     }
 }
@@ -558,9 +546,9 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
         for (parm_expr, (arg_type, arg_name)) in
             self.parameters.iter_mut().zip(sig.arguements.iter())
         {
-            let parm_type = parm_expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
-            let arg_type = arg_type.resolve(ctx)?;
-            if parm_type != arg_type {
+            let parm_type = parm_expr.check_and_resolve_types(ctx)?;
+            let arg_type = arg_type;
+            if !parm_type.compatible_with(arg_type, ctx)? {
                 return Err(eyre!("Function called with a paramater of the incorrect type")
                             .with_section(|| {
                                 generate_span_error_section_with_annotations(
@@ -579,24 +567,18 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        // Resolve types
-        for (arg_type, _) in &mut self.signature.arguements {
-            *arg_type = arg_type.resolve(ctx)?;
-        }
-        self.signature.return_type = self.signature.return_type.resolve(ctx)?;
-
         let (actual_return_type, frame) = ctx.define_function(
             self.function,
             FunctionSignature {
                 arguements: self.signature.arguements.clone(),
                 return_type: self.signature.return_type.clone(),
             },
-            |ctx| self.contents.check_and_resolve_types(ctx)?.resolve(ctx),
+            |ctx| self.contents.check_and_resolve_types(ctx),
         );
 
         let actual_return_type = actual_return_type?;
 
-        if actual_return_type != self.signature.return_type.resolve(ctx)? {
+        if !actual_return_type.compatible_with(&self.signature.return_type, ctx)? {
             return Err(eyre!("Function definition returns the incorrect type")
                 .with_section(|| {
                     generate_span_error_section_with_annotations(
@@ -631,13 +613,11 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
+        let actual_type = self.expr.check_and_resolve_types(ctx)?;
 
         match &mut self.var_type {
             DeferedType::ResolvedType(expected_type) => {
-                *expected_type = expected_type.resolve(ctx)?;
-
-                if &actual_type != expected_type {
+                if !actual_type.compatible_with(expected_type, ctx)? {
                     return Err(
                         eyre!("Const definition set to the incorrect type").with_section(|| {
                             generate_span_error_section_with_annotations(
@@ -670,13 +650,11 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let actual_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
+        let actual_type = self.expr.check_and_resolve_types(ctx)?;
 
         match &mut self.var_type {
             DeferedType::ResolvedType(expected_type) => {
-                *expected_type = expected_type.resolve(ctx)?;
-
-                if &actual_type != expected_type {
+                if !actual_type.compatible_with(expected_type, ctx)? {
                     return Err(
                         eyre!("Local definition set to the incorrect type").with_section(|| {
                             generate_span_error_section_with_annotations(
@@ -709,14 +687,16 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 
 impl<'a> TypeCheck<'a> for Assignment<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let expr_type = self.expr.check_and_resolve_types(ctx)?.resolve(ctx)?;
-        let target_type = self.target.check_and_resolve_types(ctx)?.resolve(ctx)?;
+        let expr_type = self.expr.check_and_resolve_types(ctx)?;
+        let target_type = self.target.check_and_resolve_types(ctx)?;
 
         let mismatched_type = match (&target_type, &expr_type) {
-            (target_type, Type::Array(array_type, _len)) if target_type != &expr_type => {
-                target_type != &**array_type
+            (target_type, Type::Array(array_type, _len))
+                if !target_type.compatible_with(&expr_type, ctx)? =>
+            {
+                !target_type.compatible_with(array_type, ctx)?
             }
-            (target_type, expr_type) => target_type != expr_type,
+            (target_type, expr_type) => !target_type.compatible_with(expr_type, ctx)?,
         };
 
         if mismatched_type {
@@ -754,8 +734,11 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 
 impl<'a> TypeCheck<'a> for IfCase<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let case_type = self.condition.check_and_resolve_types(ctx)?.resolve(ctx)?;
-        if case_type != Type::Bool {
+        let case_type = self
+            .condition
+            .check_and_resolve_types(ctx)?
+            .resolve_once(ctx)?;
+        if !matches!(case_type, Type::Bool) {
             return Err(
                 eyre!("If statement's condition evaluated to the incorrect type").with_section(
                     || {
@@ -774,7 +757,7 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
             );
         }
 
-        self.contents.check_and_resolve_types(ctx)?.resolve(ctx)
+        self.contents.check_and_resolve_types(ctx)
     }
 }
 
@@ -784,13 +767,12 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
             .cases
             .first_mut()
             .unwrap()
-            .check_and_resolve_types(ctx)?
-            .resolve(ctx)?;
+            .check_and_resolve_types(ctx)?;
 
         let (rst, frame) = ctx.define_scope::<Result<_>, _>(|ctx| {
             for case in &mut self.cases {
-                let case_return_type = case.check_and_resolve_types(ctx)?.resolve(ctx)?;
-                if case_return_type != expected_type {
+                let case_return_type = case.check_and_resolve_types(ctx)?;
+                if !case_return_type.compatible_with(&expected_type, ctx)? {
                     return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
                         generate_span_error_section_with_annotations(
@@ -813,8 +795,8 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
             }
 
             if let Some(otherwise) = &mut self.otherwise {
-                let case_return_type = otherwise.check_and_resolve_types(ctx)?.resolve(ctx)?;
-                if case_return_type != expected_type {
+                let case_return_type = otherwise.check_and_resolve_types(ctx)?;
+                if !case_return_type.compatible_with(&expected_type, ctx)? {
                     return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
                         generate_span_error_section_with_annotations(
@@ -869,7 +851,7 @@ impl<'a> TypeCheck<'a> for Block<'a> {
 
         let (res, frame) = ctx.define_scope::<Result<_>, _>(|ctx| {
             for statement in &mut self.statements {
-                actual_return_type = statement.check_and_resolve_types(ctx)?.resolve(ctx)?;
+                actual_return_type = statement.check_and_resolve_types(ctx)?;
             }
 
             Ok(())

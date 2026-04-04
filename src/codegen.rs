@@ -178,8 +178,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     }
 
     pub fn allocate_tempoary(&mut self, var_type: Type<'a>) -> Result<TempoaryIdent> {
-        debug_assert!(var_type.is_canonical(self.type_checker)?);
-
         assert!(self.cursor >= var_type.width(self.type_checker)?);
         let offset = Offset(self.cursor - var_type.width(self.type_checker)?);
 
@@ -192,10 +190,8 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         base: DataReference<'a>,
         rel_offset: Offset,
     ) -> Result<DataReference<'a>> {
-        debug_assert!(var_type.is_canonical(self.type_checker)?);
-
         match self.dereference_data_ref(&base)? {
-            DataReference::Value(value) => match var_type.resolve(self.type_checker)? {
+            DataReference::Value(value) => match var_type.resolve_once(self.type_checker)? {
                 Type::Int => Ok(DataReference::Value(Value::Int(
                     value.as_repr()[rel_offset.0 as usize],
                 ))),
@@ -235,8 +231,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     }
 
     fn allocate_tempoary_at(&mut self, var_type: Type<'a>, offset: Offset) -> TempoaryIdent {
-        debug_assert!(var_type.is_canonical(self.type_checker).unwrap_or(false));
-
         let ident = TempoaryIdent(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
         self.top_scope_frame()
@@ -252,8 +246,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         ident: IdentRef<'a>,
         var_type: Type<'a>,
     ) {
-        debug_assert!(var_type.is_canonical(self.type_checker).unwrap_or(false));
-
         self.top_scope_frame().locals.insert(
             ident,
             AnnotatedDataRef {
@@ -303,8 +295,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             let id_counter = self.id_counter.clone();
             let mut offset = 0;
             for (var_type, ident) in &signature.arguements {
-                debug_assert!(var_type.is_canonical(self.type_checker)?);
-
                 let cur_offset = Offset(frame.frame_start + offset);
                 offset += var_type.width(self.type_checker)?;
 
@@ -492,7 +482,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         .lookup_temporary(ident)
                         .expect("Bring up valid temporary");
 
-                    if var_type == Type::Void {
+                    if matches!(var_type.resolve_once(self.type_checker)?, Type::Void) {
                         continue;
                     }
 
