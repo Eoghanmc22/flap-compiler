@@ -180,7 +180,7 @@ void map_int_print(map_int *map) {
 
       print((int)entry.key);
       print((int)entry.value);
-      new_line();
+      print_new_line();
 
       inner(iter);
     }

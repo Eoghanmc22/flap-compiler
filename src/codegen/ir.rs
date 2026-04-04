@@ -349,7 +349,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 Type::Int
             }
             ClacOp::BAnd { rhs, .. } => {
-                let DataReference::Value(Value::Int(rhs) | Value::Char(rhs)) = *rhs else {
+                let Some((rhs, _rhs_type)) = rhs.as_clac_value() else {
                     bail!(
                         "Bit wise AND is only implemented for anding with a literal int, or an int that ends up getting inlined"
                     );

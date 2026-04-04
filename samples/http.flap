@@ -59,7 +59,7 @@ void handle_client(int client_fd, char *file_contents, int content_len) {
   char *response = (char *)malloc(response_len);
 
   *response = header;
-  memcpy_char(length, response + header_len, length_len);
+  memcpy_char(response + header_len, length, length_len);
   *(response + header_len + length_len) = tail;
 
   write_all(client_fd, response, response_len);

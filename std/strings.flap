@@ -1,4 +1,4 @@
-#include "io.flap"
+#include "constants.flap"
 
 int strlen(char *str) {
   if (*str == '\0') {
@@ -8,20 +8,14 @@ int strlen(char *str) {
   }
 }
 
-void print_str(char *str) {
-  if (str != (char *)NULL) {
-    int len = strlen(str);
-
-    write_all(STDOUT, str, len);
-    new_line();
+char *split_str(char *str, char c) {
+  char cur = *str;
+  if (cur == '\0') {
+    (char*)NULL
+  } else if (cur == c) {
+    *str = '\0';
+    str + 1
   } else {
-    auto error = "str = NULL\n\0";
-
-    char *page = (char *)malloc(sizeof_packed(error));
-    *page = error;
-
-    write_all(STDOUT, page, sizeof_packed(error));
-
-    free((void *)page);
+    split_str(str + 1, c)
   }
 }

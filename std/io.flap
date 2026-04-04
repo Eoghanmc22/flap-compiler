@@ -1,5 +1,6 @@
 #include "malloc.flap"
 #include "syscall.flap"
+#include "strings.flap"
 
 int read_all(int fd, char *buf, int count) {
   int new = read(fd, buf, count);
@@ -69,10 +70,28 @@ int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
   }
 }
 
-void new_line() {
+void print_new_line() {
   char *new_line = (char *)malloc(1);
   *new_line = "\n";
   write(STDOUT, new_line, 1);
 
   free((void *)new_line);
+}
+
+void print_str(char *str) {
+  if (str != (char *)NULL) {
+    int len = strlen(str);
+
+    write_all(STDOUT, str, len);
+    print_new_line();
+  } else {
+    auto error = "str = NULL\n\0";
+
+    char *page = (char *)malloc(sizeof_packed(error));
+    *page = error;
+
+    write_all(STDOUT, page, sizeof_packed(error));
+
+    free((void *)page);
+  }
 }

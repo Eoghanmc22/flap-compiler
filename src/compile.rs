@@ -131,7 +131,7 @@ impl CompileContext {
                 }
                 if let Some(top) = stack.last() {
                     if *top == next {
-                        warn!("Cyclical imports detected");
+                        warn!("Cyclical imports detected at {next:?}");
                         stack.pop();
                     }
                 }

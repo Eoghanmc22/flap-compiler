@@ -1,0 +1,21 @@
+#include "math.flap"
+#include "memory.flap"
+
+typedef struct {
+  int seed;
+} rng;
+
+const rng *RNG_STATE = (rng *)NEXT_GLOBAL;
+const char *NEXT_GLOBAL =
+    NEXT_GLOBAL + PAGE_SIZE; // roundup_page_size(sizeof<rng>);
+
+void init_rng() {
+  map_global((void *)RNG_STATE, sizeof<rng>);
+  getrandom((void *)RNG_STATE, sizeof<rng>, 0);
+}
+
+int rand() {
+  RNG_STATE->seed =
+      RNG_STATE->seed * (-0x2ECBDABC217D106B) + (-0x78A22B1A1BC639D9);
+  RNG_STATE->seed
+}

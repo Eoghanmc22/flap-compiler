@@ -182,7 +182,7 @@ void map_string_print(map_string *map) {
 
       print((int)entry.key);
       print((int)entry.value);
-      new_line();
+      print_new_line();
 
       inner(iter);
     }

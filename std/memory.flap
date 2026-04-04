@@ -1,11 +1,31 @@
-void memcpy_int(int *src, int *dest, int len) {
+#include "syscall.flap"
+
+const int PAGE_SIZE = 4096;
+const char *NEXT_GLOBAL = (char *)0x67670000;
+
+// Usage:
+//
+// const char *YOUR_GLOBAL = NEXT_GLOBAL;
+//
+// const char *NEXT_GLOBAL = NEXT_GLOBAL +
+// roundup_page_size(size_of_your_global);
+//
+// map_global((void*) YOUR_GLOBAL, size_of_your_global)
+void map_global(void *at, int size) {
+  const int prot = PROT_READ + PROT_WRITE;
+  const int flags = MAP_PRIVATE + MAP_ANONYMOUS + MAP_FIXED_NOREPLACE;
+
+  mmap(at, size, prot, flags, -1, 0);
+}
+
+void memcpy_int(int *dest, int *src, int len) {
   if (len > 0) {
     *dest = *src;
     memcpy_int(src + 1, dest + 1, len - 1);
   }
 }
 
-void memcpy_char(char *src, char *dest, int len) {
+void memcpy_char(char *dest, char *src, int len) {
   if (len > 0) {
     *dest = *src;
     memcpy_char(src + 1, dest + 1, len - 1);

@@ -22,7 +22,7 @@ const int MAP_FIXED_NOREPLACE = 1048576;
 const int MREMAP_MAYMOVE = 1;
 const int MREMAP_FIXED = 2;
 
-// Wait
+// wait
 const int WNOHANG = 1;
 
 const int STDIN = 0;
@@ -95,4 +95,20 @@ int fork() { handle_error(syscall(0x39, 0, 0, 0, 0, 0, 0)) }
 typedef void rusage;
 int wait(int pid, int *status, int options, rusage *rusage) {
   handle_error(syscall(0x3d, pid, (int)status, options, (int)rusage, 0, 0))
+}
+
+int getrandom(void *buf, int size, int flags) {
+  handle_error(syscall(0x13e, (int)buf, size, flags, 0, 0, 0))
+}
+
+int memfd_create(char *name, int flags) {
+  handle_error(syscall(0x13f, (int)name, flags, 0, 0, 0, 0))
+}
+
+int truncate(char *path, int length) {
+  handle_error(syscall(0x5c, (int)path, length, 0, 0, 0, 0))
+}
+
+int ftruncate(int fd, int length) {
+  handle_error(syscall(0x5d, fd, length, 0, 0, 0, 0))
 }

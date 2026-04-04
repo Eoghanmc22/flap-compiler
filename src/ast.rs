@@ -205,7 +205,7 @@ impl Display for PostfixOp<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PostfixOp::Member(field) => write!(f, ".{field}"),
-            PostfixOp::MemberDeref(field) => write!(f, ".{field}"),
+            PostfixOp::MemberDeref(field) => write!(f, "->{field}"),
             PostfixOp::ArrayIndex(idx) => write!(f, "[{idx}]"),
         }
     }

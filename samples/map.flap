@@ -3,9 +3,9 @@
 map_int *map = map_int_new(0);
 map_int_print(map);
 
-new_line();
-new_line();
-new_line();
+print_new_line();
+print_new_line();
+print_new_line();
 
 map_int_insert(map, 1, (void *)2);
 map_int_insert(map, 10, (void *)3);
@@ -29,14 +29,14 @@ print((int)map_int_contains(map, 1));
 print((int)map_int_contains(map, 6));
 print((int)map_int_contains(map, 45));
 
-new_line();
+print_new_line();
 
 print((int)map_int_contains(map, 10));
 map_int_insert(map, 10, (void *)14);
 print((int)map_int_contains(map, 10));
 
-new_line();
-new_line();
+print_new_line();
+print_new_line();
 
 print((int)map_int_get(map, 1));
 print((int)map_int_get(map, 10));

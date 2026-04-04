@@ -1,0 +1,115 @@
+#include "assert.flap"
+#include "malloc.flap"
+#include "math.flap"
+
+typedef struct {
+  char *buf;
+  int size;
+  int cap;
+  buf *original;
+} buf;
+
+buf *buf_new(int cap) {
+  buf *buffer = (buf *)malloc(sizeof<buf> * 2 + cap);
+
+  buffer->buf = (char *)(buffer + 2);
+  buffer->size = 0;
+  buffer->cap = cap;
+  buffer->original = buffer + 1;
+  *buffer->original = *buffer;
+
+  buffer
+}
+
+buf *buf_at(char *buf, int len) {
+  buf *buffer = (buf *)malloc(sizeof<buf> * 2);
+
+  buffer->buf = buf;
+  buffer->size = len;
+  buffer->cap = len;
+  buffer->original = buffer + 1;
+  *buffer->original = *buffer;
+
+  buffer
+}
+
+void buf_free(buf *buffer) { free((void *)buffer); }
+
+void buf_assert_writable(buf *buffer, int bytes) {
+  assert(buf->size + bytes <= buf_cap);
+}
+
+void buf_assert_readable(buf *buffer, int bytes) { assert(buf->size >= bytes); }
+
+void buf_advance_write(buf *buffer, int bytes) {
+  buf_assert_writable(buffer, bytes);
+  buffer->size = buffer->size + 1;
+}
+
+void buf_advance_read(buf *buffer, int bytes) {
+  buf_assert_readable(buffer, bytes);
+  buffer->buf = buffer->buf + bytes;
+  buffer->size = buffer->size - bytes;
+}
+
+void buf_reset(buf *buffer) { *buffer = *buffer->original; }
+
+void buf_write_u8(buf *buffer, int x) {
+  buf_assert_writable(buffer, 1);
+
+  buffer->buf[buffer->size] = (char)x;
+  buf_advance_write(buffer, 1);
+}
+
+void buf_write_u16(buf *buffer, int x) {
+  buf_write_u8(buffer, x & 0xFF);
+  buf_write_u8(buffer, x >> 8);
+}
+
+void buf_write_u32(buf *buffer, int x) {
+  buf_write_u16(buffer, x & 0xFFFF);
+  buf_write_u16(buffer, x >> 16);
+}
+
+// Write length prefixed string padded to the next u32 boundary
+void buf_write_lp_string_padded(buf *buffer, char *src, int src_len) {
+  int rounded = roundup_4(src_len);
+  buf_assert_writable(buffer, rounded + 4);
+
+  // Write the length
+  buf_write_u32(buffer, src_len);
+
+  // Write the string
+  memcpy_char(buffer->buf + buffer->size, src, src_len);
+  buf_advance_write(buffer, rounded);
+}
+
+int buf_read_u8(buf *buffer) {
+  buf_assert_readable(buffer, 1);
+
+  int number = (int)buffer->buf[0];
+  buf_advance_read(buffer, 1);
+
+  number
+}
+
+uint16_t buf_read_u16(buf *buffer) {
+  int lower = buf_read_u8(buffer);
+  int upper = buf_read_u8(buffer);
+
+  (upper << 8) + lower
+}
+
+uint32_t buf_read_u32(buf *buffer) {
+  int lower = buf_read_u16(buffer);
+  int upper = buf_read_u16(buffer);
+
+  (upper << 16) + lower
+}
+
+void buf_read_n(buf *buffer, char *dst, int n) {
+  buf_assert_readable(buffer, n);
+
+  memcpy_char(dst, buffer->buf, n);
+  buf_advance_read(buffer, n);
+}

@@ -43,7 +43,11 @@ pub struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    Compile { files: Vec<PathBuf> },
+    Compile {
+        #[arg(long)]
+        no_parallel: bool,
+        files: Vec<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -65,27 +69,36 @@ fn main() -> Result<()> {
     let start = Instant::now();
     info!("Starting flap to clac compiler");
     match cli.command {
-        Commands::Compile { files } => {
-            thread::scope(|spawner| -> Result<()> {
-                let mut handles = Vec::new();
+        Commands::Compile { files, no_parallel } => {
+            if !no_parallel {
+                thread::scope(|spawner| -> Result<()> {
+                    let mut handles = Vec::new();
 
+                    for file in files {
+                        let handle = spawner.spawn(move || -> Result<()> {
+                            info!("Compiling {file:?}");
+                            compile::compile(&file)?;
+                            info!("Finished {file:?}");
+
+                            Ok(())
+                        });
+
+                        handles.push(handle);
+                    }
+
+                    for handle in handles {
+                        handle.join().unwrap()?;
+                    }
+
+                    Ok(())
+                })?;
+            } else {
+                info!("Compiling without parallelism");
                 for file in files {
-                    let handle = spawner.spawn(move || -> Result<()> {
-                        info!("Compiling {file:?}");
-                        compile::compile(&file)?;
-
-                        Ok(())
-                    });
-
-                    handles.push(handle);
+                    info!("Compiling {file:?}");
+                    compile::compile(&file)?;
                 }
-
-                for handle in handles {
-                    handle.join().unwrap()?;
-                }
-
-                Ok(())
-            })?;
+            }
         }
     }
     info!("Done in {:.2}s!", start.elapsed().as_secs_f64());

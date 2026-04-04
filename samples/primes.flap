@@ -1,0 +1,25 @@
+#include "../std"
+
+bool is_prime(list_int *primes, int x, int idx) {
+  if (idx < primes->len) {
+    if (x % primes->data[idx] == 0) {
+      false
+    } else {
+      is_prime(primes, x, idx + 1)
+    }
+  } else {
+    true
+  }
+}
+
+void print_primes(list_int *primes, int x) {
+  if (is_prime(primes, x, 0)) {
+    print(x);
+    list_int_push(primes, x);
+  }
+
+  print_primes(primes, x + 1);
+}
+
+list_int *primes = list_int_new(10);
+print_primes(primes, 2);

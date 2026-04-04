@@ -1,0 +1,7 @@
+void assert(bool exp, int line) {
+  if (!exp) {
+    print(-1);
+    print(line);
+    quit();
+  }
+}
