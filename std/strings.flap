@@ -11,11 +11,25 @@ int strlen(char *str) {
 char *split_str(char *str, char c) {
   char cur = *str;
   if (cur == '\0') {
-    (char*)NULL
+    (char *)NULL
   } else if (cur == c) {
     *str = '\0';
     str + 1
   } else {
     split_str(str + 1, c)
+  }
+}
+
+int strcmp(char *a, char *b) {
+  int difference = (int)*a - (int)*b;
+
+  if (difference == 0) {
+    if (*a == (char)0) {
+      0
+    } else {
+      strcmp(a + 1, b + 1)
+    }
+  } else {
+    difference
   }
 }

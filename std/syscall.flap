@@ -112,3 +112,11 @@ int truncate(char *path, int length) {
 int ftruncate(int fd, int length) {
   handle_error(syscall(0x5d, fd, length, 0, 0, 0, 0))
 }
+
+int send(int fd, char *buffer, int length, int flags) {
+  handle_error(syscall(0x121, fd, (int)buffer, length, 0, 0, 0))
+}
+
+int recv(int fd, char *buffer, int length, int flags) {
+  handle_error(syscall(0x123, fd, (int)buffer, length, 0, 0, 0))
+}

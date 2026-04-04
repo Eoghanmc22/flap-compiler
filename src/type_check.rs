@@ -704,19 +704,19 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
         };
 
         if mismatched_type {
-            return Err(
-                eyre!("Assignment mismatching types").with_section(|| {
-                    generate_span_error_section_with_annotations(
-                        self.span,
-                        &[(
-                            self.expr.as_span(),
-                            &format!(
-                                "the type `{expr_type:?}`, can not be assigned to a place of type a `{target_type:?}`",
-                            ),
-                        )],
-                    )
-                }),
-            );
+            return Err(eyre!("Assignment mismatching types").with_section(|| {
+                generate_span_error_section_with_annotations(
+                    self.span,
+                    &[(
+                        self.expr.as_span(),
+                        &format!(
+                            "the type `{:?}`\n, can not be assigned to a place of type a `{:?}`",
+                            expr_type.resolve_once(ctx),
+                            target_type.resolve_once(ctx)
+                        ),
+                    )],
+                )
+            }));
         }
 
         self.expr_type = DeferedType::ResolvedType(expr_type);
