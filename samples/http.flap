@@ -16,7 +16,7 @@ close(file_fd);
 int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
 // Temporary space for syscall args
-char *scratch = (char *)malloc(16);
+char *scratch = malloc(16);
 
 // Allow Socket Reuse
 *((int *)scratch) = 1;
@@ -43,7 +43,7 @@ setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, int_width());
 // Start listing
 bind(server_fd, (sockaddr *)scratch, 16);
 listen(server_fd, 3);
-free((void *)scratch);
+free(scratch);
 
 void handle_client(int client_fd, char *file_contents, int content_len) {
   auto header =
@@ -56,7 +56,7 @@ void handle_client(int client_fd, char *file_contents, int content_len) {
   int tail_len = sizeof_packed(tail);
 
   int response_len = header_len + length_len + tail_len;
-  char *response = (char *)malloc(response_len);
+  char *response = malloc(response_len);
 
   *response = header;
   memcpy_char(response + header_len, length, length_len);
@@ -65,8 +65,8 @@ void handle_client(int client_fd, char *file_contents, int content_len) {
   write_all(client_fd, response, response_len);
   write_all(client_fd, file_contents, content_len);
 
-  free((void *)response);
-  free((void *)length);
+  free(response);
+  free(length);
 }
 
 // Client accept loop

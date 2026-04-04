@@ -11,9 +11,9 @@ typedef struct {
 } list_string;
 
 list_string *list_string_new(int cap) {
-  list_string *header = (list_string *)malloc(sizeof<list_string>);
+  list_string *header = malloc(sizeof<list_string>);
 
-  header->data = (list_string_value *)malloc(cap * sizeof<list_string_value>);
+  header->data = malloc(cap * sizeof<list_string_value>);
   header->cap = cap;
   header->len = 0;
 
@@ -21,15 +21,14 @@ list_string *list_string_new(int cap) {
 }
 
 void list_string_free(list_string *list) {
-  free((void *)list->data);
-  free((void *)list);
+  free(list->data);
+  free(list);
 }
 
 void list_string_push(list_string *list, list_string_value value) {
   if (list->len == list->cap) {
     int new_cap = list->cap * 2;
-    list->data = (list_string_value *)realloc(
-        (void *)list->data, new_cap * sizeof<list_string_value>);
+    list->data = realloc(list->data, new_cap * sizeof<list_string_value>);
 
     list->cap = new_cap;
   }

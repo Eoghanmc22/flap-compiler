@@ -10,7 +10,7 @@ const char *NEXT_GLOBAL = (char *)0x67670000;
 // const char *NEXT_GLOBAL = NEXT_GLOBAL +
 // roundup_page_size(size_of_your_global);
 //
-// map_global((void*) YOUR_GLOBAL, size_of_your_global)
+// map_global(YOUR_GLOBAL, size_of_your_global)
 void map_global(void *at, int size) {
   const int prot = PROT_READ + PROT_WRITE;
   const int flags = MAP_PRIVATE + MAP_ANONYMOUS + MAP_FIXED_NOREPLACE;

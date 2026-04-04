@@ -4,7 +4,7 @@ list_string *args = parse_args();
 char *path = args->data[args->len - 1];
 
 int len = 4096;
-char *scratch = (char *)malloc(len);
+char *scratch = malloc(len);
 
 int file_fd = open(path, 0, 0);
 copy_all(scratch, len, file_fd, STDOUT);

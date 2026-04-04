@@ -10,8 +10,8 @@ const char *NEXT_GLOBAL =
     NEXT_GLOBAL + PAGE_SIZE; // roundup_page_size(sizeof<rng>);
 
 void init_rng() {
-  map_global((void *)RNG_STATE, sizeof<rng>);
-  getrandom((void *)RNG_STATE, sizeof<rng>, 0);
+  map_global(RNG_STATE, sizeof<rng>);
+  getrandom(RNG_STATE, sizeof<rng>, 0);
 }
 
 int rand() {

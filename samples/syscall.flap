@@ -1,6 +1,6 @@
 #include "../std"
 
-char *page = (char *)malloc(4096);
+char *page = malloc(4096);
 
 auto string = "hello world!\n";
 *page = string;

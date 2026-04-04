@@ -613,7 +613,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let actual_type = self.expr.check_and_resolve_types(ctx)?;
+        let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
 
         match &mut self.var_type {
             DeferedType::ResolvedType(expected_type) => {
@@ -632,6 +632,8 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
                             )
                         }),
                     );
+                } else {
+                    actual_type = expected_type.clone();
                 }
             }
             DeferedType::UnresolvedType => {
@@ -650,7 +652,7 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let actual_type = self.expr.check_and_resolve_types(ctx)?;
+        let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
 
         match &mut self.var_type {
             DeferedType::ResolvedType(expected_type) => {
@@ -669,6 +671,8 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
                             )
                         }),
                     );
+                } else {
+                    actual_type = expected_type.clone();
                 }
             }
             DeferedType::UnresolvedType => {

@@ -10,9 +10,9 @@ typedef struct {
 } list_int;
 
 list_int *list_int_new(int cap) {
-  list_int *header = (list_int *)malloc(sizeof<list_int>);
+  list_int *header = malloc(sizeof<list_int>);
 
-  header->data = (list_int_value *)malloc(cap * sizeof<list_int_value>);
+  header->data = malloc(cap * sizeof<list_int_value>);
   header->cap = cap;
   header->len = 0;
 
@@ -20,15 +20,15 @@ list_int *list_int_new(int cap) {
 }
 
 void list_int_free(list_int *list) {
-  free((void *)list->data);
-  free((void *)list);
+  free(list->data);
+  free(list);
 }
 
 void list_int_push(list_int *list, list_int_value value) {
   if (list->len == list->cap) {
     int new_cap = list->cap * 2;
-    list->data = (list_int_value *)realloc((void *)list->data,
-                                           new_cap * sizeof<list_int_value>);
+
+    list->data = realloc(list->data, new_cap * sizeof<list_int_value>);
 
     list->cap = new_cap;
   }

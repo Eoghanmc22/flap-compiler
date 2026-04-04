@@ -10,7 +10,7 @@ typedef struct {
 } buf;
 
 buf *buf_new(int cap) {
-  buf *buffer = (buf *)malloc(sizeof<buf> * 2 + cap);
+  buf *buffer = malloc(sizeof<buf> * 2 + cap);
 
   buffer->buf = (char *)(buffer + 2);
   buffer->size = 0;
@@ -22,7 +22,7 @@ buf *buf_new(int cap) {
 }
 
 buf *buf_at(char *buf, int len) {
-  buf *buffer = (buf *)malloc(sizeof<buf> * 2);
+  buf *buffer = malloc(sizeof<buf> * 2);
 
   buffer->buf = buf;
   buffer->size = len;
@@ -33,7 +33,7 @@ buf *buf_at(char *buf, int len) {
   buffer
 }
 
-void buf_free(buf *buffer) { free((void *)buffer); }
+void buf_free(buf *buffer) { free(buffer); }
 
 void buf_assert_writable(buf *buffer, int bytes) {
   assert(buffer->size + bytes <= buffer->cap, __LINE__);

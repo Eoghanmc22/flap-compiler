@@ -22,14 +22,14 @@ test it = struct {
   };
 };
 
-test *heap = (test *)malloc(sizeof(it));
+test *heap = malloc(sizeof(it));
 *heap = it;
 
 print(heap->a);        // 20
 print(heap->nested.a); // 50
 
-heap->b = (char *)malloc(4096);
-heap->nested.b = (char *)malloc(4096);
+heap->b = malloc(4096);
+heap->nested.b = malloc(4096);
 
 *(heap->b) = "hello world!\n\0";
 *(heap->nested.b) = "hi from inner!\n\0";

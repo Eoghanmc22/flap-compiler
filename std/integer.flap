@@ -22,7 +22,7 @@ char *convert_int_to_string(int x) {
   list_int *list = list_int_new(10);
   collect_digits(list, x);
 
-  char *string = (char *)malloc(list->len);
+  char *string = malloc(list->len);
   write_digits(string, list);
   list_int_free(list);
 

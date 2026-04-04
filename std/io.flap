@@ -23,7 +23,7 @@ read_all2_result read_all2(int fd) {
 
     if (read + new >= len) {
       int len = len * 2;
-      char *buf = (char *)realloc((void *)buf, len);
+      char *buf = realloc(buf, len);
 
       inner(fd, buf, read + new, len)
     } else {
@@ -35,7 +35,7 @@ read_all2_result read_all2(int fd) {
   }
 
   int len = 4096;
-  char *buf = (char *)malloc(len);
+  char *buf = malloc(len);
 
   inner(fd, buf, 0, len)
 }
@@ -71,11 +71,11 @@ int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
 }
 
 void print_new_line() {
-  char *new_line = (char *)malloc(1);
+  char *new_line = malloc(1);
   *new_line = "\n";
   write(STDOUT, new_line, 1);
 
-  free((void *)new_line);
+  free(new_line);
 }
 
 void print_str(char *str) {
@@ -87,11 +87,11 @@ void print_str(char *str) {
   } else {
     auto error = "str = NULL\n\0";
 
-    char *page = (char *)malloc(sizeof_packed(error));
+    char *page = malloc(sizeof_packed(error));
     *page = error;
 
     write_all(STDOUT, page, sizeof_packed(error));
 
-    free((void *)page);
+    free(page);
   }
 }

@@ -29,10 +29,10 @@ typedef struct {
 } map_int_iter;
 
 map_int *map_int_new(int log_cap) {
-  map_int *header = (map_int *)malloc(sizeof<map_int>);
+  map_int *header = malloc(sizeof<map_int>);
 
   int cap = pow(2, log_cap);
-  header->data = (map_int_entry *)malloc(cap * sizeof<map_int_entry>);
+  header->data = malloc(cap * sizeof<map_int_entry>);
   header->cap = cap;
   header->len = 0;
   header->default = (void *)0;
@@ -41,12 +41,12 @@ map_int *map_int_new(int log_cap) {
 }
 
 void map_int_free(map_int *map) {
-  free((void *)map->data);
-  free((void *)map);
+  free(map->data);
+  free(map);
 }
 
 map_int_iter *map_int_iter_new(map_int *map) {
-  map_int_iter *iter = (map_int_iter *)malloc(sizeof<map_int_iter>);
+  map_int_iter *iter = malloc(sizeof<map_int_iter>);
 
   iter->map = map;
   iter->idx = 0;
@@ -54,7 +54,7 @@ map_int_iter *map_int_iter_new(map_int *map) {
   iter
 }
 
-void map_int_iter_free(map_int_iter *iter) { free((void *)iter); }
+void map_int_iter_free(map_int_iter *iter) { free(iter); }
 
 bool map_int_iter_has_next(map_int_iter *iter) {
   if (iter->map->data[iter->idx].status == map_int_STATUS_OCCUPIED) {

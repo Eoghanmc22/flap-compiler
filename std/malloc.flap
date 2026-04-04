@@ -10,40 +10,38 @@ void *malloc(int size) {
   const int flags = MAP_PRIVATE + MAP_ANONYMOUS;
 
   int size = size + sizeof<malloc_block>;
-  malloc_block *block =
-      (malloc_block *)mmap((void *)NULL, size, prot, flags, -1, 0);
+  malloc_block *block = mmap(NULL, size, prot, flags, -1, 0);
 
   *block = struct {
     size = size;
   };
 
-  (void *)(block + 1)
+  block + 1
 }
 
 void free(void *block) {
   malloc_block *block = (malloc_block *)block - 1;
 
-  munmap((void *)block, block->size);
+  munmap(block, block->size);
 }
 
 void *realloc(void *block, int size) {
-  if (block != (void *)NULL) {
+  if (block != NULL) {
     if (size != 0) {
       malloc_block *block = (malloc_block *)block - 1;
 
       int size = size + sizeof<malloc_block>;
-      malloc_block *block = (malloc_block *)mremap(
-          (void *)block, block->size, size, MREMAP_MAYMOVE, (void *)NULL);
+      malloc_block *block = mremap(block, block->size, size, MREMAP_MAYMOVE, NULL);
 
       *block = struct {
         size = size;
       };
 
-      (void *)(block + 1)
+      block + 1
     } else {
-      free((void *)block);
+      free(block);
 
-      (void *)NULL
+      NULL
     }
   } else {
     malloc(size)
