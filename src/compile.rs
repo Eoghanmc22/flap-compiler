@@ -53,6 +53,10 @@ impl CompileContext {
                 let file = file?.path();
                 let file = fs::canonicalize(file)?;
 
+                if file.extension() != Some("flap".as_ref()) {
+                    continue;
+                }
+
                 self.collect_sources(&file)?;
                 source_file.includes.insert(file);
             }

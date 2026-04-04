@@ -792,7 +792,7 @@ fn walk_expr<'a, 'b>(
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
             };
 
-            match (operand_type, op) {
+            match (operand_type.resolve_once(ctx.type_checker)?, op) {
                 (Type::Struct(_), PostfixOp::Member(ident)) => {
                     let (field_type, field_offset) =
                         operand_type.member_and_offset(ctx.type_checker, ident)?;
@@ -896,8 +896,8 @@ fn walk_expr<'a, 'b>(
                                 ));
                             };
 
-                            assert!(*len >= 0);
-                            if idx < 0 || idx >= *len {
+                            assert!(len >= 0);
+                            if idx < 0 || idx >= len {
                                 return Err(eyre!("Array Index out of bounds").with_section(|| {
                                 generate_span_error_section_with_annotations(
                                     *span,
@@ -909,7 +909,7 @@ fn walk_expr<'a, 'b>(
 
                             Ok(ctx
                                 .reference_relative(
-                                    (**inner_type).clone(),
+                                    *inner_type,
                                     data_ref,
                                     Offset(field_width * idx),
                                 )?

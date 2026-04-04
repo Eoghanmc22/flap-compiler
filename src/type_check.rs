@@ -311,8 +311,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 left_type,
                 right_type,
             } => {
-                let left_type_computed = left.check_and_resolve_types(ctx)?;
-                let right_type_computed = right.check_and_resolve_types(ctx)?;
+                let left_type_computed = left.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+                let right_type_computed = right.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
 
                 *left_type = DeferedType::ResolvedType(left_type_computed.clone());
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
@@ -458,7 +458,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         }
                     }
                     (Type::Pointer(inner_type), PostfixOp::MemberDeref(ident)) => {
-                        match &**inner_type {
+                        match inner_type.resolve_once(ctx)? {
                             Type::Struct(map) => {
                                 if let Some(val_type) = map.get(ident) {
                                     (true, val_type.clone())

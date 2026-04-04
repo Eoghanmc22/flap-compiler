@@ -36,10 +36,12 @@ buf *buf_at(char *buf, int len) {
 void buf_free(buf *buffer) { free((void *)buffer); }
 
 void buf_assert_writable(buf *buffer, int bytes) {
-  assert(buf->size + bytes <= buf_cap);
+  assert(buffer->size + bytes <= buffer->cap, __LINE__);
 }
 
-void buf_assert_readable(buf *buffer, int bytes) { assert(buf->size >= bytes); }
+void buf_assert_readable(buf *buffer, int bytes) {
+  assert(buffer->size >= bytes, __LINE__);
+}
 
 void buf_advance_write(buf *buffer, int bytes) {
   buf_assert_writable(buffer, bytes);
@@ -93,14 +95,14 @@ int buf_read_u8(buf *buffer) {
   number
 }
 
-uint16_t buf_read_u16(buf *buffer) {
+int buf_read_u16(buf *buffer) {
   int lower = buf_read_u8(buffer);
   int upper = buf_read_u8(buffer);
 
   (upper << 8) + lower
 }
 
-uint32_t buf_read_u32(buf *buffer) {
+int buf_read_u32(buf *buffer) {
   int lower = buf_read_u16(buffer);
   int upper = buf_read_u16(buffer);
 
