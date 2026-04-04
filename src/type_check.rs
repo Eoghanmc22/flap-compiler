@@ -318,7 +318,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
 
                 if left_type_computed.width(ctx)? != 1 || right_type_computed.width(ctx)? != 1 {
-                    return Err(eyre!("Binary op only support types that are 1 word")
+                    return Err(eyre!("Binary op {op} only support types that are 1 word")
                         .with_section(|| generate_span_error_section(*span)));
                 }
 
