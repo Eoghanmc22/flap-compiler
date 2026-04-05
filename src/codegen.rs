@@ -373,8 +373,18 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         )).with_section(|| generate_span_error_section(call_span));
                     }
 
+                    let DeferedCaptures::ResolvedCaptures(captures) = &tail_call_sig.captures
+                    else {
+                        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+                    };
+
                     self.bring_up_references(
-                        &parameters,
+                        parameters.into_iter().chain(
+                            captures
+                                .0
+                                .iter()
+                                .map(|(_, _, version)| DataReference::Local(version.unwrap())),
+                        ),
                         tail_call_sig.paramater_width(self.type_checker)?,
                     )
                     .wrap_err("COMPILER BUG: error bringing up references for tail call")
