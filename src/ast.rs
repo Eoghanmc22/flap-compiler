@@ -275,6 +275,7 @@ pub enum Stride {
 pub enum Type<'a> {
     Typedef(IdentRef<'a>),
     Struct(BTreeMap<IdentRef<'a>, Type<'a>>),
+    NamedTuple(Vec<(IdentRef<'a>, Type<'a>)>),
     Pointer(Box<Type<'a>>),
     Array(Box<Type<'a>>, ClacValue),
     Int,
@@ -289,6 +290,7 @@ impl Display for Type<'_> {
         match self {
             Type::Typedef(name) => write!(f, "{name}"),
             Type::Struct(map) => write!(f, "struct {map:?}"),
+            Type::NamedTuple(items) => write!(f, "tuple {items:?}"),
             Type::Pointer(target) => write!(f, "{target}*"),
             Type::Int => write!(f, "int"),
             Type::Char => write!(f, "char"),
@@ -330,6 +332,24 @@ impl<'a> Type<'a> {
                     };
 
                     if !rhs_value.compatible_with(lhs_value, ctx)? {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (Type::NamedTuple(lhs_items), Type::NamedTuple(rhs_items)) => {
+                if lhs_items.len() != rhs_items.len() {
+                    return Ok(false);
+                }
+
+                for ((lhs_key, lhs_value), (rhs_key, rhs_value)) in lhs_items.iter().zip(&rhs_items)
+                {
+                    if lhs_key != rhs_key {
+                        return Ok(false);
+                    }
+
+                    if !lhs_value.compatible_with(rhs_value, ctx)? {
                         return Ok(false);
                     }
                 }
@@ -388,6 +408,12 @@ impl<'a> Type<'a> {
                 .get(ident)
                 .ok_or_else(|| eyre!("Type `{self}` has no member with name {ident}"))
                 .cloned(),
+            Type::NamedTuple(items) => items
+                .iter()
+                .find(|(name, _)| *name == ident)
+                .map(|(_, field_type)| field_type)
+                .ok_or_else(|| eyre!("Type `{self}` has no member with name {ident}"))
+                .cloned(),
             _ => Err(eyre!("Type `{self}` has no members")),
         }
     }
@@ -416,6 +442,19 @@ impl<'a> Type<'a> {
 
                 Err(eyre!("Type `{self}` has no member with name {ident}"))
             }
+            Type::NamedTuple(items) => {
+                let mut offset = 0;
+
+                for (field_name, field_type) in items {
+                    if *field_name == ident {
+                        return Ok((field_type.clone(), Offset(offset)));
+                    }
+
+                    offset += field_type.width(ctx)?;
+                }
+
+                Err(eyre!("Type `{self}` has no member with name {ident}"))
+            }
             _ => Err(eyre!("Type `{self}` has no members")),
         }
     }
@@ -430,6 +469,10 @@ impl<'a> Type<'a> {
             Type::Struct(map) => map
                 .values()
                 .map(|it| it.width(ctx))
+                .sum::<Result<ClacValue>>(),
+            Type::NamedTuple(items) => items
+                .iter()
+                .map(|(_name, field_type)| field_type.width(ctx))
                 .sum::<Result<ClacValue>>(),
             Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => Ok(1),
             Type::Void => Ok(0),
