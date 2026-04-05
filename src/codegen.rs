@@ -87,7 +87,9 @@ impl<'a> MaybeTailCall<'a> {
                         captures
                             .0
                             .iter()
-                            .map(|(_, _, version)| DataReference::Local(version.unwrap()))
+                            .map(|(_, ident, version)| {
+                                DataReference::Local(version.unwrap(), ident)
+                            })
                             .chain(parameters),
                         signature.paramater_width(ctx.type_checker)?,
                     )?;
@@ -381,7 +383,9 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         captures
                             .0
                             .iter()
-                            .map(|(_, _, version)| DataReference::Local(version.unwrap()))
+                            .map(|(_, ident, version)| {
+                                DataReference::Local(version.unwrap(), ident)
+                            })
                             .chain(parameters),
                         tail_call_sig.paramater_width(self.type_checker)?,
                     )
@@ -483,20 +487,24 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         self.push_token(ClacToken::Number(num))?
                     }
                 }
-                DataReference::Const(ident) => {
-                    let val = self.lookup_const(ident).wrap_err("Bring up valid const")?;
+                DataReference::Const(version, ident) => {
+                    let val = self
+                        .lookup_const(version)
+                        .ok_or_else(|| eyre!("Bring up valid const `{ident} {version}`"))?;
 
                     for num in val.as_repr() {
                         self.push_token(ClacToken::Number(num))?
                     }
                 }
-                DataReference::Local(ident) => {
+                DataReference::Local(version, ident) => {
                     let AnnotatedDataRef {
                         reference,
                         data_type,
-                    } = self.lookup_local(ident).wrap_err("Bring up valid local")?;
+                    } = self
+                        .lookup_local(version)
+                        .ok_or_else(|| eyre!("Bring up valid local `{ident} {version}`"))?;
 
-                    trace!("recursing to bring up local reference '{ident}'",);
+                    trace!("recursing to bring up local reference '{ident} {version}'",);
                     self.bring_up_references(
                         &[reference.clone()],
                         data_type.width(self.type_checker)?,
@@ -699,19 +707,19 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
     pub fn dereference_data_ref(&self, data_ref: &DataReference<'a>) -> Result<DataReference<'a>> {
         match data_ref {
-            DataReference::Local(local) => self.dereference_data_ref(
+            DataReference::Local(version, ident) => self.dereference_data_ref(
                 &self
-                    .lookup_local(local)
+                    .lookup_local(version)
                     .ok_or_else(|| {
                         eyre!(
-                            "Attempted to deref a data reference pointing to a non existant local"
+                            "Attempted to deref a data reference pointing to a non existant local by name `{ident} {version}`"
                         )
                     })?
                     .reference,
             ),
-            DataReference::Const(constant) => {
-                let value = self.lookup_const(constant).ok_or_else(|| {
-                    eyre!("Attempted to deref a data reference pointing to a non existant constant")
+            DataReference::Const(version, ident) => {
+                let value = self.lookup_const(version).ok_or_else(|| {
+                    eyre!("Attempted to deref a data reference pointing to a non existant constant by name `{ident} {version}`")
                 })?;
 
                 Ok(DataReference::Value(value))

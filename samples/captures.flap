@@ -9,3 +9,17 @@ void do_thing() {
 }
 
 do_thing();
+
+int test(int x) {
+  int inner(int y) {
+    print(x);
+
+    if (true) {
+      inner(y)
+    }
+  }
+
+  inner(6)
+}
+
+test(5);

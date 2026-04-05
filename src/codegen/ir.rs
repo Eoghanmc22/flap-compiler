@@ -3,7 +3,7 @@ use std::sync::Arc;
 use color_eyre::eyre::{ContextCompat, Result, bail};
 
 use crate::{
-    ast::{FunctionSignature, Type, Value, VariableVersion},
+    ast::{FunctionSignature, IdentRef, Type, Value, VariableVersion},
     codegen::{
         CodegenCtx, DefinitionIdent, TempoaryIdent,
         clac::{ClacProgram, ClacToken, ClacValue, ClacValueUnsigned},
@@ -44,8 +44,8 @@ impl<'a, 'b> TokenConsumer<'a, 'b> for (&mut ClacProgram, &mut CodegenCtx<'a, 'b
 #[derive(Debug, Clone)]
 pub enum DataReference<'a> {
     Value(Value<'a>),
-    Local(VariableVersion),
-    Const(VariableVersion),
+    Local(VariableVersion, IdentRef<'a>),
+    Const(VariableVersion, IdentRef<'a>),
     Tempoary(TempoaryIdent),
 }
 

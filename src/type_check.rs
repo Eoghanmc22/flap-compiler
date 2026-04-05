@@ -124,11 +124,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub fn define_function<T, F: FnOnce(&mut Self) -> T>(
+    pub fn define_function<T, F: FnMut(&mut Self) -> T>(
         &mut self,
         ident: IdentRef<'a>,
         signature: &mut FunctionSignature<'a>,
-        scope: F,
+        mut scope: F,
     ) -> (T, TypeCheckerFrame<'a>) {
         self.top_scope_frame()
             .functions
@@ -140,6 +140,18 @@ impl<'a> TypeChecker<'a> {
                 *defered_version = DeferedVersion::ResolvedVersion(version);
             }
 
+            // Pass 1, Goal: compute what this captures
+            (scope)(ctx);
+
+            // Compute captures
+            signature.captures =
+                DeferedCaptures::ResolvedCaptures(ctx.top_scope_frame().get_captures());
+
+            // Pass 2, Goal: propagate info about the current captures to recursive call sites
+            let parent = ctx.scope_stack.len() - 2;
+            ctx.scope_stack[parent]
+                .functions
+                .insert(ident, signature.clone());
             (scope)(ctx)
         })
     }
@@ -573,13 +585,21 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             }
         }
 
+        // On the first pass, captures will not be available
+        // But on the second pass, they will be and need to be propagated
+        if let DeferedCaptures::ResolvedCaptures(captures) = sig.captures {
+            for (_, _, version) in captures.0 {
+                ctx.lookup_variable_versioned(version.unwrap())?;
+            }
+        }
+
         Ok(sig.return_type.clone())
     }
 }
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let (actual_return_type, frame) =
+        let (actual_return_type, _frame) =
             ctx.define_function(self.function, &mut self.signature, |ctx| {
                 self.contents.check_and_resolve_types(ctx)
             });
@@ -612,7 +632,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
                 }));
         }
 
-        self.signature.captures = DeferedCaptures::ResolvedCaptures(frame.get_captures());
+        // Computing captures got moved into ctx.define_function
 
         // The Function Definition it self should not have a rrtuen type
         Ok(Type::Void)
