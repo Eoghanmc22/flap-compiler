@@ -169,7 +169,7 @@ fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>
     };
 
     let data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
-    ctx.promote_to_local(data_ref, *version, var_type)?;
+    ctx.promote_to_local(&data_ref, *version, var_type)?;
 
     Ok(())
 }
@@ -220,7 +220,7 @@ fn walk_assignment<'a, 'b>(
                         .data_type
                         .compatible_with(&expr_type, ctx.type_checker)?
                 {
-                    ctx.promote_to_local(expr_data_ref, derived_from_local.version, target_type)?;
+                    ctx.promote_to_local(&expr_data_ref, derived_from_local.version, target_type)?;
                 } else {
                     return Err(eyre!(
                         "UNIMPLEMENTED: Assignments can currently only mutate entire locals, not offsets into them, offset: {:?}, old type: {}, target_type: {}, expr_type: {}",
@@ -263,7 +263,7 @@ fn walk_assignment<'a, 'b>(
                 (width, Stride::Byte) => {
                     for idx in 0..width {
                         let char =
-                            ctx.reference_relative(Type::Char, expr_data_ref.clone(), Offset(idx))?;
+                            ctx.reference_relative(Type::Char, &expr_data_ref, Offset(idx))?;
 
                         let target_char = if idx != 0 {
                             ClacOp::Add {
@@ -281,8 +281,7 @@ fn walk_assignment<'a, 'b>(
                 }
                 (width, Stride::Native) => {
                     for idx in 0..width {
-                        let int =
-                            ctx.reference_relative(Type::Int, expr_data_ref.clone(), Offset(idx))?;
+                        let int = ctx.reference_relative(Type::Int, &expr_data_ref, Offset(idx))?;
 
                         let target_int = if idx != 0 {
                             ClacOp::Add {
@@ -952,7 +951,7 @@ fn walk_expr<'a, 'b>(
                             let data_ref = maybe_tail_call.into_data_ref(ctx)?;
 
                             Ok(ctx
-                                .reference_relative(field_type, data_ref, field_offset)?
+                                .reference_relative(field_type, &data_ref, field_offset)?
                                 .into())
                         }
                         ExpressionOutput::Dereference(expr, expr_type, span) => walk_expr(
@@ -1059,7 +1058,7 @@ fn walk_expr<'a, 'b>(
                             Ok(ctx
                                 .reference_relative(
                                     *inner_type,
-                                    data_ref,
+                                    &data_ref,
                                     Offset(field_width * idx),
                                 )?
                                 .into())

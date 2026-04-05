@@ -9,6 +9,7 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, HashSet},
     fmt::{self, Debug, Display},
+    iter,
     ops::BitOr,
     path::Path,
 };
@@ -600,8 +601,18 @@ impl DeferedVersion {
     }
 }
 
+// TODO: need a way to repersent scopes where captures are not taken such as arguements to
+// sizeof() expressions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CaptureKind {
+    Read,
+    ReadWrite,
+}
+
+pub type Capture<'a> = (Type<'a>, IdentRef<'a>, VariableVersion, CaptureKind);
+
 #[derive(Debug, Clone, Default)]
-pub struct Captures<'a>(pub Arguements<'a>);
+pub struct Captures<'a>(pub BTreeMap<VariableVersion, (Type<'a>, IdentRef<'a>, CaptureKind)>);
 
 #[derive(Debug, Clone, Default)]
 pub enum DeferedCaptures<'a> {
@@ -669,12 +680,49 @@ pub struct FunctionSignature<'a> {
 }
 
 impl<'a> FunctionSignature<'a> {
-    pub fn arguements_and_captures(&self) -> Result<impl Iterator<Item = &Arguement<'a>>> {
+    pub fn captures_read(&self) -> Result<impl Iterator<Item = Capture<'a>>> {
         let DeferedCaptures::ResolvedCaptures(captures) = &self.captures else {
-            return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+            return Err(eyre!("COMPILER BUG: defered captures was not resolved"));
         };
 
-        Ok(captures.0.iter().chain(&self.arguements))
+        Ok(captures
+            .0
+            .iter()
+            .map(|(version, (var_type, ident, kind))| (var_type.clone(), *ident, *version, *kind)))
+    }
+
+    pub fn captures_write(&self) -> Result<impl Iterator<Item = Capture<'a>>> {
+        let DeferedCaptures::ResolvedCaptures(captures) = &self.captures else {
+            return Err(eyre!("COMPILER BUG: defered captures was not resolved"));
+        };
+
+        Ok(captures
+            .0
+            .iter()
+            .filter(|(_, (_, _, kind))| matches!(kind, CaptureKind::ReadWrite))
+            .map(|(version, (var_type, ident, kind))| (var_type.clone(), *ident, *version, *kind)))
+    }
+
+    pub fn arguements_and_captures(&self) -> Result<impl Iterator<Item = Arguement<'a>>> {
+        Ok(self
+            .captures_read()?
+            .map(|(var_type, ident, version, _kind)| {
+                (var_type, ident, DeferedVersion::ResolvedVersion(version))
+            })
+            .chain(
+                self.arguements
+                    .iter()
+                    .map(|(var_type, ident, version)| (var_type.clone(), *ident, *version)),
+            ))
+    }
+
+    pub fn full_return_type(&self) -> Result<Type<'a>> {
+        Ok(Type::Tuple(
+            self.captures_write()?
+                .map(|(var_type, _, _, _)| var_type)
+                .chain(iter::once(self.return_type.clone()))
+                .collect(),
+        ))
     }
 
     pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
@@ -684,7 +732,7 @@ impl<'a> FunctionSignature<'a> {
     }
 
     pub fn return_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
-        self.return_type.width(ctx)
+        self.full_return_type()?.width(ctx)
     }
 
     pub fn stack_delta(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
@@ -692,6 +740,44 @@ impl<'a> FunctionSignature<'a> {
             self.paramater_width(ctx)
                 .map(|parm_width| ret_width - parm_width)
         })
+    }
+
+    pub fn compatible_captures_read(&self, other: &FunctionSignature<'a>) -> Result<bool> {
+        let lhs_count = self.captures_read()?.count();
+        let rhs_count = other.captures_read()?.count();
+
+        if lhs_count != rhs_count {
+            return Ok(false);
+        }
+
+        for ((_, _, l_version, _), (_, _, r_version, _)) in
+            self.captures_read()?.zip(other.captures_read()?)
+        {
+            if l_version != r_version {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    pub fn compatible_captures_write(&self, other: &FunctionSignature<'a>) -> Result<bool> {
+        let lhs_count = self.captures_write()?.count();
+        let rhs_count = other.captures_write()?.count();
+
+        if lhs_count != rhs_count {
+            return Ok(false);
+        }
+
+        for ((_, _, l_version, _), (_, _, r_version, _)) in
+            self.captures_write()?.zip(other.captures_write()?)
+        {
+            if l_version != r_version {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 }
 

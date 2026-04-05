@@ -1,0 +1,13 @@
+int x = 5;
+
+void loop() {
+  if (x >= 0) {
+    print(x);
+    x = x-1;
+    loop();
+  }
+}
+
+x = 42;
+
+loop();

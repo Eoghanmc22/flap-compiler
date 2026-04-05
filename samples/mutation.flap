@@ -1,5 +1,9 @@
-int x = 5;
+int bb(int x) {x}
 
-x = 10;
+int x = bb(5);
+
+if (false) {
+  x = bb(10);
+}
 
 print(x);

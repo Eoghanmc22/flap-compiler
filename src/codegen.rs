@@ -8,12 +8,13 @@ use color_eyre::{
     eyre::{Context, ContextCompat, OptionExt, Result, bail, eyre},
 };
 use pest::Span;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
     fmt::Debug,
+    iter,
     ops::Add,
     sync::{
         Arc,
@@ -24,8 +25,8 @@ use std::{
 
 use crate::{
     ast::{
-        DeferedCaptures, DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type,
-        Value, VariableVersion,
+        DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type, Value,
+        VariableVersion,
     },
     codegen::{
         builtins::clac_builtins,
@@ -106,16 +107,11 @@ impl<'a> MaybeTailCall<'a> {
                 call_span,
             } => {
                 let res: Result<_> = try {
-                    let DeferedCaptures::ResolvedCaptures(captures) = &signature.captures else {
-                        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
-                    };
-
                     ctx.bring_up_references(
-                        captures
-                            .0
-                            .iter()
-                            .map(|(_, ident, version)| {
-                                DataReference::Local(version.unwrap(), ident)
+                        signature
+                            .captures_read()?
+                            .map(|(_type, ident, version, _kind)| {
+                                DataReference::Local(version, ident)
                             })
                             .chain(parameters),
                         signature.paramater_width(ctx.type_checker)?,
@@ -125,7 +121,21 @@ impl<'a> MaybeTailCall<'a> {
                         ctx.push_token(token.clone())?;
                     }
 
-                    // TODO:
+                    let full = DataReference::Tempoary(
+                        ctx.allocate_tempoary(signature.full_return_type()?)?,
+                        None,
+                    );
+
+                    let mut offset = 0;
+                    for (var_type, _ident, version, _kind) in signature.captures_write()? {
+                        let temp =
+                            ctx.reference_relative(var_type.clone(), &full, Offset(offset))?;
+
+                        ctx.promote_to_local(&temp, version, var_type.clone())?;
+
+                        offset += var_type.width(ctx.type_checker)?;
+                    }
+
                     DataReference::Tempoary(
                         ctx.allocate_tempoary(signature.return_type.clone())?,
                         None,
@@ -231,10 +241,10 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     pub fn reference_relative(
         &mut self,
         var_type: Type<'a>,
-        base: DataReference<'a>,
+        base: &DataReference<'a>,
         rel_offset: Offset,
     ) -> Result<DataReference<'a>> {
-        match self.dereference_data_ref(&base)? {
+        match self.dereference_data_ref(base)? {
             DataReference::Value(value, derived_from) => {
                 let derived_from = derived_from.map(|it| DerivedFrom {
                     version: it.version,
@@ -266,7 +276,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         // warn!("Comptime Value::Flat emitted, value propagation may be impacted");
 
                         Ok(DataReference::Value(
-                            Value::Flat(var_type.clone(), value.as_repr()[start..end].to_vec()),
+                            Value::Flat(var_type, value.as_repr()[start..end].to_vec()),
                             derived_from,
                         ))
                     }
@@ -302,11 +312,11 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
     pub fn promote_to_local(
         &mut self,
-        data_ref: DataReference<'a>,
+        data_ref: &DataReference<'a>,
         version: VariableVersion,
         data_type: Type<'a>,
     ) -> Result<()> {
-        let reference = self.dereference_data_ref(&data_ref)?;
+        let reference = self.dereference_data_ref(data_ref)?;
 
         self.top_scope_frame().locals.insert(
             version,
@@ -376,7 +386,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     frame
                         .locals
                         .insert(
-                            *version,
+                            version,
                             AnnotatedDataRef {
                                 reference: DataReference::Tempoary(tempoary, None),
                                 data_type: var_type.clone(),
@@ -395,7 +405,12 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             let (retain_width, tail_call) = match return_data_ref {
                 MaybeTailCall::Regular(data_reference) => {
                     self.bring_up_references(
-                        &[data_reference],
+                        signature
+                            .captures_write()?
+                            .map(|(_type, ident, version, _kind)| {
+                                DataReference::Local(version, ident)
+                            })
+                            .chain(iter::once(data_reference)),
                         signature.return_width(self.type_checker)?,
                     )?;
 
@@ -420,23 +435,17 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         != tail_call_sig.return_type.width(self.type_checker)?
                     {
                         return Err(eyre!(
-                            "Attempted to tail call `{ident}` but it returns a {:?}, and the calling runction returns a {:?}, and these types differ in width",
+                            "Attempted to tail call in `{ident}` but it returns a {:?}, and the calling runction returns a {:?}, and these types differ in width",
                             tail_call_sig.return_type,
                             signature.return_type
                         )).with_section(|| generate_span_error_section(call_span));
                     }
 
-                    let DeferedCaptures::ResolvedCaptures(captures) = &tail_call_sig.captures
-                    else {
-                        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
-                    };
-
                     self.bring_up_references(
-                        captures
-                            .0
-                            .iter()
-                            .map(|(_, ident, version)| {
-                                DataReference::Local(version.unwrap(), ident)
+                        tail_call_sig
+                            .captures_read()?
+                            .map(|(_type, ident, version, _kind)| {
+                                DataReference::Local(version, ident)
                             })
                             .chain(parameters),
                         tail_call_sig.paramater_width(self.type_checker)?,
@@ -446,7 +455,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
                     (
                         tail_call_sig.paramater_width(self.type_checker)?,
-                        Some(tokens),
+                        Some((tokens, tail_call_sig, call_span)),
                     )
                 }
             };
@@ -482,9 +491,22 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 assert_eq!(self.cursor - frame.frame_start, retain_width);
             }
 
-            if let Some(tail_call) = tail_call {
-                for token in tail_call.iter() {
-                    self.push_token(token.clone())?;
+            if let Some((tail_call_impl, tail_call_sig, call_span)) = tail_call {
+                if tail_call_sig.compatible_captures_write(&signature)? {
+                    for token in tail_call_impl.iter() {
+                        self.push_token(token.clone())?;
+                    }
+                } else {
+                    warn!(
+                        "Tail call could not be applied due to mutation near `{}`",
+                        call_span.as_str()
+                    );
+
+                    return Err(eyre!(
+                            "UNIMPLEMENTED: Attempted to tail call in `{ident}` but it captures a subset of the calling function's captures, tail call captures {:?}, calling method captures: {:?}",
+                            tail_call_sig.captures,
+                            signature.captures,
+                        )).with_section(|| generate_span_error_section(call_span));
                 }
             }
         }

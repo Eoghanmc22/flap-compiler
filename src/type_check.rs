@@ -15,10 +15,10 @@ use pest::Span;
 
 use crate::{
     ast::{
-        AsSpan, Assignment, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType,
-        DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase,
-        IfExpr, LocalDef, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
-        VariableVersion,
+        AsSpan, Assignment, BinaryOp, Block, CaptureKind, Captures, ConstDef, DeferedCaptures,
+        DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef,
+        IfCase, IfExpr, LocalDef, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef,
+        Value, VariableVersion,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
@@ -28,14 +28,24 @@ use crate::{
 pub enum VariableKind {
     Local,
     Constant,
-    Capture,
+    Capture(CaptureKind),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord)]
+pub enum FrameKind {
+    #[default]
+    Regular,
+    Phantom,
+}
+
+#[derive(Debug, Clone)]
 pub struct TypeCheckerFrame<'a> {
     pub variables: HashMap<IdentRef<'a>, VariableVersion>,
     pub variables_versioned: HashMap<VariableVersion, (IdentRef<'a>, Type<'a>, VariableKind)>,
     pub functions: HashMap<IdentRef<'a>, FunctionSignature<'a>>,
+
+    pub frame_kind: FrameKind,
+    pub capture_kind: CaptureKind,
 }
 
 impl<'a> TypeCheckerFrame<'a> {
@@ -43,13 +53,11 @@ impl<'a> TypeCheckerFrame<'a> {
         Captures(
             self.variables_versioned
                 .iter()
-                .filter(|(_, (_, _, kind))| *kind == VariableKind::Capture)
-                .map(|(version, (ident, data_type, _))| {
-                    (
-                        data_type.clone(),
-                        *ident,
-                        DeferedVersion::ResolvedVersion(*version),
-                    )
+                .filter_map(|(version, (ident, data_type, kind))| match kind {
+                    VariableKind::Capture(capture_kind) => {
+                        Some((*version, (data_type.clone(), *ident, *capture_kind)))
+                    }
+                    _ => None,
                 })
                 .collect(),
         )
@@ -92,18 +100,30 @@ impl Default for TypeChecker<'_> {
             type_checker.define_function(ident, &mut sig, |_| {});
         }
 
-        type_checker.push_scope_frame();
+        type_checker.push_scope_frame(FrameKind::Regular, CaptureKind::Read);
 
         type_checker
     }
 }
 
 impl<'a> TypeChecker<'a> {
-    fn push_scope_frame(&mut self) -> &mut TypeCheckerFrame<'a> {
+    fn push_scope_frame(
+        &mut self,
+        frame_kind: FrameKind,
+        capture_kind: CaptureKind,
+    ) -> &mut TypeCheckerFrame<'a> {
+        let last_frame_kind = self
+            .scope_stack
+            .last()
+            .map(|it| it.frame_kind)
+            .unwrap_or(FrameKind::Regular);
+
         self.scope_stack.push_mut(TypeCheckerFrame {
             variables: Default::default(),
             variables_versioned: Default::default(),
             functions: Default::default(),
+            frame_kind: frame_kind.max(last_frame_kind),
+            capture_kind,
         })
     }
 
@@ -118,7 +138,7 @@ impl<'a> TypeChecker<'a> {
 
     fn top_scope_frame(&mut self) -> &mut TypeCheckerFrame<'a> {
         if self.scope_stack.is_empty() {
-            self.push_scope_frame()
+            self.push_scope_frame(FrameKind::Regular, CaptureKind::Read)
         } else {
             self.scope_stack.last_mut().unwrap()
         }
@@ -134,33 +154,39 @@ impl<'a> TypeChecker<'a> {
             .functions
             .insert(ident, signature.clone());
 
-        self.define_scope(|ctx| {
-            for (var_type, ident, defered_version) in &mut signature.arguements {
-                let version = ctx.define_variable(ident, var_type.clone(), VariableKind::Local);
-                *defered_version = DeferedVersion::ResolvedVersion(version);
-            }
+        self.define_scope(
+            |ctx| {
+                for (var_type, ident, defered_version) in &mut signature.arguements {
+                    let version = ctx.define_variable(ident, var_type.clone(), VariableKind::Local);
+                    *defered_version = DeferedVersion::ResolvedVersion(version);
+                }
 
-            // Pass 1, Goal: compute what this captures
-            (scope)(ctx);
+                // Pass 1, Goal: compute what this captures
+                (scope)(ctx);
 
-            // Compute captures
-            signature.captures =
-                DeferedCaptures::ResolvedCaptures(ctx.top_scope_frame().get_captures());
+                // Compute captures
+                signature.captures =
+                    DeferedCaptures::ResolvedCaptures(ctx.top_scope_frame().get_captures());
 
-            // Pass 2, Goal: propagate info about the current captures to recursive call sites
-            let parent = ctx.scope_stack.len() - 2;
-            ctx.scope_stack[parent]
-                .functions
-                .insert(ident, signature.clone());
-            (scope)(ctx)
-        })
+                // Pass 2, Goal: propagate info about the current captures to recursive call sites
+                let parent = ctx.scope_stack.len() - 2;
+                ctx.scope_stack[parent]
+                    .functions
+                    .insert(ident, signature.clone());
+                (scope)(ctx)
+            },
+            FrameKind::Regular,
+            CaptureKind::Read,
+        )
     }
 
     pub fn define_scope<T, F: FnOnce(&mut Self) -> T>(
         &mut self,
         scope: F,
+        frame_kind: FrameKind,
+        capture_kind: CaptureKind,
     ) -> (T, TypeCheckerFrame<'a>) {
-        self.push_scope_frame();
+        self.push_scope_frame(frame_kind, capture_kind);
         let ret = (scope)(self);
         let frame = self.pop_scope_frame().unwrap();
 
@@ -197,6 +223,14 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    pub fn frame_kind(&mut self) -> FrameKind {
+        self.top_scope_frame().frame_kind
+    }
+
+    pub fn capture_kind(&mut self) -> CaptureKind {
+        self.top_scope_frame().capture_kind
+    }
+
     pub fn lookup_function(&mut self, ident: IdentRef<'a>) -> Option<&FunctionSignature<'a>> {
         for frame in self.scope_stack.iter().rev() {
             if let Some(sig) = frame.functions.get(&ident) {
@@ -207,24 +241,37 @@ impl<'a> TypeChecker<'a> {
         None
     }
 
+    // TODO: need a way to repersent scopes where captures are not taken such as arguements to
+    // sizeof() expressions
     pub fn lookup_variable_versioned(
         &mut self,
         var: VariableVersion,
+        capture_kind: CaptureKind,
     ) -> Result<(Type<'a>, VariableVersion)> {
+        let frame_kind = self.frame_kind();
+
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
-            if let Some((ident, var_type, kind)) = frame.variables_versioned.get(&var) {
+            if let Some((ident, var_type, kind @ (VariableKind::Local | VariableKind::Constant))) =
+                frame.variables_versioned.get(&var)
+            {
                 let ident = *ident;
                 let var_type = var_type.clone();
-                let kind = *kind;
 
-                for frame in self.scope_stack.iter_mut().rev().take(idx) {
-                    match kind {
-                        VariableKind::Local | VariableKind::Capture => {
-                            frame
-                                .variables_versioned
-                                .insert(var, (ident, var_type.clone(), VariableKind::Capture));
-                        }
-                        VariableKind::Constant => {}
+                if let FrameKind::Regular = frame_kind
+                    && let VariableKind::Local = kind
+                {
+                    for frame in self.scope_stack.iter_mut().rev().take(idx) {
+                        let (_, _, VariableKind::Capture(prev_mode)) =
+                            frame.variables_versioned.entry(var).or_insert((
+                                ident,
+                                var_type.clone(),
+                                VariableKind::Capture(capture_kind),
+                            ))
+                        else {
+                            unreachable!()
+                        };
+
+                        *prev_mode = (*prev_mode).max(capture_kind)
                     }
                 }
 
@@ -235,10 +282,14 @@ impl<'a> TypeChecker<'a> {
         Err(eyre!("Variable {var} is not in scope"))
     }
 
+    // TODO: need a way to repersent scopes where captures are not taken such as arguements to
+    // sizeof() expressions
     pub fn lookup_variable(&mut self, var: IdentRef<'a>) -> Result<(Type<'a>, VariableVersion)> {
+        let capture_kind = self.capture_kind();
+
         for frame in self.scope_stack.iter().rev() {
             if let Some(version) = frame.variables.get(var) {
-                return self.lookup_variable_versioned(*version);
+                return self.lookup_variable_versioned(*version, capture_kind);
             }
         }
 
@@ -261,7 +312,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
         match self {
             Expr::SizeOfType(..) => Ok(Type::Int),
             Expr::SizeOfExpr(inner_expr, defered_type, _mode, _span) => {
-                *defered_type = DeferedType::ResolvedType(inner_expr.check_and_resolve_types(ctx)?);
+                let (resolved_type, _frame) = ctx.define_scope(
+                    |ctx| inner_expr.check_and_resolve_types(ctx),
+                    FrameKind::Phantom,
+                    CaptureKind::Read,
+                );
+
+                *defered_type = DeferedType::ResolvedType(resolved_type?);
 
                 Ok(Type::Int)
             }
@@ -335,6 +392,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 left_type,
                 right_type,
             } => {
+                assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
                 let left_type_computed = left.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
                 let right_type_computed = right.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
 
@@ -405,8 +464,29 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 span,
                 operand_type,
             } => {
-                let operand_type_computed =
-                    operand.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+                let operand_type_computed = match op {
+                    PrefixOp::Cast(_) => {
+                        // Preserve
+                        operand.check_and_resolve_types(ctx)?
+                    }
+                    PrefixOp::Dereference => {
+                        // Eval arg in read only
+                        let (result, _frame) = ctx.define_scope(
+                            |ctx| operand.check_and_resolve_types(ctx),
+                            FrameKind::Regular,
+                            CaptureKind::Read,
+                        );
+
+                        result?
+                    }
+                    PrefixOp::AddressOf | PrefixOp::Negate | PrefixOp::LNot => {
+                        // Should be read only
+                        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+                        operand.check_and_resolve_types(ctx)?
+                    }
+                };
+
+                let operand_type_computed = operand_type_computed.resolve_once(ctx)?;
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (valid_types, return_type) = match op {
@@ -467,8 +547,53 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 span,
                 operand_type,
             } => {
-                let operand_type_computed =
-                    operand.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+                let operand_type_computed = match op {
+                    PostfixOp::Member(_) => {
+                        // Preserve
+                        operand.check_and_resolve_types(ctx)?
+                    }
+                    PostfixOp::MemberDeref(_) => {
+                        // Eval arg in read only
+                        let (result, _frame) = ctx.define_scope(
+                            |ctx| operand.check_and_resolve_types(ctx),
+                            FrameKind::Regular,
+                            CaptureKind::Read,
+                        );
+
+                        result?
+                    }
+                    PostfixOp::ArrayIndex(_) => {
+                        // Depends on operand_type
+                        // - If operand is a pointer type then eval arg in read only
+                        // - If operand is an array type then preserve
+
+                        let (result_phantom, _frame) = ctx.define_scope(
+                            |ctx| operand.check_and_resolve_types(ctx),
+                            FrameKind::Phantom,
+                            CaptureKind::Read,
+                        );
+
+                        match result_phantom?.resolve_once(ctx)? {
+                            Type::Pointer(_) => {
+                                // Eval arg in read only
+                                let (result, _frame) = ctx.define_scope(
+                                    |ctx| operand.check_and_resolve_types(ctx),
+                                    FrameKind::Regular,
+                                    CaptureKind::Read,
+                                );
+
+                                result?
+                            }
+                            Type::Array(_, _) => {
+                                // Preserve
+                                operand.check_and_resolve_types(ctx)?
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                };
+
+                let operand_type_computed = operand_type_computed.resolve_once(ctx)?;
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (valid_types, return_type) = match (&operand_type_computed, &mut *op) {
@@ -512,7 +637,14 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         Type::Array(inner_type, _) | Type::Pointer(inner_type),
                         PostfixOp::ArrayIndex(expr),
                     ) => {
-                        let idx_type = expr.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+                        // Eval idx in read only
+                        let (idx_result, _frame) = ctx.define_scope(
+                            |ctx| expr.check_and_resolve_types(ctx),
+                            FrameKind::Regular,
+                            CaptureKind::Read,
+                        );
+
+                        let idx_type = idx_result?.resolve_once(ctx)?;
                         let Type::Int = idx_type else {
                             return Err(eyre!("Attempting to index into an array or pointer with a expression of non Int type: {idx_type}")
                                 .with_section(|| {
@@ -544,14 +676,34 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 Ok(return_type)
             }
-            Expr::FunctionCall(func_call) => func_call.check_and_resolve_types(ctx),
-            Expr::If(if_expr) => if_expr.check_and_resolve_types(ctx),
+            Expr::FunctionCall(func_call) => {
+                // Eval function call in read only
+                let (result, _frame) = ctx.define_scope(
+                    |ctx| func_call.check_and_resolve_types(ctx),
+                    FrameKind::Regular,
+                    CaptureKind::Read,
+                );
+
+                result
+            }
+            Expr::If(if_expr) => {
+                // Eval function call in read only
+                let (result, _frame) = ctx.define_scope(
+                    |ctx| if_expr.check_and_resolve_types(ctx),
+                    FrameKind::Regular,
+                    CaptureKind::Read,
+                );
+
+                result
+            }
         }
     }
 }
 
 impl<'a> TypeCheck<'a> for FunctionCall<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         let sig = ctx
             .lookup_function(self.function)
             .wrap_err_with(|| format!("Could not find function: {}", self.function))
@@ -590,9 +742,9 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
         // On the first pass, captures will not be available
         // But on the second pass, they will be and need to be propagated
-        if let DeferedCaptures::ResolvedCaptures(captures) = sig.captures {
-            for (_, _, version) in captures.0 {
-                ctx.lookup_variable_versioned(version.unwrap())?;
+        if let DeferedCaptures::ResolvedCaptures(_) = sig.captures {
+            for (_, _, version, kind) in sig.captures_read()? {
+                ctx.lookup_variable_versioned(version, kind)?;
             }
         }
 
@@ -602,6 +754,8 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         let (actual_return_type, _frame) =
             ctx.define_function(self.function, &mut self.signature, |ctx| {
                 self.contents.check_and_resolve_types(ctx)
@@ -644,6 +798,8 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
 
         match &mut self.var_type {
@@ -684,6 +840,8 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
 
         match &mut self.var_type {
@@ -724,8 +882,17 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 
 impl<'a> TypeCheck<'a> for Assignment<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
+        // Eval target call in read write
+        let (target_type, _frame) = ctx.define_scope(
+            |ctx| self.target.check_and_resolve_types(ctx),
+            FrameKind::Regular,
+            CaptureKind::ReadWrite,
+        );
+
         let expr_type = self.expr.check_and_resolve_types(ctx)?;
-        let target_type = self.target.check_and_resolve_types(ctx)?;
+        let target_type = target_type?;
 
         let mismatched_type = match (&target_type, &expr_type) {
             (target_type, Type::Array(array_type, _len))
@@ -762,6 +929,8 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
 
 impl<'a> TypeCheck<'a> for Typedef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         ctx.define_type(self.name, self.type_alias.clone())?;
 
         // A typedef does not produce a value
@@ -771,6 +940,8 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 
 impl<'a> TypeCheck<'a> for IfCase<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         let case_type = self
             .condition
             .check_and_resolve_types(ctx)?
@@ -800,17 +971,20 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
 
 impl<'a> TypeCheck<'a> for IfExpr<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         let expected_type = self
             .cases
             .first_mut()
             .unwrap()
             .check_and_resolve_types(ctx)?;
 
-        let (rst, frame) = ctx.define_scope::<Result<_>, _>(|ctx| {
-            for case in &mut self.cases {
-                let case_return_type = case.check_and_resolve_types(ctx)?;
-                if !case_return_type.compatible_with(&expected_type, ctx)? {
-                    return Err(
+        let (rst, frame) = ctx.define_scope(
+            |ctx| -> Result<_> {
+                for case in &mut self.cases {
+                    let case_return_type = case.check_and_resolve_types(ctx)?;
+                    if !case_return_type.compatible_with(&expected_type, ctx)? {
+                        return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
                         generate_span_error_section_with_annotations(
                             case.span,
@@ -828,13 +1002,13 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
                         )
                     }),
                 );
+                    }
                 }
-            }
 
-            if let Some(otherwise) = &mut self.otherwise {
-                let case_return_type = otherwise.check_and_resolve_types(ctx)?;
-                if !case_return_type.compatible_with(&expected_type, ctx)? {
-                    return Err(
+                if let Some(otherwise) = &mut self.otherwise {
+                    let case_return_type = otherwise.check_and_resolve_types(ctx)?;
+                    if !case_return_type.compatible_with(&expected_type, ctx)? {
+                        return Err(
                     eyre!("If case's block evaluated to the incorrect type").with_section(|| {
                         generate_span_error_section_with_annotations(
                             otherwise.as_span(),
@@ -852,11 +1026,14 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
                         )
                     }),
                 );
+                    }
                 }
-            }
 
-            Ok(())
-        });
+                Ok(())
+            },
+            FrameKind::Regular,
+            CaptureKind::Read,
+        );
 
         self.return_type = DeferedType::ResolvedType(expected_type.clone());
         self.captures = DeferedCaptures::ResolvedCaptures(frame.get_captures());
@@ -867,6 +1044,8 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
 
 impl<'a> TypeCheck<'a> for Statement<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         match self {
             Statement::FunctionDef(function_def) => function_def.check_and_resolve_types(ctx),
             Statement::Const(const_def) => const_def.check_and_resolve_types(ctx),
@@ -888,15 +1067,21 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
 
 impl<'a> TypeCheck<'a> for Block<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
         let mut actual_return_type = Type::Void;
 
-        let (res, frame) = ctx.define_scope::<Result<_>, _>(|ctx| {
-            for statement in &mut self.statements {
-                actual_return_type = statement.check_and_resolve_types(ctx)?;
-            }
+        let (res, frame) = ctx.define_scope(
+            |ctx| -> Result<_> {
+                for statement in &mut self.statements {
+                    actual_return_type = statement.check_and_resolve_types(ctx)?;
+                }
 
-            Ok(())
-        });
+                Ok(())
+            },
+            FrameKind::Regular,
+            CaptureKind::Read,
+        );
 
         self.captures = DeferedCaptures::ResolvedCaptures(frame.get_captures());
 

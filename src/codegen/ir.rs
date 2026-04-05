@@ -520,7 +520,8 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     def_true.return_type.clone()
                 } else {
                     assert!(def_true.stack_delta(out.ctx().type_checker)? <= 0);
-                    assert!(def_true.return_width(out.ctx().type_checker)? == 0);
+                    // assert!(def_true.return_width(out.ctx().type_checker)? == 0);
+                    assert!(def_true.return_type.width(out.ctx().type_checker)? == 0);
 
                     let true_delta = def_true.stack_delta(out.ctx().type_checker)?;
 
