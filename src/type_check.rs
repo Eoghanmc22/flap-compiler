@@ -17,7 +17,7 @@ use crate::{
     ast::{
         AsSpan, Assignment, BinaryOp, Block, CaptureKind, Captures, ConstDef, DeferedCaptures,
         DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef,
-        IfCase, IfExpr, LocalDef, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef,
+        IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef,
         Value, VariableVersion,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
@@ -927,6 +927,63 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
     }
 }
 
+impl<'a> TypeCheck<'a> for Loop<'a> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
+
+        let (frame, _outer_frame) = ctx.define_scope(
+            |ctx| -> Result<_> {
+                if let Some(init) = &mut self.init {
+                    init.check_and_resolve_types(ctx)?;
+                }
+
+                let (result, frame) = ctx.define_scope(
+                    |ctx| -> Result<_> {
+                        if let Some(cond) = &mut self.cond {
+                            let case_type = cond.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+
+                            if !matches!(case_type, Type::Bool) {
+                                return Err(eyre!("Loop's condition evaluated to the incorrect type")
+                        .with_section(|| {
+                            generate_span_error_section_with_annotations(
+                                self.span,
+                                &[(
+                                    cond.as_span(),
+                                    &format!(
+                                        "has the type `{case_type:?}`, but a `{:?}` is required",
+                                        Type::Bool
+                                    ),
+                                )],
+                            )
+                        }));
+                            }
+                        }
+
+                        if let Some(update) = &mut self.update {
+                            update.check_and_resolve_types(ctx)?;
+                        }
+
+                        self.body.check_and_resolve_types(ctx)?;
+
+                        Ok(())
+                    },
+                    FrameKind::Regular,
+                    CaptureKind::Read,
+                );
+
+                result.map(|_| frame)
+            },
+            FrameKind::Regular,
+            CaptureKind::Read,
+        );
+
+        self.captures = DeferedCaptures::ResolvedCaptures(frame?.get_captures());
+
+        // A loop does not produce a value
+        Ok(Type::Void)
+    }
+}
+
 impl<'a> TypeCheck<'a> for Typedef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
@@ -1059,6 +1116,10 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
             Statement::Typedef(typedef) => typedef.check_and_resolve_types(ctx),
             Statement::Defer(block) => {
                 block.check_and_resolve_types(ctx)?;
+                Ok(Type::Void)
+            }
+            Statement::Loop(inner) => {
+                inner.check_and_resolve_types(ctx)?;
                 Ok(Type::Void)
             }
         }

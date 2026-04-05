@@ -9,7 +9,7 @@ use tracing::trace;
 use crate::{
     ast::{
         AsSpan, Assignment, BinaryOp, Block, ConstDef, DeferedType, DeferedVersion, Expr,
-        FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, PostfixOp,
+        FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, Loop, PostfixOp,
         PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type, Value,
     },
     codegen::{
@@ -23,11 +23,15 @@ pub fn walk_block<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     block: &Block<'a>,
 ) -> Result<MaybeTailCall<'a>> {
-    let mut last_return_val = None;
+    let mut last_return_val: Option<ExpressionOutput> = None;
 
     let mut defered = Vec::new();
 
     for statement in &block.statements {
+        if let Some(last_return_val) = last_return_val {
+            last_return_val.into_data_ref(ctx)?;
+        }
+
         last_return_val = match statement {
             Statement::Const(const_def) => {
                 walk_const_def(ctx, const_def)?;
@@ -55,6 +59,7 @@ pub fn walk_block<'a, 'b>(
                 defered.push(block);
                 None
             }
+            Statement::Loop(inner) => Some(ExpressionOutput::TailCall(walk_loop(ctx, inner)?)),
         }
     }
 
@@ -307,6 +312,75 @@ fn walk_assignment<'a, 'b>(
     }
 
     Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?, None).into())
+}
+
+fn walk_loop<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, inner: &Loop<'a>) -> Result<MaybeTailCall<'a>> {
+    if let Some(init) = &inner.init {
+        walk_local_def(ctx, init)?;
+    }
+
+    let loop_call = FunctionCall {
+        function: "loop!",
+        parameters: Vec::default(),
+        span: inner.span,
+    };
+
+    let mut block = inner.body.clone();
+
+    if let Some(update) = inner.update.clone() {
+        block.statements.push(Statement::Assignment(update));
+    }
+
+    block.statements.push(Statement::Expr(
+        Expr::FunctionCall(loop_call),
+        Punctuation::Unpunctuated,
+    ));
+
+    if let Some(cond) = inner.cond.clone() {
+        let loop_body = block;
+
+        block = Block {
+            statements: vec![Statement::Expr(
+                Expr::If(IfExpr {
+                    cases: vec![IfCase {
+                        condition: cond,
+                        span: loop_body.span,
+                        contents: loop_body,
+                    }],
+                    otherwise: None,
+                    captures: inner.captures.clone(),
+                    return_type: DeferedType::ResolvedType(Type::Void),
+                    span: inner.span,
+                }),
+                Punctuation::Unpunctuated,
+            )],
+            captures: inner.captures.clone(),
+            span: inner.span,
+        };
+    }
+
+    walk_function_def(
+        ctx,
+        &FunctionDef {
+            attributes: Default::default(),
+            function: "loop!",
+            contents: block,
+            span: inner.span,
+            signature: FunctionSignature {
+                arguements: Vec::default(),
+                captures: inner.captures.clone(),
+                return_type: Type::Void,
+            },
+        },
+    )?;
+    walk_function_call(
+        ctx,
+        &FunctionCall {
+            function: "loop!",
+            parameters: Vec::default(),
+            span: inner.span,
+        },
+    )
 }
 
 fn walk_if_expr<'a, 'b>(

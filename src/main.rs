@@ -6,6 +6,7 @@
 //   - Source code comment
 // - Add data flow analysis and instruction reordering
 // - reduce clone/to_string/to_vec/... usage
+// - consider making loops return the value of their last expression on their last iteration?
 #![feature(try_blocks)]
 
 use std::{path::PathBuf, thread, time::Instant};

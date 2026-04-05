@@ -19,8 +19,8 @@ use crate::{
     ast::{
         Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, DeferedVersion,
         Directive, Expr, FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef,
-        IfCase, IfExpr, LocalDef, PostfixOp, PrefixOp, Program, Punctuation, SizeOfMode, Statement,
-        Type, Typedef, Value,
+        IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Program, Punctuation, SizeOfMode,
+        Statement, Type, Typedef, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -137,7 +137,6 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
     let mut pairs = pair.into_inner();
     while let Some(target) = pairs.next() {
         trace!("Input statement tokens: {target:#?}");
-        let span = target.as_span();
 
         let statement = match target.as_rule() {
             Rule::expression => {
@@ -159,152 +158,16 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
 
                 Statement::Expr(Expr::If(parse_if_expr(target)?), punctuation)
             }
-            Rule::function_def => {
-                let mut inner = target.into_inner();
-
-                let mut attributes = HashSet::new();
-                while let Some(Rule::function_attr) = inner.peek().map(|it| it.as_rule()) {
-                    let attrubute = inner.next().unwrap();
-                    for pair in attrubute.into_inner() {
-                        match pair.as_rule() {
-                            Rule::no_mangle => {
-                                attributes.insert(FunctionAttribute::NoMangle);
-                            }
-                            _ => {
-                                return Err(eyre!(
-                                    "Unsupported function attr token: {:?}",
-                                    pair.as_rule()
-                                )
-                                .with_section(|| generate_span_error_section(pair.as_span())));
-                            }
-                        }
-                    }
-                }
-
-                let return_type = parse_type(inner.next().unwrap())?;
-                let function = parse_ident(inner.next().unwrap())?;
-
-                let mut last_arg_type = None;
-                let mut arguements = Vec::new();
-                let mut block = None;
-
-                for pair in inner {
-                    match pair.as_rule() {
-                        Rule::var_type => {
-                            last_arg_type = Some(parse_type(pair)?);
-                        }
-                        Rule::ident => {
-                            let Some(last_arg_type) = last_arg_type.take() else {
-                                return Err(eyre!(
-                                    "Got var name before var type: {:?}",
-                                    pair.as_rule()
-                                )
-                                .with_section(|| generate_span_error_section(pair.as_span())));
-                            };
-
-                            let ident = parse_ident(pair)?;
-                            arguements.push((
-                                last_arg_type,
-                                ident,
-                                DeferedVersion::UnresolvedVersion,
-                            ));
-                        }
-                        Rule::block => {
-                            block = Some(parse_block_like(pair)?);
-                            break;
-                        }
-                        _ => {
-                            return Err(eyre!(
-                                "Unsupported function paramaters token: {:?}",
-                                pair.as_rule()
-                            )
-                            .with_section(|| generate_span_error_section(pair.as_span())));
-                        }
-                    }
-                }
-
-                Statement::FunctionDef(FunctionDef {
-                    attributes,
-                    function,
-                    contents: block
-                        .wrap_err("Function def did not contain block")
-                        .with_section(|| generate_span_error_section(span))?,
-                    signature: FunctionSignature {
-                        arguements,
-                        return_type,
-                        captures: DeferedCaptures::UnresolvedCaptures,
-                    },
-                    span,
-                })
-            }
-            Rule::const_var => {
-                let mut inner = target.into_inner();
-                let var_type = parse_inferable_type(inner.next().unwrap())?;
-                let name = parse_ident(inner.next().unwrap())?;
-
-                let expr_pair = inner.next().unwrap();
-                let expr_span = expr_pair.as_span();
-                let expr = parse_expr(expr_pair.into_inner())?;
-
-                Statement::Const(ConstDef {
-                    name,
-                    var_type,
-                    expr,
-                    span,
-                    expr_span,
-                    version: DeferedVersion::UnresolvedVersion,
-                })
-            }
-            Rule::local_var => {
-                let mut inner = target.into_inner();
-                let var_type = parse_inferable_type(inner.next().unwrap())?;
-                let name = parse_ident(inner.next().unwrap())?;
-
-                let expr_pair = inner.next().unwrap();
-                let expr_span = expr_pair.as_span();
-                let expr = parse_expr(expr_pair.into_inner())?;
-
-                Statement::Local(LocalDef {
-                    name,
-                    var_type,
-                    expr,
-                    span,
-                    expr_span,
-                    version: DeferedVersion::UnresolvedVersion,
-                })
-            }
-            Rule::assignment => {
-                let mut inner = target.into_inner();
-
-                let target_pair = inner.next().unwrap();
-                let target = parse_expr(target_pair.into_inner())?;
-
-                let expr_pair = inner.next().unwrap();
-                let expr_span = expr_pair.as_span();
-                let expr = parse_expr(expr_pair.into_inner())?;
-
-                Statement::Assignment(Assignment {
-                    target,
-                    expr,
-                    span,
-                    expr_span,
-                    target_type: DeferedType::UnresolvedType,
-                    expr_type: DeferedType::UnresolvedType,
-                })
-            }
-            Rule::typedef => {
-                let mut inner = target.into_inner();
-                let type_alias = parse_type(inner.next().unwrap())?;
-                let name = parse_ident(inner.next().unwrap())?;
-
-                Statement::Typedef(Typedef {
-                    name,
-                    type_alias,
-                    span,
-                })
-            }
+            Rule::function_def => Statement::FunctionDef(parse_function_def(target)?),
+            Rule::const_var => Statement::Const(parse_const_var(target)?),
+            Rule::local_var => Statement::Local(parse_local_var(target)?),
+            Rule::assignment => Statement::Assignment(parse_assignment(target)?),
+            Rule::typedef => Statement::Typedef(parse_typedef(target)?),
             Rule::defer_block => {
                 Statement::Defer(parse_block_like(target.into_inner().next().unwrap())?)
+            }
+            Rule::for_loop | Rule::while_loop | Rule::forever => {
+                Statement::Loop(parse_loop(target)?)
             }
             Rule::semicolon => continue,
             Rule::EOI => continue,
@@ -319,6 +182,195 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
 
     Ok(Block {
         statements,
+        span,
+        captures: DeferedCaptures::UnresolvedCaptures,
+    })
+}
+
+fn parse_function_def(target: Pair<Rule>) -> Result<FunctionDef> {
+    let span = target.as_span();
+    let mut inner = target.into_inner();
+
+    let mut attributes = HashSet::new();
+    while let Some(Rule::function_attr) = inner.peek().map(|it| it.as_rule()) {
+        let attrubute = inner.next().unwrap();
+        for pair in attrubute.into_inner() {
+            match pair.as_rule() {
+                Rule::no_mangle => {
+                    attributes.insert(FunctionAttribute::NoMangle);
+                }
+                _ => {
+                    return Err(
+                        eyre!("Unsupported function attr token: {:?}", pair.as_rule())
+                            .with_section(|| generate_span_error_section(pair.as_span())),
+                    );
+                }
+            }
+        }
+    }
+
+    let return_type = parse_type(inner.next().unwrap())?;
+    let function = parse_ident(inner.next().unwrap())?;
+
+    let mut last_arg_type = None;
+    let mut arguements = Vec::new();
+    let mut block = None;
+
+    for pair in inner {
+        match pair.as_rule() {
+            Rule::var_type => {
+                last_arg_type = Some(parse_type(pair)?);
+            }
+            Rule::ident => {
+                let Some(last_arg_type) = last_arg_type.take() else {
+                    return Err(eyre!("Got var name before var type: {:?}", pair.as_rule())
+                        .with_section(|| generate_span_error_section(pair.as_span())));
+                };
+
+                let ident = parse_ident(pair)?;
+                arguements.push((last_arg_type, ident, DeferedVersion::UnresolvedVersion));
+            }
+            Rule::block => {
+                block = Some(parse_block_like(pair)?);
+                break;
+            }
+            _ => {
+                return Err(eyre!(
+                    "Unsupported function paramaters token: {:?}",
+                    pair.as_rule()
+                )
+                .with_section(|| generate_span_error_section(pair.as_span())));
+            }
+        }
+    }
+
+    Ok(FunctionDef {
+        attributes,
+        function,
+        contents: block
+            .wrap_err("Function def did not contain block")
+            .with_section(|| generate_span_error_section(span))?,
+        signature: FunctionSignature {
+            arguements,
+            return_type,
+            captures: DeferedCaptures::UnresolvedCaptures,
+        },
+        span,
+    })
+}
+
+fn parse_const_var(target: Pair<Rule>) -> Result<ConstDef> {
+    let span = target.as_span();
+    let mut inner = target.into_inner();
+    let var_type = parse_inferable_type(inner.next().unwrap())?;
+    let name = parse_ident(inner.next().unwrap())?;
+
+    let expr_pair = inner.next().unwrap();
+    let expr_span = expr_pair.as_span();
+    let expr = parse_expr(expr_pair.into_inner())?;
+
+    Ok(ConstDef {
+        name,
+        var_type,
+        expr,
+        span,
+        expr_span,
+        version: DeferedVersion::UnresolvedVersion,
+    })
+}
+
+fn parse_local_var(target: Pair<Rule>) -> Result<LocalDef> {
+    let span = target.as_span();
+    let mut inner = target.into_inner();
+    let var_type = parse_inferable_type(inner.next().unwrap())?;
+    let name = parse_ident(inner.next().unwrap())?;
+
+    let expr_pair = inner.next().unwrap();
+    let expr_span = expr_pair.as_span();
+    let expr = parse_expr(expr_pair.into_inner())?;
+
+    Ok(LocalDef {
+        name,
+        var_type,
+        expr,
+        span,
+        expr_span,
+        version: DeferedVersion::UnresolvedVersion,
+    })
+}
+
+fn parse_assignment(target: Pair<Rule>) -> Result<Assignment> {
+    let span = target.as_span();
+    let mut inner = target.into_inner();
+
+    let target_pair = inner.next().unwrap();
+    let target = parse_expr(target_pair.into_inner())?;
+
+    let expr_pair = inner.next().unwrap();
+    let expr_span = expr_pair.as_span();
+    let expr = parse_expr(expr_pair.into_inner())?;
+
+    Ok(Assignment {
+        target,
+        expr,
+        span,
+        expr_span,
+        target_type: DeferedType::UnresolvedType,
+        expr_type: DeferedType::UnresolvedType,
+    })
+}
+
+fn parse_typedef(target: Pair<Rule>) -> Result<Typedef> {
+    let span = target.as_span();
+    let mut inner = target.into_inner();
+    let type_alias = parse_type(inner.next().unwrap())?;
+    let name = parse_ident(inner.next().unwrap())?;
+
+    Ok(Typedef {
+        name,
+        type_alias,
+        span,
+    })
+}
+
+fn parse_loop(target: Pair<Rule>) -> Result<Loop> {
+    let span = target.as_span();
+
+    let mut init = None;
+    let mut cond = None;
+    let mut update = None;
+    let mut body = None;
+
+    for token in target.into_inner() {
+        match token.as_rule() {
+            Rule::local_var => {
+                init = Some(parse_local_var(token)?);
+            }
+            Rule::expression => {
+                cond = Some(parse_expr(token.into_inner())?);
+            }
+            Rule::assignment => {
+                update = Some(parse_assignment(token)?);
+            }
+            Rule::block => {
+                body = Some(parse_block_like(token)?);
+            }
+            _ => {
+                return Err(eyre!("Unsupported token in loop: {:?}", token.as_rule())
+                    .with_section(|| generate_span_error_section(token.as_span())));
+            }
+        }
+    }
+
+    let Some(body) = body else {
+        return Err(eyre!("Loop has no body").with_section(|| generate_span_error_section(span)));
+    };
+
+    Ok(Loop {
+        init,
+        cond,
+        update,
+        body,
         span,
         captures: DeferedCaptures::UnresolvedCaptures,
     })

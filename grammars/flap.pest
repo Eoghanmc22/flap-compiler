@@ -100,13 +100,17 @@ if_else_block = _{ "else" ~ if_block }
 else_block    =  { "else" ~ block }
 if_statement  =  { if_block ~ if_else_block* ~ else_block? }
 
+while_loop = { "while" ~ "(" ~ expression ~ ")" ~ block }
+for_loop = { "for" ~ "(" ~ local_var? ~ ";" ~ expression? ~ ";" ~ assignment? ~ ")" ~ block }
+forever = { "loop" ~ block }
+
 defer_block   = { "defer" ~ block }
 
 include = { "include" ~ string }
 directive = { "#" ~ (include) }
 
 semicolon =  { ";" }
-statement = _{ function_def | if_statement | defer_block | typedef | ((const_var | local_var | assignment | expression) ~ semicolon) }
+statement = _{ function_def | if_statement | defer_block | typedef | while_loop | for_loop | forever | ((const_var | local_var | assignment | expression) ~ semicolon) }
 
 no_mangle               =  { "no_mangle" }
 function_attr           =  { no_mangle }

@@ -870,6 +870,22 @@ impl<'a> AsSpan<'a> for IfExpr<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Loop<'a> {
+    pub init: Option<LocalDef<'a>>,
+    pub cond: Option<Expr<'a>>,
+    pub update: Option<Assignment<'a>>,
+    pub captures: DeferedCaptures<'a>,
+    pub body: Block<'a>,
+    pub span: Span<'a>,
+}
+
+impl<'a> AsSpan<'a> for Loop<'a> {
+    fn as_span(&self) -> Span<'a> {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Punctuation {
     Punctuated,
@@ -885,6 +901,7 @@ pub enum Statement<'a> {
     Assignment(Assignment<'a>),
     Typedef(Typedef<'a>),
     Defer(Block<'a>),
+    Loop(Loop<'a>),
 }
 
 impl<'a> AsSpan<'a> for Statement<'a> {
@@ -897,6 +914,7 @@ impl<'a> AsSpan<'a> for Statement<'a> {
             Statement::Assignment(ptr_assign) => ptr_assign.as_span(),
             Statement::Typedef(typedef) => typedef.as_span(),
             Statement::Defer(block) => block.as_span(),
+            Statement::Loop(inner) => inner.as_span(),
         }
     }
 }
