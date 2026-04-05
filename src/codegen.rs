@@ -8,7 +8,7 @@ use color_eyre::{
     eyre::{Context, ContextCompat, OptionExt, Result, bail, eyre},
 };
 use pest::Span;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use std::{
     borrow::Borrow,
@@ -403,34 +403,12 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             let return_data_ref = (scope)(self)?;
 
             let (retain_width, tail_call) = match return_data_ref {
-                MaybeTailCall::Regular(data_reference) => {
-                    self.bring_up_references(
-                        signature
-                            .captures_write()?
-                            .map(|(_type, ident, version, _kind)| {
-                                DataReference::Local(version, ident)
-                            })
-                            .chain(iter::once(data_reference)),
-                        signature.return_width(self.type_checker)?,
-                    )?;
-
-                    (signature.return_width(self.type_checker)?, None)
-                }
-                // MaybeTailCall::TailCall {
-                //     signature: ref tail_call_sig,
-                //     ..
-                // } if tail_call_sig.paramater_width() > 2 => {
-                //     let ret_width = tail_call_sig.return_width();
-                //     let _data_ref = return_data_ref.into_data_ref(self)?;
-                //     (ret_width, None)
-                // }
                 MaybeTailCall::TailCall {
                     parameters,
                     signature: tail_call_sig,
                     tokens,
                     call_span,
-                } => {
-                    // TODO:
+                } if tail_call_sig.compatible_captures_write(&signature)? => {
                     if signature.return_type.width(self.type_checker)?
                         != tail_call_sig.return_type.width(self.type_checker)?
                     {
@@ -455,8 +433,23 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
                     (
                         tail_call_sig.paramater_width(self.type_checker)?,
-                        Some((tokens, tail_call_sig, call_span)),
+                        Some(tokens),
                     )
+                }
+                return_data_ref => {
+                    let data_ref = return_data_ref.into_data_ref(self)?;
+
+                    self.bring_up_references(
+                        signature
+                            .captures_write()?
+                            .map(|(_type, ident, version, _kind)| {
+                                DataReference::Local(version, ident)
+                            })
+                            .chain(iter::once(data_ref)),
+                        signature.return_width(self.type_checker)?,
+                    )?;
+
+                    (signature.return_width(self.type_checker)?, None)
                 }
             };
 
@@ -491,22 +484,9 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 assert_eq!(self.cursor - frame.frame_start, retain_width);
             }
 
-            if let Some((tail_call_impl, tail_call_sig, call_span)) = tail_call {
-                if tail_call_sig.compatible_captures_write(&signature)? {
-                    for token in tail_call_impl.iter() {
-                        self.push_token(token.clone())?;
-                    }
-                } else {
-                    warn!(
-                        "Tail call could not be applied due to mutation near `{}`",
-                        call_span.as_str()
-                    );
-
-                    return Err(eyre!(
-                            "UNIMPLEMENTED: Attempted to tail call in `{ident}` but it captures a subset of the calling function's captures, tail call captures {:?}, calling method captures: {:?}",
-                            tail_call_sig.captures,
-                            signature.captures,
-                        )).with_section(|| generate_span_error_section(call_span));
+            if let Some(tail_call_impl) = tail_call {
+                for token in tail_call_impl {
+                    self.push_token(token)?;
                 }
             }
         }
