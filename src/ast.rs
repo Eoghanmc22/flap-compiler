@@ -51,6 +51,8 @@ pub enum Value<'a> {
     String(Cow<'a, str>),
     Array(Type<'a>, Vec<Value<'a>>),
     Struct(BTreeMap<IdentRef<'a>, Value<'a>>),
+    NamedTuple(Vec<(IdentRef<'a>, Value<'a>)>),
+    Tuple(Vec<Value<'a>>),
     Int(ClacValue),
     Char(ClacValue),
     Bool(bool),
@@ -71,6 +73,14 @@ impl<'a> Value<'a> {
                 .collect(),
             Value::Struct(items) => items
                 .values()
+                .flat_map(|it| it.as_repr().into_iter())
+                .collect(),
+            Value::NamedTuple(items) => items
+                .iter()
+                .flat_map(|(_, it)| it.as_repr().into_iter())
+                .collect(),
+            Value::Tuple(items) => items
+                .iter()
                 .flat_map(|it| it.as_repr().into_iter())
                 .collect(),
             Value::Cast(_, inner) => inner.as_repr(),
@@ -97,6 +107,13 @@ impl<'a> Value<'a> {
                     .map(|(key, val)| (*key, val.compute_type()))
                     .collect(),
             ),
+            Value::NamedTuple(items) => Type::NamedTuple(
+                items
+                    .iter()
+                    .map(|(key, val)| (*key, val.compute_type()))
+                    .collect(),
+            ),
+            Value::Tuple(items) => Type::Tuple(items.iter().map(|it| it.compute_type()).collect()),
             Value::Cast(new_type, _) => new_type,
             Value::Flat(inner_type, _) => inner_type,
         }
@@ -112,6 +129,8 @@ impl<'a> Display for Value<'a> {
             Value::String(data) => <Cow<'a, str> as Display>::fmt(data, f),
             Value::Array(_, values) => write!(f, "{values:?}"),
             Value::Struct(values) => write!(f, "{values:?}"),
+            Value::NamedTuple(values) => write!(f, "{values:?}"),
+            Value::Tuple(values) => write!(f, "{values:?}"),
             Value::Cast(new_type, inner) => write!(f, "({new_type}) {inner}"),
             Value::Flat(inner_type, inner) => write!(f, "({inner_type}) {inner:?}"),
         }
