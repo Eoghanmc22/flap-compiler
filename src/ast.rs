@@ -276,6 +276,7 @@ pub enum Type<'a> {
     Typedef(IdentRef<'a>),
     Struct(BTreeMap<IdentRef<'a>, Type<'a>>),
     NamedTuple(Vec<(IdentRef<'a>, Type<'a>)>),
+    Tuple(Vec<Type<'a>>),
     Pointer(Box<Type<'a>>),
     Array(Box<Type<'a>>, ClacValue),
     Int,
@@ -290,7 +291,8 @@ impl Display for Type<'_> {
         match self {
             Type::Typedef(name) => write!(f, "{name}"),
             Type::Struct(map) => write!(f, "struct {map:?}"),
-            Type::NamedTuple(items) => write!(f, "tuple {items:?}"),
+            Type::NamedTuple(items) => write!(f, "tuple_struct {items:?}"),
+            Type::Tuple(items) => write!(f, "tuple {items:?}"),
             Type::Pointer(target) => write!(f, "{target}*"),
             Type::Int => write!(f, "int"),
             Type::Char => write!(f, "char"),
@@ -349,6 +351,19 @@ impl<'a> Type<'a> {
                         return Ok(false);
                     }
 
+                    if !lhs_value.compatible_with(rhs_value, ctx)? {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (Type::Tuple(lhs_items), Type::Tuple(rhs_items)) => {
+                if lhs_items.len() != rhs_items.len() {
+                    return Ok(false);
+                }
+
+                for (lhs_value, rhs_value) in lhs_items.iter().zip(&rhs_items) {
                     if !lhs_value.compatible_with(rhs_value, ctx)? {
                         return Ok(false);
                     }
@@ -473,6 +488,10 @@ impl<'a> Type<'a> {
             Type::NamedTuple(items) => items
                 .iter()
                 .map(|(_name, field_type)| field_type.width(ctx))
+                .sum::<Result<ClacValue>>(),
+            Type::Tuple(items) => items
+                .iter()
+                .map(|it| it.width(ctx))
                 .sum::<Result<ClacValue>>(),
             Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => Ok(1),
             Type::Void => Ok(0),
