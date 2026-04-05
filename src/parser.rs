@@ -17,10 +17,10 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, Directive, Expr,
-        FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr,
-        LocalDef, PostfixOp, PrefixOp, Program, Punctuation, SizeOfMode, Statement, Type, Typedef,
-        Value,
+        Assignment, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType, DeferedVersion,
+        Directive, Expr, FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef,
+        IfCase, IfExpr, LocalDef, PostfixOp, PrefixOp, Program, Punctuation, SizeOfMode, Statement,
+        Type, Typedef, Value,
     },
     codegen::clac::ClacValue,
     middleware::generate_span_error_section,
@@ -203,7 +203,11 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                             };
 
                             let ident = parse_ident(pair)?;
-                            arguements.push((last_arg_type, ident));
+                            arguements.push((
+                                last_arg_type,
+                                ident,
+                                DeferedVersion::UnresolvedVersion,
+                            ));
                         }
                         Rule::block => {
                             block = Some(parse_block_like(pair)?);
@@ -248,6 +252,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     expr,
                     span,
                     expr_span,
+                    version: DeferedVersion::UnresolvedVersion,
                 })
             }
             Rule::local_var => {
@@ -265,6 +270,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     expr,
                     span,
                     expr_span,
+                    version: DeferedVersion::UnresolvedVersion,
                 })
             }
             Rule::assignment => {
@@ -296,6 +302,9 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     type_alias,
                     span,
                 })
+            }
+            Rule::defer_block => {
+                Statement::Defer(parse_block_like(target.into_inner().next().unwrap())?)
             }
             Rule::semicolon => continue,
             Rule::EOI => continue,
@@ -437,7 +446,11 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             // Handle primary expressions (atoms)
             match primary.as_rule() {
                 Rule::value => Ok(Expr::Value(parse_value(primary)?, span)),
-                Rule::ident => Ok(Expr::Variable(parse_ident(primary)?, span)),
+                Rule::ident => Ok(Expr::Variable(
+                    parse_ident(primary)?,
+                    DeferedVersion::UnresolvedVersion,
+                    span,
+                )),
                 Rule::expression => {
                     // Parenthesized expression
                     Ok(parse_expr(primary.into_inner())?)

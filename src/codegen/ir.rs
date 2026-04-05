@@ -3,7 +3,7 @@ use std::sync::Arc;
 use color_eyre::eyre::{ContextCompat, Result, bail};
 
 use crate::{
-    ast::{FunctionSignature, IdentRef, Type, Value},
+    ast::{FunctionSignature, Type, Value, VariableVersion},
     codegen::{
         CodegenCtx, DefinitionIdent, TempoaryIdent,
         clac::{ClacProgram, ClacToken, ClacValue, ClacValueUnsigned},
@@ -44,8 +44,8 @@ impl<'a, 'b> TokenConsumer<'a, 'b> for (&mut ClacProgram, &mut CodegenCtx<'a, 'b
 #[derive(Debug, Clone)]
 pub enum DataReference<'a> {
     Value(Value<'a>),
-    Local(IdentRef<'a>),
-    Const(IdentRef<'a>),
+    Local(VariableVersion),
+    Const(VariableVersion),
     Tempoary(TempoaryIdent),
 }
 
@@ -348,6 +348,8 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 out.consume(ClacToken::Div)?;
                 Type::Int
             }
+            // TODO: this produces bad code, especially when ANDing with a number that is mosly 1s,
+            // and loops for ever when rhs is -1
             ClacOp::BAnd { rhs, .. } => {
                 let Some((rhs, _rhs_type)) = rhs.as_clac_value() else {
                     bail!(

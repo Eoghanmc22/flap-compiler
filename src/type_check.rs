@@ -1,7 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::{self, Debug, Display},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use color_eyre::{
@@ -13,8 +16,9 @@ use pest::Span;
 use crate::{
     ast::{
         AsSpan, Assignment, BinaryOp, Block, Captures, ConstDef, DeferedCaptures, DeferedType,
-        Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef,
-        PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
+        DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase,
+        IfExpr, LocalDef, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
+        VariableVersion,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
@@ -29,18 +33,19 @@ pub enum VariableKind {
 
 #[derive(Debug, Clone, Default)]
 pub struct TypeCheckerFrame<'a> {
-    pub variables: HashMap<IdentRef<'a>, (Type<'a>, VariableKind)>,
-    pub functions: HashMap<IdentRef<'a>, Arc<FunctionSignature<'a>>>,
+    pub variables: HashMap<IdentRef<'a>, VariableVersion>,
+    pub variables_versioned: HashMap<VariableVersion, (IdentRef<'a>, Type<'a>, VariableKind)>,
+    pub functions: HashMap<IdentRef<'a>, FunctionSignature<'a>>,
 }
 
 impl<'a> TypeCheckerFrame<'a> {
     pub fn get_captures(&self) -> Captures<'a> {
         Captures {
             captures: self
-                .variables
+                .variables_versioned
                 .iter()
-                .filter(|(_, (_, kind))| *kind == VariableKind::Capture)
-                .map(|(ident, (data_type, _))| (*ident, data_type.clone()))
+                .filter(|(_, (_, _, kind))| *kind == VariableKind::Capture)
+                .map(|(version, (ident, data_type, _))| ((*ident, *version), data_type.clone()))
                 .collect(),
         }
     }
@@ -50,6 +55,7 @@ impl<'a> TypeCheckerFrame<'a> {
 pub struct TypeChecker<'a> {
     pub scope_stack: Vec<TypeCheckerFrame<'a>>,
     pub typedefs: HashMap<IdentRef<'a>, Type<'a>>,
+    version_counter: Arc<AtomicU64>,
 }
 
 impl Display for TypeChecker<'_> {
@@ -58,9 +64,9 @@ impl Display for TypeChecker<'_> {
 
         let mut already_printed = HashSet::new();
         for frame in self.scope_stack.iter().rev() {
-            for (ident, (data_type, kind)) in &frame.variables {
+            for (version, (ident, data_type, kind)) in &frame.variables_versioned {
                 if already_printed.insert(ident) {
-                    write!(f, "{} {} ({:?}); ", data_type, ident, kind)?;
+                    write!(f, "{} {}{} ({:?}); ", data_type, ident, version, kind)?;
                 }
             }
         }
@@ -74,10 +80,11 @@ impl Default for TypeChecker<'_> {
         let mut type_checker = Self {
             scope_stack: Vec::default(),
             typedefs: HashMap::default(),
+            version_counter: Arc::default(),
         };
 
-        for (ident, (_code, sig)) in clac_builtins() {
-            type_checker.define_function(ident, sig, |_| {});
+        for (ident, (_code, mut sig)) in clac_builtins() {
+            type_checker.define_function(ident, &mut sig, |_| {});
         }
 
         type_checker.push_scope_frame();
@@ -90,6 +97,7 @@ impl<'a> TypeChecker<'a> {
     fn push_scope_frame(&mut self) -> &mut TypeCheckerFrame<'a> {
         self.scope_stack.push_mut(TypeCheckerFrame {
             variables: Default::default(),
+            variables_versioned: Default::default(),
             functions: Default::default(),
         })
     }
@@ -114,18 +122,17 @@ impl<'a> TypeChecker<'a> {
     pub fn define_function<T, F: FnOnce(&mut Self) -> T>(
         &mut self,
         ident: IdentRef<'a>,
-        signature: FunctionSignature<'a>,
+        signature: &mut FunctionSignature<'a>,
         scope: F,
     ) -> (T, TypeCheckerFrame<'a>) {
-        let signature = Arc::new(signature);
-
         self.top_scope_frame()
             .functions
             .insert(ident, signature.clone());
 
         self.define_scope(|ctx| {
-            for (var_type, ident) in &signature.arguements {
-                ctx.define_variable(ident, var_type.clone(), VariableKind::Local);
+            for (var_type, ident, defered_version) in &mut signature.arguements {
+                let version = ctx.define_variable(ident, var_type.clone(), VariableKind::Local);
+                *defered_version = DeferedVersion::ResolvedVersion(version);
             }
 
             (scope)(ctx)
@@ -143,10 +150,25 @@ impl<'a> TypeChecker<'a> {
         (ret, frame)
     }
 
-    pub fn define_variable(&mut self, ident: IdentRef<'a>, var_type: Type<'a>, kind: VariableKind) {
-        self.top_scope_frame()
-            .variables
-            .insert(ident, (var_type, kind));
+    pub fn allocate_version(&self) -> VariableVersion {
+        VariableVersion(self.version_counter.fetch_add(1, Ordering::Relaxed))
+    }
+
+    pub fn define_variable(
+        &mut self,
+        ident: IdentRef<'a>,
+        var_type: Type<'a>,
+        kind: VariableKind,
+    ) -> VariableVersion {
+        let version = self.allocate_version();
+
+        let frame = self.top_scope_frame();
+        frame.variables.insert(ident, version);
+        frame
+            .variables_versioned
+            .insert(version, (ident, var_type, kind));
+
+        version
     }
 
     pub fn define_type(&mut self, ident: IdentRef<'a>, type_alias: Type<'a>) -> Result<()> {
@@ -158,70 +180,53 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub fn lookup_function(&mut self, ident: IdentRef<'a>) -> Option<Arc<FunctionSignature<'a>>> {
+    pub fn lookup_function(&mut self, ident: IdentRef<'a>) -> Option<&FunctionSignature<'a>> {
         for frame in self.scope_stack.iter().rev() {
             if let Some(sig) = frame.functions.get(&ident) {
-                return Some(sig.clone());
+                return Some(sig);
             }
         }
 
         None
     }
 
-    pub fn lookup_variable(&mut self, var: IdentRef<'a>) -> Result<Type<'a>> {
+    pub fn lookup_variable_versioned(
+        &mut self,
+        var: VariableVersion,
+    ) -> Result<(Type<'a>, VariableVersion)> {
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
-            if let Some((var_type, kind)) = frame.variables.get(var).cloned() {
+            if let Some((ident, var_type, kind)) = frame.variables_versioned.get(&var) {
+                let ident = *ident;
+                let var_type = var_type.clone();
+                let kind = *kind;
+
                 for frame in self.scope_stack.iter_mut().rev().take(idx) {
                     match kind {
                         VariableKind::Local | VariableKind::Capture => {
-                            let prev = frame
-                                .variables
-                                .insert(var, (var_type.clone(), VariableKind::Capture));
-                            assert!(prev.is_none());
+                            frame
+                                .variables_versioned
+                                .insert(var, (ident, var_type.clone(), VariableKind::Capture));
                         }
                         VariableKind::Constant => {}
                     }
                 }
 
-                return Ok(var_type);
+                return Ok((var_type, var));
             }
         }
 
         Err(eyre!("Variable {var} is not in scope"))
     }
 
-    // pub fn lookup_variable_path(&mut self, mut var_path: &[IdentRef<'a>]) -> Result<Type<'a>> {
-    //     let Some(var) = var_path.split_off_first() else {
-    //         return Err(eyre!("Can not look up empty variable path"));
-    //     };
-    //
-    //     for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
-    //         if let Some((var_type, kind)) = frame.variables.get(var).cloned() {
-    //             let mut leaf_type = var_type.clone();
-    //             while let [next, rem @ ..] = var_path {
-    //                 leaf_type = leaf_type.member(self, next)?;
-    //                 var_path = rem
-    //             }
-    //
-    //             // TODO: Should this capture the outer most var or inner most?
-    //             for frame in self.scope_stack.iter_mut().rev().take(idx) {
-    //                 match kind {
-    //                     VariableKind::Local | VariableKind::Capture => {
-    //                         let prev = frame
-    //                             .variables
-    //                             .insert(var, (var_type.clone(), VariableKind::Capture));
-    //                         assert!(prev.is_none());
-    //                     }
-    //                     VariableKind::Constant => {}
-    //                 }
-    //             }
-    //
-    //             return Ok(leaf_type);
-    //         }
-    //     }
-    //
-    //     Err(eyre!("Variable {var}.{var_path:?} is not in scope"))
-    // }
+    pub fn lookup_variable(&mut self, var: IdentRef<'a>) -> Result<(Type<'a>, VariableVersion)> {
+        for frame in self.scope_stack.iter().rev() {
+            if let Some(version) = frame.variables.get(var) {
+                return self.lookup_variable_versioned(*version);
+            }
+        }
+
+        Err(eyre!("Variable {var} is not in scope"))
+    }
 }
 
 pub trait TypeCheck<'a> {
@@ -247,11 +252,13 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 .check_and_resolve_types(ctx)
                 .wrap_err("Could not type check expr value")
                 .with_section(|| generate_span_error_section(*span)),
-            Expr::Variable(ident, span) => {
-                let var_type = ctx
+            Expr::Variable(ident, defered_version, span) => {
+                let (var_type, version) = ctx
                     .lookup_variable(ident)
                     .wrap_err_with(|| format!("Could not find identifier: `{ident:?}`"))
                     .with_section(|| generate_span_error_section(*span))?;
+
+                *defered_version = DeferedVersion::ResolvedVersion(version);
 
                 Ok(var_type)
             }
@@ -543,7 +550,7 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
                         }));
         }
 
-        for (parm_expr, (arg_type, arg_name)) in
+        for (parm_expr, (arg_type, arg_name, _)) in
             self.parameters.iter_mut().zip(sig.arguements.iter())
         {
             let parm_type = parm_expr.check_and_resolve_types(ctx)?;
@@ -567,14 +574,10 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
-        let (actual_return_type, frame) = ctx.define_function(
-            self.function,
-            FunctionSignature {
-                arguements: self.signature.arguements.clone(),
-                return_type: self.signature.return_type.clone(),
-            },
-            |ctx| self.contents.check_and_resolve_types(ctx),
-        );
+        let (actual_return_type, frame) =
+            ctx.define_function(self.function, &mut self.signature, |ctx| {
+                self.contents.check_and_resolve_types(ctx)
+            });
 
         let actual_return_type = actual_return_type?;
 
@@ -643,7 +646,8 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        ctx.define_variable(self.name, actual_type, VariableKind::Constant);
+        let version = ctx.define_variable(self.name, actual_type, VariableKind::Constant);
+        self.version = DeferedVersion::ResolvedVersion(version);
 
         // The const definition it self should not have a return type
         Ok(Type::Void)
@@ -682,7 +686,8 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        ctx.define_variable(self.name, actual_type, VariableKind::Local);
+        let version = ctx.define_variable(self.name, actual_type, VariableKind::Local);
+        self.version = DeferedVersion::ResolvedVersion(version);
 
         // The Local Definition it self should not have a return type
         Ok(Type::Void)
@@ -845,6 +850,10 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
             }
             Statement::Assignment(ptr_assign) => ptr_assign.check_and_resolve_types(ctx),
             Statement::Typedef(typedef) => typedef.check_and_resolve_types(ctx),
+            Statement::Defer(block) => {
+                block.check_and_resolve_types(ctx)?;
+                Ok(Type::Void)
+            }
         }
     }
 }

@@ -4,12 +4,11 @@ use crate::{
     type_check::TypeChecker,
 };
 use color_eyre::eyre::{Result, eyre};
-use core::fmt;
 use pest::Span;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashSet},
-    fmt::{Debug, Display},
+    fmt::{self, Debug, Display},
     ops::BitOr,
     path::Path,
 };
@@ -105,7 +104,7 @@ impl<'a> Value<'a> {
 }
 
 impl<'a> Display for Value<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Int(int) => <ClacValue as Display>::fmt(int, f),
             Value::Char(char) => <ClacValue as Display>::fmt(char, f),
@@ -128,7 +127,7 @@ pub enum SizeOfMode {
 #[derive(Debug, Clone)]
 pub enum Expr<'a> {
     Value(Value<'a>, Span<'a>),
-    Variable(IdentRef<'a>, Span<'a>),
+    Variable(IdentRef<'a>, DeferedVersion, Span<'a>),
     Struct(BTreeMap<IdentRef<'a>, Expr<'a>>, DeferedType<'a>, Span<'a>),
     Array(Vec<Expr<'a>>, DeferedType<'a>, Span<'a>),
     BinaryOp {
@@ -161,7 +160,7 @@ impl<'a> AsSpan<'a> for Expr<'a> {
     fn as_span(&self) -> Span<'a> {
         match self {
             Expr::Value(_, span)
-            | Expr::Variable(_, span)
+            | Expr::Variable(_, _, span)
             | Expr::Struct(_, _, span)
             | Expr::Array(_, _, span)
             | Expr::BinaryOp { span, .. }
@@ -184,7 +183,7 @@ pub enum PrefixOp<'a> {
 }
 
 impl Display for PrefixOp<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PrefixOp::Cast(to) => write!(f, "({to})"),
             PrefixOp::Dereference => write!(f, "*"),
@@ -202,7 +201,7 @@ pub enum PostfixOp<'a> {
 }
 
 impl Display for PostfixOp<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PostfixOp::Member(field) => write!(f, ".{field}"),
             PostfixOp::MemberDeref(field) => write!(f, "->{field}"),
@@ -240,7 +239,7 @@ pub enum BinaryOp {
 }
 
 impl Display for BinaryOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BinaryOp::Add => write!(f, "+"),
             BinaryOp::Sub => write!(f, "-"),
@@ -284,7 +283,7 @@ pub enum Type<'a> {
 }
 
 impl Display for Type<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Type::Typedef(name) => write!(f, "{name}"),
             Type::Struct(map) => write!(f, "struct {map:?}"),
@@ -460,7 +459,7 @@ pub enum DeferedType<'a> {
 }
 
 impl Display for DeferedType<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeferedType::ResolvedType(t) => <Type as Display>::fmt(t, f),
             DeferedType::UnresolvedType => write!(f, "unresolved"),
@@ -490,12 +489,39 @@ impl<'a> DeferedType<'a> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Captures<'a> {
-    pub captures: BTreeMap<IdentRef<'a>, Type<'a>>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VariableVersion(pub u64);
+
+impl Display for VariableVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "v{}", self.0)
+    }
+}
+#[derive(Debug, Clone, Copy, Default)]
+pub enum DeferedVersion {
+    ResolvedVersion(VariableVersion),
+    #[default]
+    UnresolvedVersion,
 }
 
-// TODO: This is a kinda hacky solution
+impl DeferedVersion {
+    pub fn to_option(&self) -> Option<VariableVersion> {
+        match self {
+            DeferedVersion::ResolvedVersion(variable_version) => Some(*variable_version),
+            DeferedVersion::UnresolvedVersion => None,
+        }
+    }
+
+    pub fn unwrap(&self) -> VariableVersion {
+        self.to_option().unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Captures<'a> {
+    pub captures: BTreeMap<(IdentRef<'a>, VariableVersion), Type<'a>>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub enum DeferedCaptures<'a> {
     ResolvedCaptures(Captures<'a>),
@@ -554,7 +580,7 @@ impl<'a> AsSpan<'a> for FunctionDef<'a> {
 
 #[derive(Debug, Clone, Default)]
 pub struct FunctionSignature<'a> {
-    pub arguements: Vec<(Type<'a>, IdentRef<'a>)>,
+    pub arguements: Vec<(Type<'a>, IdentRef<'a>, DeferedVersion)>,
     pub return_type: Type<'a>,
 }
 
@@ -562,7 +588,7 @@ impl<'a> FunctionSignature<'a> {
     pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
         self.arguements
             .iter()
-            .map(|(var_type, _)| var_type.width(ctx))
+            .map(|(var_type, _, _)| var_type.width(ctx))
             .sum::<Result<ClacValue>>()
     }
 
@@ -582,6 +608,7 @@ impl<'a> FunctionSignature<'a> {
 pub struct ConstDef<'a> {
     pub name: IdentRef<'a>,
     pub var_type: DeferedType<'a>,
+    pub version: DeferedVersion,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,
@@ -610,6 +637,7 @@ impl<'a> AsSpan<'a> for IfCase<'a> {
 pub struct LocalDef<'a> {
     pub name: IdentRef<'a>,
     pub var_type: DeferedType<'a>,
+    pub version: DeferedVersion,
     pub expr: Expr<'a>,
     pub span: Span<'a>,
     pub expr_span: Span<'a>,
@@ -679,6 +707,7 @@ pub enum Statement<'a> {
     Local(LocalDef<'a>),
     Assignment(Assignment<'a>),
     Typedef(Typedef<'a>),
+    Defer(Block<'a>),
 }
 
 impl<'a> AsSpan<'a> for Statement<'a> {
@@ -690,6 +719,7 @@ impl<'a> AsSpan<'a> for Statement<'a> {
             Statement::Local(local_def) => local_def.as_span(),
             Statement::Assignment(ptr_assign) => ptr_assign.as_span(),
             Statement::Typedef(typedef) => typedef.as_span(),
+            Statement::Defer(block) => block.as_span(),
         }
     }
 }

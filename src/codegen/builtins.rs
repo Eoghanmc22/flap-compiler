@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{FunctionSignature, IdentRef, Type},
+    ast::{DeferedVersion, FunctionSignature, IdentRef, Type},
     codegen::clac::ClacToken,
 };
 
@@ -9,13 +9,14 @@ pub struct ClacBuiltin {}
 
 pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignature<'static>)> {
     let mut map = HashMap::new();
+    let v = DeferedVersion::UnresolvedVersion;
 
     map.insert(
         "pow",
         (
             ClacToken::Pow,
             FunctionSignature {
-                arguements: vec![(Type::Int, "base"), (Type::Int, "power")],
+                arguements: vec![(Type::Int, "base", v), (Type::Int, "power", v)],
                 return_type: Type::Int,
             },
         ),
@@ -26,7 +27,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Print,
             FunctionSignature {
-                arguements: vec![(Type::Int, "value")],
+                arguements: vec![(Type::Int, "value", v)],
                 return_type: Type::Void,
             },
         ),
@@ -37,7 +38,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Print,
             FunctionSignature {
-                arguements: vec![(Type::Bool, "value")],
+                arguements: vec![(Type::Bool, "value", v)],
                 return_type: Type::Void,
             },
         ),
@@ -60,13 +61,13 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::Syscall,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Int, "rax"),
-                    (Type::Int, "v1"),
-                    (Type::Int, "v2"),
-                    (Type::Int, "v3"),
-                    (Type::Int, "v5"),
-                    (Type::Int, "v4"),
-                    (Type::Int, "v6"),
+                    (Type::Int, "rax", v),
+                    (Type::Int, "v1", v),
+                    (Type::Int, "v2", v),
+                    (Type::Int, "v3", v),
+                    (Type::Int, "v5", v),
+                    (Type::Int, "v4", v),
+                    (Type::Int, "v6", v),
                 ],
                 return_type: Type::Int,
             },
@@ -79,8 +80,8 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::Write8,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Pointer(Type::Char.into()), "addr"),
-                    (Type::Char, "val"),
+                    (Type::Pointer(Type::Char.into()), "addr", v),
+                    (Type::Char, "val", v),
                 ],
                 return_type: Type::Void,
             },
@@ -93,8 +94,8 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::WriteNative,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Pointer(Type::Int.into()), "addr"),
-                    (Type::Int, "val"),
+                    (Type::Pointer(Type::Int.into()), "addr", v),
+                    (Type::Int, "val", v),
                 ],
                 return_type: Type::Void,
             },
@@ -106,7 +107,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Read8,
             FunctionSignature {
-                arguements: vec![(Type::Pointer(Type::Char.into()), "addr")],
+                arguements: vec![(Type::Pointer(Type::Char.into()), "addr", v)],
                 return_type: Type::Char,
             },
         ),
@@ -117,7 +118,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::ReadNative,
             FunctionSignature {
-                arguements: vec![(Type::Pointer(Type::Int.into()), "addr")],
+                arguements: vec![(Type::Pointer(Type::Int.into()), "addr", v)],
                 return_type: Type::Int,
             },
         ),

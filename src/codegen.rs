@@ -22,7 +22,10 @@ use std::{
 };
 
 use crate::{
-    ast::{FunctionAttribute, FunctionSignature, IdentRef, Type, Value},
+    ast::{
+        DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type, Value,
+        VariableVersion,
+    },
     codegen::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, ClacValue, MangledIdent},
@@ -103,8 +106,8 @@ impl<'a> From<DataReference<'a>> for MaybeTailCall<'a> {
 #[derive(Debug, Clone)]
 pub struct ScopeFrame<'a> {
     frame_start: ClacValue,
-    locals: HashMap<IdentRef<'a>, AnnotatedDataRef<'a>>,
-    constants: HashMap<IdentRef<'a>, Value<'a>>,
+    locals: HashMap<VariableVersion, AnnotatedDataRef<'a>>,
+    constants: HashMap<VariableVersion, Value<'a>>,
     temporaries: HashMap<TempoaryIdent, (Type<'a>, Offset)>,
     definitions: HashMap<StoredDefinitionIdent<'a>, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
 
@@ -243,11 +246,11 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     pub fn promote_to_local(
         &mut self,
         data_ref: DataReference<'a>,
-        ident: IdentRef<'a>,
+        version: VariableVersion,
         var_type: Type<'a>,
     ) {
         self.top_scope_frame().locals.insert(
-            ident,
+            version,
             AnnotatedDataRef {
                 reference: data_ref,
                 data_type: var_type,
@@ -294,7 +297,13 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
             let id_counter = self.id_counter.clone();
             let mut offset = 0;
-            for (var_type, ident) in &signature.arguements {
+            for (var_type, _ident, version) in &signature.arguements {
+                let DeferedVersion::ResolvedVersion(version) = version else {
+                    return Err(eyre!(
+                        "COMPILER BUG: attempted to define a function whose args have unresolved version"
+                    ));
+                };
+
                 let cur_offset = Offset(frame.frame_start + offset);
                 offset += var_type.width(self.type_checker)?;
 
@@ -307,7 +316,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     frame
                         .locals
                         .insert(
-                            ident,
+                            *version,
                             AnnotatedDataRef {
                                 reference: DataReference::Tempoary(tempoary),
                                 data_type: var_type.clone(),
@@ -416,8 +425,8 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         Ok(def_ident)
     }
 
-    pub fn define_const(&mut self, ident: IdentRef<'a>, value: Value<'a>) {
-        self.top_scope_frame().constants.insert(ident, value);
+    pub fn define_const(&mut self, version: VariableVersion, value: Value<'a>) {
+        self.top_scope_frame().constants.insert(version, value);
     }
 
     pub fn define_inline(
@@ -581,9 +590,9 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         None
     }
 
-    pub fn lookup_const(&self, ident: IdentRef<'a>) -> Option<Value<'a>> {
+    pub fn lookup_const(&self, version: &VariableVersion) -> Option<Value<'a>> {
         for frame in self.scope_stack.iter().rev() {
-            if let Some(value) = frame.constants.get(ident) {
+            if let Some(value) = frame.constants.get(version) {
                 return Some(value.clone());
             }
         }
@@ -591,17 +600,17 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         None
     }
 
-    pub fn lookup_local(&self, ident: IdentRef<'a>) -> Option<AnnotatedDataRef<'a>> {
+    pub fn lookup_local(&self, version: &VariableVersion) -> Option<AnnotatedDataRef<'a>> {
         self.scope_stack
             .last()
-            .and_then(|it| it.locals.get(ident))
+            .and_then(|it| it.locals.get(version))
             .cloned()
     }
 
-    pub fn lookup_ident(&self, ident: IdentRef<'a>) -> Option<AnnotatedDataRef<'a>> {
-        if let Some(local) = self.lookup_local(ident) {
+    pub fn lookup_ident(&self, version: &VariableVersion) -> Option<AnnotatedDataRef<'a>> {
+        if let Some(local) = self.lookup_local(version) {
             Some(local)
-        } else if let Some(constant) = self.lookup_const(ident) {
+        } else if let Some(constant) = self.lookup_const(version) {
             Some(AnnotatedDataRef {
                 reference: DataReference::Value(constant.clone()),
                 data_type: constant.compute_type(),

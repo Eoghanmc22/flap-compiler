@@ -8,9 +8,9 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        AsSpan, Assignment, BinaryOp, Block, ConstDef, DeferedType, Expr, FunctionCall,
-        FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, PostfixOp, PrefixOp, Punctuation,
-        SizeOfMode, Statement, Stride, Type, Value,
+        AsSpan, Assignment, BinaryOp, Block, ConstDef, DeferedType, DeferedVersion, Expr,
+        FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, PostfixOp,
+        PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -24,6 +24,8 @@ pub fn walk_block<'a, 'b>(
     block: &Block<'a>,
 ) -> Result<MaybeTailCall<'a>> {
     let mut last_return_val = None;
+
+    let mut defered = Vec::new();
 
     for statement in &block.statements {
         last_return_val = match statement {
@@ -49,13 +51,29 @@ pub fn walk_block<'a, 'b>(
                 None
             }
             Statement::Typedef(_) => None,
+            Statement::Defer(block) => {
+                defered.push(block);
+                None
+            }
         }
     }
 
-    if let Some(last_return_val) = last_return_val {
-        last_return_val.into_tail_call(ctx)
+    let ret = if let Some(last_return_val) = last_return_val {
+        last_return_val.into_tail_call(ctx)?
     } else {
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into())
+        DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into()
+    };
+
+    if !defered.is_empty() {
+        let ret = ret.into_data_ref(ctx)?;
+
+        for defered in defered.into_iter().rev() {
+            walk_block(ctx, defered)?.into_data_ref(ctx)?;
+        }
+
+        Ok(ret.into())
+    } else {
+        Ok(ret)
     }
 }
 
@@ -92,9 +110,9 @@ fn walk_function_def<'a, 'b>(
 
 fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>) -> Result<()> {
     let ConstDef {
-        name,
         var_type,
         expr,
+        version,
         ..
     } = const_def;
 
@@ -112,20 +130,35 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
 
+    let DeferedVersion::ResolvedVersion(version) = version else {
+        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+    };
+
     assert!(var_type.compatible_with(&expr_value.compute_type(), ctx.type_checker)?);
 
-    ctx.define_const(name, expr_value);
+    ctx.define_const(*version, expr_value);
 
     Ok(())
 }
 
 fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>) -> Result<()> {
-    let DeferedType::ResolvedType(var_type) = local_def.var_type.clone() else {
+    let LocalDef {
+        var_type,
+        expr,
+        version,
+        ..
+    } = local_def;
+
+    let DeferedType::ResolvedType(var_type) = var_type.clone() else {
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
 
-    let data_ref = walk_expr(ctx, &local_def.expr)?.into_data_ref(ctx)?;
-    ctx.promote_to_local(data_ref, local_def.name, var_type);
+    let DeferedVersion::ResolvedVersion(version) = version else {
+        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+    };
+
+    let data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
+    ctx.promote_to_local(data_ref, *version, var_type);
 
     Ok(())
 }
@@ -243,7 +276,13 @@ fn walk_if_expr<'a, 'b>(
             .unwrap()
             .captures
             .iter()
-            .map(|(a, b)| (b.clone(), *a))
+            .map(|((ident, version), var_type)| {
+                (
+                    var_type.clone(),
+                    *ident,
+                    DeferedVersion::ResolvedVersion(*version),
+                )
+            })
             .collect(),
         return_type: if_expr.return_type.clone().unwrap(),
     };
@@ -291,11 +330,15 @@ fn walk_if_statement_inner<'a, 'b>(
         clac_op.execute((&mut tokens, &mut *ctx))?;
 
         let mut parameters = Vec::new();
-        for (arg_data_type, arg_ident) in &signature.arguements {
+        for (arg_data_type, _arg_ident, version) in &signature.arguements {
+            let DeferedVersion::ResolvedVersion(version) = version else {
+                return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+            };
+
             let AnnotatedDataRef {
                 reference,
                 data_type,
-            } = ctx.lookup_local(arg_ident).wrap_err(
+            } = ctx.lookup_local(version).wrap_err(
                 "Look up local for capture for if statement could not find corosponding local",
             )?;
 
@@ -308,7 +351,11 @@ fn walk_if_statement_inner<'a, 'b>(
             parameters.push(reference);
         }
 
-        signature.arguements.push((Type::Bool, "condition"));
+        signature.arguements.push((
+            Type::Bool,
+            "condition",
+            DeferedVersion::ResolvedVersion(ctx.type_checker.allocate_version()),
+        ));
         parameters.push(condition);
 
         Ok(MaybeTailCall::TailCall {
@@ -487,12 +534,18 @@ fn walk_expr<'a, 'b>(
             )
         }
         Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),
-        Expr::Variable(ident, span) => Ok(ctx
-            .lookup_ident(ident)
-            .map(|it| it.reference)
-            .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
-            .with_section(|| generate_span_error_section(*span))?
-            .into()),
+        Expr::Variable(ident, version, span) => {
+            let DeferedVersion::ResolvedVersion(version) = version else {
+                return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+            };
+
+            Ok(ctx
+                .lookup_ident(version)
+                .map(|it| it.reference)
+                .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
+                .with_section(|| generate_span_error_section(*span))?
+                .into())
+        }
         Expr::Struct(map, struct_type, _span) => {
             let DeferedType::ResolvedType(struct_type) = struct_type else {
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
