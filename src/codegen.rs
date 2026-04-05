@@ -14,6 +14,7 @@ use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
     fmt::Debug,
+    ops::Add,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -29,7 +30,7 @@ use crate::{
     codegen::{
         builtins::clac_builtins,
         clac::{ClacProgram, ClacToken, ClacValue, MangledIdent},
-        ir::DataReference,
+        ir::{DataReference, DerivedFrom},
     },
     middleware::generate_span_error_section,
     type_check::TypeChecker,
@@ -51,10 +52,36 @@ pub struct BranchIdent(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Offset(pub ClacValue);
 
+impl Add for Offset {
+    type Output = Offset;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Offset(self.0 + rhs.0)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AnnotatedDataRef<'a> {
     pub reference: DataReference<'a>,
     pub data_type: Type<'a>,
+}
+
+impl<'a> AnnotatedDataRef<'a> {
+    pub fn mark_originator(&self, local: VariableVersion, offset: Offset) -> Self {
+        let AnnotatedDataRef {
+            reference,
+            data_type,
+        } = self;
+
+        AnnotatedDataRef {
+            reference: reference.mark_originator(local, offset),
+            data_type: data_type.clone(),
+        }
+    }
+
+    pub fn originator(&self) -> Option<DerivedFrom> {
+        self.reference.originator()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +125,11 @@ impl<'a> MaybeTailCall<'a> {
                         ctx.push_token(token.clone())?;
                     }
 
-                    DataReference::Tempoary(ctx.allocate_tempoary(signature.return_type.clone())?)
+                    // TODO:
+                    DataReference::Tempoary(
+                        ctx.allocate_tempoary(signature.return_type.clone())?,
+                        None,
+                    )
                 };
                 res.wrap_err("Error running tail call")
                     .with_section(|| generate_span_error_section(call_span))
@@ -204,39 +235,55 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         rel_offset: Offset,
     ) -> Result<DataReference<'a>> {
         match self.dereference_data_ref(&base)? {
-            DataReference::Value(value) => match var_type.resolve_once(self.type_checker)? {
-                Type::Int => Ok(DataReference::Value(Value::Int(
-                    value.as_repr()[rel_offset.0 as usize],
-                ))),
-                Type::Char => Ok(DataReference::Value(Value::Char(
-                    value.as_repr()[rel_offset.0 as usize],
-                ))),
-                Type::Bool => Ok(DataReference::Value(Value::Bool(
-                    value.as_repr()[rel_offset.0 as usize] != 0,
-                ))),
-                Type::Void => Ok(DataReference::Tempoary(self.allocate_tempoary(Type::Void)?)),
-                _ => {
-                    let start = rel_offset.0 as usize;
-                    let end = start + var_type.width(self.type_checker)? as usize;
+            DataReference::Value(value, derived_from) => {
+                let derived_from = derived_from.map(|it| DerivedFrom {
+                    version: it.version,
+                    offset: it.offset + rel_offset,
+                });
 
-                    // TODO: is this actually a problem?
-                    // warn!("Comptime Value::Flat emitted, value propagation may be impacted");
+                match var_type.resolve_once(self.type_checker)? {
+                    Type::Int => Ok(DataReference::Value(
+                        Value::Int(value.as_repr()[rel_offset.0 as usize]),
+                        derived_from,
+                    )),
+                    Type::Char => Ok(DataReference::Value(
+                        Value::Char(value.as_repr()[rel_offset.0 as usize]),
+                        derived_from,
+                    )),
+                    Type::Bool => Ok(DataReference::Value(
+                        Value::Bool(value.as_repr()[rel_offset.0 as usize] != 0),
+                        derived_from,
+                    )),
+                    Type::Void => Ok(DataReference::Tempoary(
+                        self.allocate_tempoary(Type::Void)?,
+                        derived_from,
+                    )),
+                    _ => {
+                        let start = rel_offset.0 as usize;
+                        let end = start + var_type.width(self.type_checker)? as usize;
 
-                    Ok(DataReference::Value(Value::Flat(
-                        var_type.clone(),
-                        value.as_repr()[start..end].to_vec(),
-                    )))
+                        // TODO: is this actually a problem?
+                        // warn!("Comptime Value::Flat emitted, value propagation may be impacted");
+
+                        Ok(DataReference::Value(
+                            Value::Flat(var_type.clone(), value.as_repr()[start..end].to_vec()),
+                            derived_from,
+                        ))
+                    }
                 }
-            },
-            DataReference::Tempoary(tempoary_ident) => {
+            }
+            DataReference::Tempoary(tempoary_ident, derived_from) => {
                 let (base_type, base_offset) = self
                     .lookup_temporary(tempoary_ident)
                     .ok_or_eyre("Bad tempoary")?;
                 assert!(0 <= rel_offset.0 && rel_offset.0 < base_type.width(self.type_checker)?);
 
-                let offset = Offset(base_offset.0 + rel_offset.0);
                 Ok(DataReference::Tempoary(
-                    self.allocate_tempoary_at(var_type, offset),
+                    self.allocate_tempoary_at(var_type, base_offset + rel_offset),
+                    derived_from.map(|it| DerivedFrom {
+                        version: it.version,
+                        offset: it.offset + rel_offset,
+                    }),
                 ))
             }
             _ => unreachable!(),
@@ -257,15 +304,19 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         &mut self,
         data_ref: DataReference<'a>,
         version: VariableVersion,
-        var_type: Type<'a>,
-    ) {
+        data_type: Type<'a>,
+    ) -> Result<()> {
+        let reference = self.dereference_data_ref(&data_ref)?;
+
         self.top_scope_frame().locals.insert(
             version,
             AnnotatedDataRef {
-                reference: data_ref,
-                data_type: var_type,
+                reference,
+                data_type,
             },
         );
+
+        Ok(())
     }
 
     pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
@@ -327,7 +378,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         .insert(
                             *version,
                             AnnotatedDataRef {
-                                reference: DataReference::Tempoary(tempoary),
+                                reference: DataReference::Tempoary(tempoary, None),
                                 data_type: var_type.clone(),
                             },
                         )
@@ -364,6 +415,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     tokens,
                     call_span,
                 } => {
+                    // TODO:
                     if signature.return_type.width(self.type_checker)?
                         != tail_call_sig.return_type.width(self.type_checker)?
                     {
@@ -482,7 +534,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             trace!("bring up reference '{reference:?}'",);
 
             match reference {
-                DataReference::Value(val) => {
+                DataReference::Value(val, _) => {
                     for num in val.as_repr() {
                         self.push_token(ClacToken::Number(num))?
                     }
@@ -510,7 +562,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                         data_type.width(self.type_checker)?,
                     )?;
                 }
-                &DataReference::Tempoary(ident) => {
+                &DataReference::Tempoary(ident, _) => {
                     let (var_type, offset) = self
                         .lookup_temporary(ident)
                         .expect("Bring up valid temporary");
@@ -628,7 +680,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         self.scope_stack
             .last()
             .and_then(|it| it.locals.get(version))
-            .cloned()
+            .map(|it| it.mark_originator(*version, Offset(0)))
     }
 
     pub fn lookup_ident(&self, version: &VariableVersion) -> Option<AnnotatedDataRef<'a>> {
@@ -636,7 +688,13 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             Some(local)
         } else if let Some(constant) = self.lookup_const(version) {
             Some(AnnotatedDataRef {
-                reference: DataReference::Value(constant.clone()),
+                reference: DataReference::Value(
+                    constant.clone(),
+                    Some(DerivedFrom {
+                        version: *version,
+                        offset: Offset(0),
+                    }),
+                ),
                 data_type: constant.compute_type(),
             })
         } else {
@@ -715,14 +773,20 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                             "Attempted to deref a data reference pointing to a non existant local by name `{ident} {version}`"
                         )
                     })?
-                    .reference,
+                    .reference
+                    .mark_originator(*version, Offset(0)),
             ),
             DataReference::Const(version, ident) => {
                 let value = self.lookup_const(version).ok_or_else(|| {
                     eyre!("Attempted to deref a data reference pointing to a non existant constant by name `{ident} {version}`")
                 })?;
 
-                Ok(DataReference::Value(value))
+                Ok(
+                    DataReference::Value(value, Some(DerivedFrom {
+                        version: *version,
+                        offset: Offset(0),
+                    }))
+                )
             }
             data_ref => Ok(data_ref.clone()),
         }

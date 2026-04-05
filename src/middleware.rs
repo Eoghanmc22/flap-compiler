@@ -61,7 +61,7 @@ pub fn walk_block<'a, 'b>(
     let ret = if let Some(last_return_val) = last_return_val {
         last_return_val.into_tail_call(ctx)?
     } else {
-        DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into()
+        DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?, None).into()
     };
 
     // TODO: need to handle this in early return paths if we ever add that
@@ -130,7 +130,7 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
     let expr_data_ref = walk_expr(ctx, expr)?.into_data_ref(ctx)?;
     let expr_data_ref = ctx.dereference_data_ref(&expr_data_ref)?;
     let expr_value = match expr_data_ref {
-        DataReference::Value(val) => val,
+        DataReference::Value(val, _) => val,
         _ => {
             return Err(eyre!("Const could not be evaluated at compile time"))
                 .with_section(|| generate_span_error_section(const_def.as_span()));
@@ -169,7 +169,7 @@ fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>
     };
 
     let data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
-    ctx.promote_to_local(data_ref, *version, var_type);
+    ctx.promote_to_local(data_ref, *version, var_type)?;
 
     Ok(())
 }
@@ -186,84 +186,128 @@ fn walk_assignment<'a, 'b>(
         target_type,
         expr_type,
     } = assignment;
-
-    let expr_data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
-    let target_place = walk_expr(ctx, &target)?;
-    let ExpressionOutput::Dereference(target, target_pointer_type, _span) = target_place else {
-        return Err(eyre!(
-            "UNIMPLEMENTED: Assignments only support places that simplify to a pointer deref",
-        )
-        .with_section(|| generate_span_error_section(*span)));
-    };
-    let target_data_ref = walk_expr(ctx, &*target)?.into_data_ref(ctx)?;
-
     let DeferedType::ResolvedType(target_type) = target_type.clone() else {
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
-    assert!(
-        Type::Pointer(target_type.clone().into())
-            .compatible_with(&target_pointer_type, ctx.type_checker)?
-    );
-
     let DeferedType::ResolvedType(expr_type) = expr_type.clone() else {
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
 
-    let width = expr_type.width(ctx.type_checker)?;
-    let stride = target_type.stride(ctx.type_checker)?;
-    match (width, stride) {
-        (0, _) => {}
-        (_, Stride::ZST) => unreachable!(),
-        (1, Stride::Byte) => {
-            ctx.call_function_like("write8", vec![target_data_ref, expr_data_ref], *span)?
-                .into_data_ref(ctx)?;
-        }
-        (1, Stride::Native) => {
-            ctx.call_function_like("write_native", vec![target_data_ref, expr_data_ref], *span)?
-                .into_data_ref(ctx)?;
-        }
-        (width, Stride::Byte) => {
-            for idx in 0..width {
-                let char =
-                    ctx.reference_relative(Type::Char, expr_data_ref.clone(), Offset(idx))?;
+    let expr_data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
+    let target_place = walk_expr(ctx, &target)?;
 
-                let target_char = if idx != 0 {
-                    ClacOp::Add {
-                        lhs: target_data_ref.clone(),
-                        rhs: DataReference::Value(Value::Int(idx as ClacValue)),
+    match target_place {
+        ExpressionOutput::TailCall(maybe_tail_call) => {
+            assert!(target_type.compatible_with(&expr_type, ctx.type_checker)?);
+
+            if let Some(derived_from_local) = maybe_tail_call.into_data_ref(ctx)?.originator() {
+                let Some(old) = ctx.lookup_local(&derived_from_local.version) else {
+                    if let Some(_) = ctx.lookup_const(&derived_from_local.version) {
+                        return Err(eyre!(
+                            "Can not assign to a place derived from a constant since constants are immutable",
+                        )
+                        .with_section(|| generate_span_error_section(*span)));
+                    } else {
+                        return Err(eyre!(
+                            "COMPILER BUG: Attempted to assign to non existant variable",
+                        )
+                        .with_section(|| generate_span_error_section(*span)));
                     }
-                    .append_into(ctx)?
-                } else {
-                    target_data_ref.clone()
                 };
 
-                ctx.call_function_like("write8", vec![target_char, char], *span)?
-                    .into_data_ref(ctx)?;
+                if derived_from_local.offset == Offset(0)
+                    && old
+                        .data_type
+                        .compatible_with(&expr_type, ctx.type_checker)?
+                {
+                    ctx.promote_to_local(expr_data_ref, derived_from_local.version, target_type)?;
+                } else {
+                    return Err(eyre!(
+                        "UNIMPLEMENTED: Assignments can currently only mutate entire locals, not offsets into them, offset: {:?}, old type: {}, target_type: {}, expr_type: {}",
+                        derived_from_local.offset, old.data_type, target_type, expr_type
+                    )
+                    .with_section(|| generate_span_error_section(*span)));
+                }
+            } else {
+                return Err(eyre!(
+                    "UNIMPLEMENTED: Assignments only support places that simplify to a pointer deref or are derived from locals",
+                )
+                .with_section(|| generate_span_error_section(*span)));
             }
         }
-        (width, Stride::Native) => {
-            for idx in 0..width {
-                let int = ctx.reference_relative(Type::Int, expr_data_ref.clone(), Offset(idx))?;
+        ExpressionOutput::Dereference(target, target_pointer_type, _span) => {
+            let target_data_ref = walk_expr(ctx, &*target)?.into_data_ref(ctx)?;
 
-                let target_int = if idx != 0 {
-                    ClacOp::Add {
-                        lhs: target_data_ref.clone(),
-                        rhs: DataReference::Value(Value::Int(
-                            idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
-                        )),
-                    }
-                    .append_into(ctx)?
-                } else {
-                    target_data_ref.clone()
-                };
+            assert!(
+                Type::Pointer(target_type.clone().into())
+                    .compatible_with(&target_pointer_type, ctx.type_checker)?
+            );
 
-                ctx.call_function_like("write_native", vec![target_int, int], *span)?
+            let width = expr_type.width(ctx.type_checker)?;
+            let stride = target_type.stride(ctx.type_checker)?;
+            match (width, stride) {
+                (0, _) => {}
+                (_, Stride::ZST) => unreachable!(),
+                (1, Stride::Byte) => {
+                    ctx.call_function_like("write8", vec![target_data_ref, expr_data_ref], *span)?
+                        .into_data_ref(ctx)?;
+                }
+                (1, Stride::Native) => {
+                    ctx.call_function_like(
+                        "write_native",
+                        vec![target_data_ref, expr_data_ref],
+                        *span,
+                    )?
                     .into_data_ref(ctx)?;
+                }
+                (width, Stride::Byte) => {
+                    for idx in 0..width {
+                        let char =
+                            ctx.reference_relative(Type::Char, expr_data_ref.clone(), Offset(idx))?;
+
+                        let target_char = if idx != 0 {
+                            ClacOp::Add {
+                                lhs: target_data_ref.clone(),
+                                rhs: DataReference::Value(Value::Int(idx as ClacValue), None),
+                            }
+                            .append_into(ctx)?
+                        } else {
+                            target_data_ref.clone()
+                        };
+
+                        ctx.call_function_like("write8", vec![target_char, char], *span)?
+                            .into_data_ref(ctx)?;
+                    }
+                }
+                (width, Stride::Native) => {
+                    for idx in 0..width {
+                        let int =
+                            ctx.reference_relative(Type::Int, expr_data_ref.clone(), Offset(idx))?;
+
+                        let target_int = if idx != 0 {
+                            ClacOp::Add {
+                                lhs: target_data_ref.clone(),
+                                rhs: DataReference::Value(
+                                    Value::Int(
+                                        idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
+                                    ),
+                                    None,
+                                ),
+                            }
+                            .append_into(ctx)?
+                        } else {
+                            target_data_ref.clone()
+                        };
+
+                        ctx.call_function_like("write_native", vec![target_int, int], *span)?
+                            .into_data_ref(ctx)?;
+                    }
+                }
             }
         }
     }
 
-    return Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into());
+    Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?, None).into())
 }
 
 fn walk_if_expr<'a, 'b>(
@@ -372,7 +416,7 @@ fn walk_if_statement_inner<'a, 'b>(
     } else if let Some(otherwise) = otherwise {
         walk_block(ctx, otherwise)
     } else {
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into())
+        Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?, None).into())
     }
 }
 
@@ -434,12 +478,15 @@ impl<'a> ExpressionOutput<'a> {
                             if idx != 0 {
                                 let data_ref = ClacOp::Add {
                                     lhs: target_data_ref.clone(),
-                                    rhs: DataReference::Value(Value::Int(idx as ClacValue)),
+                                    rhs: DataReference::Value(Value::Int(idx as ClacValue), None),
                                 }
                                 .append_into(ctx)?;
 
+                                // If the add is performed at run time it will already be at the
+                                // top of the stack, but if it was done at compile time, we need to
+                                // bring it up
                                 match data_ref {
-                                    DataReference::Value(_) => {
+                                    DataReference::Value(_, _) => {
                                         ctx.bring_up_references([&target_data_ref], 1)?;
                                     }
                                     _ => {}
@@ -458,14 +505,20 @@ impl<'a> ExpressionOutput<'a> {
                             if idx != 0 {
                                 let data_ref = ClacOp::Add {
                                     lhs: target_data_ref.clone(),
-                                    rhs: DataReference::Value(Value::Int(
-                                        idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
-                                    )),
+                                    rhs: DataReference::Value(
+                                        Value::Int(
+                                            idx as ClacValue * (ClacValue::BITS as ClacValue / 8),
+                                        ),
+                                        None,
+                                    ),
                                 }
                                 .append_into(ctx)?;
 
+                                // If the add is performed at run time it will already be at the
+                                // top of the stack, but if it was done at compile time, we need to
+                                // bring it up
                                 match data_ref {
-                                    DataReference::Value(_) => {
+                                    DataReference::Value(_, _) => {
                                         ctx.bring_up_references([&target_data_ref], 1)?;
                                     }
                                     _ => {}
@@ -479,7 +532,9 @@ impl<'a> ExpressionOutput<'a> {
                     }
                 }
 
-                return Ok(DataReference::Tempoary(ctx.allocate_tempoary(deref_type)?).into());
+                return Ok(
+                    DataReference::Tempoary(ctx.allocate_tempoary(deref_type)?, None).into(),
+                );
             }
         }
     }
@@ -507,10 +562,11 @@ fn walk_expr<'a, 'b>(
                 },
             };
 
-            Ok(
-                DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)? * scale))
-                    .into(),
+            Ok(DataReference::Value(
+                Value::Int(inner_type.width(ctx.type_checker)? * scale),
+                None,
             )
+            .into())
         }
         Expr::SizeOfExpr(_inner_expr, defered_type, mode, span) => {
             let DeferedType::ResolvedType(inner_type) = defered_type else {
@@ -533,12 +589,13 @@ fn walk_expr<'a, 'b>(
                 },
             };
 
-            Ok(
-                DataReference::Value(Value::Int(inner_type.width(ctx.type_checker)? * scale))
-                    .into(),
+            Ok(DataReference::Value(
+                Value::Int(inner_type.width(ctx.type_checker)? * scale),
+                None,
             )
+            .into())
         }
-        Expr::Value(value, _span) => Ok(DataReference::Value(value.clone()).into()),
+        Expr::Value(value, _span) => Ok(DataReference::Value(value.clone(), None).into()),
         Expr::Variable(ident, version, span) => {
             let DeferedVersion::ResolvedVersion(version) = version else {
                 return Err(eyre!("COMPILER BUG: defered version was not resolved"));
@@ -565,15 +622,15 @@ fn walk_expr<'a, 'b>(
                 .iter()
                 .map(
                     |(key, data_ref)| match ctx.dereference_data_ref(data_ref)? {
-                        DataReference::Value(value) => Ok(Some((&***key, value))),
-                        DataReference::Tempoary(_) => Ok(None),
+                        DataReference::Value(value, _) => Ok(Some((&***key, value))),
+                        DataReference::Tempoary(_, _) => Ok(None),
                         _ => unreachable!(),
                     },
                 )
                 .collect::<Result<Option<BTreeMap<_, _>>>>()?;
 
             if let Some(map) = maybe_value {
-                Ok(DataReference::Value(Value::Struct(map)).into())
+                Ok(DataReference::Value(Value::Struct(map), None).into())
             } else {
                 let expected_width = struct_type.width(ctx.type_checker)?;
                 ctx.bring_up_references(
@@ -584,7 +641,10 @@ fn walk_expr<'a, 'b>(
                     expected_width,
                 )?;
 
-                Ok(DataReference::Tempoary(ctx.allocate_tempoary(struct_type.clone())?).into())
+                Ok(
+                    DataReference::Tempoary(ctx.allocate_tempoary(struct_type.clone())?, None)
+                        .into(),
+                )
             }
         }
         Expr::Array(exprs, array_type, _span) => {
@@ -604,19 +664,22 @@ fn walk_expr<'a, 'b>(
             let maybe_value = data_refs
                 .iter()
                 .map(|data_ref| match ctx.dereference_data_ref(data_ref)? {
-                    DataReference::Value(value) => Ok(Some(value)),
-                    DataReference::Tempoary(_) => Ok(None),
+                    DataReference::Value(value, _) => Ok(Some(value)),
+                    DataReference::Tempoary(_, _) => Ok(None),
                     _ => unreachable!(),
                 })
                 .collect::<Result<Option<Vec<_>>>>()?;
 
-            if let Some(map) = maybe_value {
-                Ok(DataReference::Value(Value::Array((**inner_type).clone(), map)).into())
+            if let Some(array) = maybe_value {
+                Ok(DataReference::Value(Value::Array((**inner_type).clone(), array), None).into())
             } else {
                 let expected_width = array_type.width(ctx.type_checker)?;
                 ctx.bring_up_references(&data_refs, expected_width)?;
 
-                Ok(DataReference::Tempoary(ctx.allocate_tempoary(array_type.clone())?).into())
+                Ok(
+                    DataReference::Tempoary(ctx.allocate_tempoary(array_type.clone())?, None)
+                        .into(),
+                )
             }
         }
         Expr::BinaryOp {
@@ -652,9 +715,10 @@ fn walk_expr<'a, 'b>(
                         (1, Stride::Byte) => (lhs, rhs),
                         (1, Stride::Native) => {
                             let rhs = ClacOp::Mul {
-                                lhs: DataReference::Value(Value::Int(
-                                    ClacValue::BITS as ClacValue / 8,
-                                )),
+                                lhs: DataReference::Value(
+                                    Value::Int(ClacValue::BITS as ClacValue / 8),
+                                    None,
+                                ),
                                 rhs,
                             }
                             .append_into(ctx)?;
@@ -663,7 +727,7 @@ fn walk_expr<'a, 'b>(
                         }
                         (width, Stride::Byte) => {
                             let rhs = ClacOp::Mul {
-                                lhs: DataReference::Value(Value::Int(width)),
+                                lhs: DataReference::Value(Value::Int(width), None),
                                 rhs,
                             }
                             .append_into(ctx)?;
@@ -672,9 +736,10 @@ fn walk_expr<'a, 'b>(
                         }
                         (width, Stride::Native) => {
                             let rhs = ClacOp::Mul {
-                                lhs: DataReference::Value(Value::Int(
-                                    ClacValue::BITS as ClacValue / 8 * width,
-                                )),
+                                lhs: DataReference::Value(
+                                    Value::Int(ClacValue::BITS as ClacValue / 8 * width),
+                                    None,
+                                ),
                                 rhs,
                             }
                             .append_into(ctx)?;
@@ -726,9 +791,10 @@ fn walk_expr<'a, 'b>(
                         (1, Stride::Byte) => ret,
                         (1, Stride::Native) => {
                             let ret = ClacOp::Div {
-                                lhs: DataReference::Value(Value::Int(
-                                    ClacValue::BITS as ClacValue / 8,
-                                )),
+                                lhs: DataReference::Value(
+                                    Value::Int(ClacValue::BITS as ClacValue / 8),
+                                    None,
+                                ),
                                 rhs: ret,
                             }
                             .append_into(ctx)?;
@@ -737,7 +803,7 @@ fn walk_expr<'a, 'b>(
                         }
                         (width, Stride::Byte) => {
                             let ret = ClacOp::Div {
-                                lhs: DataReference::Value(Value::Int(width)),
+                                lhs: DataReference::Value(Value::Int(width), None),
                                 rhs: ret,
                             }
                             .append_into(ctx)?;
@@ -746,9 +812,10 @@ fn walk_expr<'a, 'b>(
                         }
                         (width, Stride::Native) => {
                             let ret = ClacOp::Div {
-                                lhs: DataReference::Value(Value::Int(
-                                    ClacValue::BITS as ClacValue / 8 * width,
-                                )),
+                                lhs: DataReference::Value(
+                                    Value::Int(ClacValue::BITS as ClacValue / 8 * width),
+                                    None,
+                                ),
                                 rhs: ret,
                             }
                             .append_into(ctx)?;
@@ -811,9 +878,12 @@ fn walk_expr<'a, 'b>(
                     return match value.into_tail_call(ctx)? {
                         MaybeTailCall::Regular(ref data_reference) => {
                             match ctx.dereference_data_ref(data_reference)? {
-                                DataReference::Value(value) => {
-                                    Ok(DataReference::Value(Value::Cast(to.clone(), value.into()))
-                                        .into())
+                                DataReference::Value(value, derived_from) => {
+                                    Ok(DataReference::Value(
+                                        Value::Cast(to.clone(), value.into()),
+                                        derived_from,
+                                    )
+                                    .into())
                                 }
                                 value => Ok(value.into()),
                             }
@@ -967,7 +1037,7 @@ fn walk_expr<'a, 'b>(
                             let idx = walk_expr(ctx, idx_expr)?;
 
                             let ExpressionOutput::TailCall(MaybeTailCall::Regular(
-                                DataReference::Value(Value::Int(idx)),
+                                DataReference::Value(Value::Int(idx), _),
                             )) = idx
                             else {
                                 return Err(eyre!(

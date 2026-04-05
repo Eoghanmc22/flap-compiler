@@ -5,7 +5,7 @@ use color_eyre::eyre::{ContextCompat, Result, bail};
 use crate::{
     ast::{FunctionSignature, IdentRef, Type, Value, VariableVersion},
     codegen::{
-        CodegenCtx, DefinitionIdent, TempoaryIdent,
+        CodegenCtx, DefinitionIdent, Offset, TempoaryIdent,
         clac::{ClacProgram, ClacToken, ClacValue, ClacValueUnsigned},
     },
 };
@@ -41,22 +41,59 @@ impl<'a, 'b> TokenConsumer<'a, 'b> for (&mut ClacProgram, &mut CodegenCtx<'a, 'b
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DerivedFrom {
+    pub version: VariableVersion,
+    pub offset: Offset,
+}
+
 #[derive(Debug, Clone)]
 pub enum DataReference<'a> {
-    Value(Value<'a>),
+    Value(Value<'a>, Option<DerivedFrom>),
     Local(VariableVersion, IdentRef<'a>),
     Const(VariableVersion, IdentRef<'a>),
-    Tempoary(TempoaryIdent),
+    Tempoary(TempoaryIdent, Option<DerivedFrom>),
 }
 
 impl<'a> DataReference<'a> {
     pub fn as_clac_value(&self) -> Option<(ClacValue, Type<'a>)> {
         match self {
-            DataReference::Value(value) => match value.as_repr()[..] {
+            DataReference::Value(value, _) => match value.as_repr()[..] {
                 [int] => Some((int, value.compute_type())),
                 _ => None,
             },
             _ => None,
+        }
+    }
+
+    pub fn mark_originator(&self, version: VariableVersion, offset: Offset) -> Self {
+        match self {
+            DataReference::Tempoary(tempoary_ident, _derived_from_local) => {
+                let new = DerivedFrom { version, offset };
+
+                DataReference::Tempoary(*tempoary_ident, Some(new))
+            }
+            DataReference::Value(value, _derived_from_local) => {
+                let new = DerivedFrom { version, offset };
+
+                DataReference::Value(value.clone(), Some(new))
+            }
+            _ => self.clone(),
+        }
+    }
+
+    pub fn originator(&self) -> Option<DerivedFrom> {
+        match self {
+            DataReference::Local(local, _) => Some(DerivedFrom {
+                version: *local,
+                offset: Offset(0),
+            }),
+            DataReference::Const(constant, _) => Some(DerivedFrom {
+                version: *constant,
+                offset: Offset(0),
+            }),
+            DataReference::Tempoary(_, derived_from_local) => derived_from_local.clone(),
+            DataReference::Value(_, derived_from_local) => derived_from_local.clone(),
         }
     }
 }
@@ -553,137 +590,137 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type.into(),
-                    Value::Int(lhs.wrapping_add(rhs)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type.into(), Value::Int(lhs.wrapping_add(rhs)).into()),
+                    None,
+                )
             }
             ClacOp::Sub { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type,
-                    Value::Int(lhs.wrapping_sub(rhs)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type, Value::Int(lhs.wrapping_sub(rhs)).into()),
+                    None,
+                )
             }
             ClacOp::Mul { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type,
-                    Value::Int(lhs.wrapping_mul(rhs)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type, Value::Int(lhs.wrapping_mul(rhs)).into()),
+                    None,
+                )
             }
             ClacOp::Div { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type,
-                    Value::Int(lhs.wrapping_div(rhs)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type, Value::Int(lhs.wrapping_div(rhs)).into()),
+                    None,
+                )
             }
             ClacOp::Mod { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type,
-                    Value::Int(lhs.wrapping_rem(rhs)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type, Value::Int(lhs.wrapping_rem(rhs)).into()),
+                    None,
+                )
             }
             ClacOp::Pow { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type,
-                    Value::Int(lhs.wrapping_pow(rhs as u32)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type, Value::Int(lhs.wrapping_pow(rhs as u32)).into()),
+                    None,
+                )
             }
             ClacOp::Lt { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs < rhs))
+                DataReference::Value(Value::Bool(lhs < rhs), None)
             }
             ClacOp::Gt { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs > rhs))
+                DataReference::Value(Value::Bool(lhs > rhs), None)
             }
             ClacOp::Le { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs <= rhs))
+                DataReference::Value(Value::Bool(lhs <= rhs), None)
             }
             ClacOp::Ge { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs >= rhs))
+                DataReference::Value(Value::Bool(lhs >= rhs), None)
             }
             ClacOp::Eq { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs == rhs))
+                DataReference::Value(Value::Bool(lhs == rhs), None)
             }
             ClacOp::Ne { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs != rhs))
+                DataReference::Value(Value::Bool(lhs != rhs), None)
             }
             ClacOp::Neg { value } => {
                 let (value, value_type) = value.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(value_type, Value::Int(-value).into()))
+                DataReference::Value(Value::Cast(value_type, Value::Int(-value).into()), None)
             }
             ClacOp::Not { value } => {
                 let (value, _value_type) = value.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(value == 0))
+                DataReference::Value(Value::Bool(value == 0), None)
             }
             ClacOp::LAnd { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs != 0 && rhs != 0))
+                DataReference::Value(Value::Bool(lhs != 0 && rhs != 0), None)
             }
             ClacOp::LOr { lhs, rhs } => {
                 let (lhs, _lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Bool(lhs != 0 || rhs != 0))
+                DataReference::Value(Value::Bool(lhs != 0 || rhs != 0), None)
             }
             ClacOp::BShl { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type,
-                    Value::Int(lhs.unbounded_shl(rhs as u32)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type, Value::Int(lhs.unbounded_shl(rhs as u32)).into()),
+                    None,
+                )
             }
             ClacOp::BShr { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(
-                    lhs_type,
-                    Value::Int(lhs.unbounded_shr(rhs as u32)).into(),
-                ))
+                DataReference::Value(
+                    Value::Cast(lhs_type, Value::Int(lhs.unbounded_shr(rhs as u32)).into()),
+                    None,
+                )
             }
             ClacOp::BAnd { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
-                DataReference::Value(Value::Cast(lhs_type, Value::Int(lhs & rhs).into()))
+                DataReference::Value(Value::Cast(lhs_type, Value::Int(lhs & rhs).into()), None)
             }
             _ => return None,
         };
@@ -699,6 +736,9 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         self.load_inputs(ctx)?;
         let return_type = self.execute(&mut *ctx)?;
 
-        Ok(DataReference::Tempoary(ctx.allocate_tempoary(return_type)?))
+        Ok(DataReference::Tempoary(
+            ctx.allocate_tempoary(return_type)?,
+            None,
+        ))
     }
 }
