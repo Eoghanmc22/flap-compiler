@@ -1,0 +1,16 @@
+int black_box(int x) {x}
+
+int x = black_box(5);
+defer {
+  print(black_box(x));
+}
+
+int x = black_box(15);
+defer {
+  print(black_box(x));
+}
+
+int x = black_box(10);
+
+// prints 15
+// then prints 5
