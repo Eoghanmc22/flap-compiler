@@ -84,12 +84,11 @@ impl<'a> MaybeTailCall<'a> {
                     };
 
                     ctx.bring_up_references(
-                        parameters.into_iter().chain(
-                            captures
-                                .0
-                                .iter()
-                                .map(|(_, _, version)| DataReference::Local(version.unwrap())),
-                        ),
+                        captures
+                            .0
+                            .iter()
+                            .map(|(_, _, version)| DataReference::Local(version.unwrap()))
+                            .chain(parameters),
                         signature.paramater_width(ctx.type_checker)?,
                     )?;
 
@@ -379,12 +378,11 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     };
 
                     self.bring_up_references(
-                        parameters.into_iter().chain(
-                            captures
-                                .0
-                                .iter()
-                                .map(|(_, _, version)| DataReference::Local(version.unwrap())),
-                        ),
+                        captures
+                            .0
+                            .iter()
+                            .map(|(_, _, version)| DataReference::Local(version.unwrap()))
+                            .chain(parameters),
                         tail_call_sig.paramater_width(self.type_checker)?,
                     )
                     .wrap_err("COMPILER BUG: error bringing up references for tail call")

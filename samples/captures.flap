@@ -1,7 +1,11 @@
-int x = 5;
+int bb(int x) {x}
+int x = bb(5);
 
 void do_thing() {
   print(x);
+  if (x != 0) {
+    print(x);
+  }
 }
 
 do_thing();

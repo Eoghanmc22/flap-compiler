@@ -591,7 +591,7 @@ impl<'a> FunctionSignature<'a> {
             return Err(eyre!("COMPILER BUG: defered version was not resolved"));
         };
 
-        Ok(self.arguements.iter().chain(captures.0.iter()))
+        Ok(captures.0.iter().chain(&self.arguements))
     }
 
     pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
