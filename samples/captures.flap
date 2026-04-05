@@ -1,0 +1,7 @@
+int x = 5;
+
+void do_thing() {
+  print(x);
+}
+
+do_thing();

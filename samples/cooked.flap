@@ -1,0 +1,3 @@
+int black_box(int x) {x}
+
+print(black_box(0) & -2);

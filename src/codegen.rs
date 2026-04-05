@@ -23,8 +23,8 @@ use std::{
 
 use crate::{
     ast::{
-        DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type, Value,
-        VariableVersion,
+        DeferedCaptures, DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type,
+        Value, VariableVersion,
     },
     codegen::{
         builtins::clac_builtins,
@@ -62,8 +62,8 @@ pub enum MaybeTailCall<'a> {
     Regular(DataReference<'a>),
     TailCall {
         parameters: Vec<DataReference<'a>>,
-        signature: Arc<FunctionSignature<'a>>,
-        tokens: Arc<Vec<ClacToken>>,
+        signature: FunctionSignature<'a>,
+        tokens: Vec<ClacToken>,
         call_span: Span<'a>,
     },
 }
@@ -79,8 +79,17 @@ impl<'a> MaybeTailCall<'a> {
                 call_span,
             } => {
                 let res: Result<_> = try {
+                    let DeferedCaptures::ResolvedCaptures(captures) = &signature.captures else {
+                        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+                    };
+
                     ctx.bring_up_references(
-                        &parameters,
+                        parameters.into_iter().chain(
+                            captures
+                                .0
+                                .iter()
+                                .map(|(_, _, version)| DataReference::Local(version.unwrap())),
+                        ),
                         signature.paramater_width(ctx.type_checker)?,
                     )?;
 
@@ -109,7 +118,7 @@ pub struct ScopeFrame<'a> {
     locals: HashMap<VariableVersion, AnnotatedDataRef<'a>>,
     constants: HashMap<VariableVersion, Value<'a>>,
     temporaries: HashMap<TempoaryIdent, (Type<'a>, Offset)>,
-    definitions: HashMap<StoredDefinitionIdent<'a>, (Vec<ClacToken>, Arc<FunctionSignature<'a>>)>,
+    definitions: HashMap<StoredDefinitionIdent<'a>, (Vec<ClacToken>, FunctionSignature<'a>)>,
 
     allow_underflow: bool,
 }
@@ -275,8 +284,6 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         };
         let mangled = MangledIdent(Arc::new(mangled));
 
-        let signature = Arc::new(signature);
-
         let call = vec![ClacToken::Call {
             mangled_ident: mangled.clone(),
             stack_delta: signature.stack_delta(self.type_checker)?,
@@ -297,7 +304,8 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
             let id_counter = self.id_counter.clone();
             let mut offset = 0;
-            for (var_type, _ident, version) in &signature.arguements {
+
+            for (var_type, _ident, version) in signature.arguements_and_captures()? {
                 let DeferedVersion::ResolvedVersion(version) = version else {
                     return Err(eyre!(
                         "COMPILER BUG: attempted to define a function whose args have unresolved version"
@@ -307,7 +315,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 let cur_offset = Offset(frame.frame_start + offset);
                 offset += var_type.width(self.type_checker)?;
 
-                // Name arg as a tempoary
+                // Name arg as a temporary
                 let tempoary = TempoaryIdent(id_counter.fetch_add(1, Ordering::Relaxed));
                 frame
                     .temporaries
@@ -439,7 +447,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
         self.top_scope_frame()
             .definitions
-            .insert(StoredDefinitionIdent(def_ident), (tokens, Arc::new(sig)));
+            .insert(StoredDefinitionIdent(def_ident), (tokens, sig));
 
         def_ident
     }
@@ -450,10 +458,10 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
     pub fn bring_up_references(
         &mut self,
-        references: &[impl Borrow<DataReference<'a>> + Debug],
+        references: impl IntoIterator<Item = impl Borrow<DataReference<'a>>>,
         expected_width: ClacValue,
     ) -> Result<()> {
-        trace!("bring up references '{references:?}', expected_width, {expected_width}");
+        trace!("bring up references, expected_width, {expected_width}");
 
         // TODO: Optimize
         let starting_cursor = self.cursor;
@@ -513,7 +521,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
         if self.cursor - starting_cursor != expected_width {
             bail!(
-                "Type error?: expected to load width {expected_width}, actually loaded: {}, references: {references:#?}",
+                "Type error?: expected to load width {expected_width}, actually loaded: {}",
                 self.cursor - starting_cursor
             )
         }
@@ -553,9 +561,9 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
         Ok(MaybeTailCall::TailCall {
             parameters,
-            signature: sig,
+            signature: sig.clone(),
             // TODO: Why is this making a new arc????
-            tokens: Arc::new(func_impl.to_vec()),
+            tokens: func_impl.to_vec(),
             call_span,
         })
     }
@@ -563,14 +571,14 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     pub fn lookup_function_like_signature(
         &self,
         ident: IdentRef<'a>,
-    ) -> Option<(Vec<ClacToken>, Arc<FunctionSignature<'a>>)> {
+    ) -> Option<(&[ClacToken], &FunctionSignature<'a>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((func_impl, sig)) = frame.definitions.get(&DefinitionIdent::Inline(ident)) {
-                return Some((func_impl.clone(), sig.clone()));
+                return Some((func_impl, sig));
             }
             if let Some((func_impl, sig)) = frame.definitions.get(&DefinitionIdent::Function(ident))
             {
-                return Some((func_impl.clone(), sig.clone()));
+                return Some((func_impl, sig));
             }
         }
 
@@ -580,10 +588,10 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     pub fn lookup_definition(
         &self,
         ident: DefinitionIdent<'a>,
-    ) -> Option<(Vec<ClacToken>, Arc<FunctionSignature<'a>>)> {
+    ) -> Option<(&[ClacToken], &FunctionSignature<'a>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((func_impl, sig)) = frame.definitions.get(&ident) {
-                return Some((func_impl.clone(), sig.clone()));
+                return Some((func_impl, sig));
             }
         }
 

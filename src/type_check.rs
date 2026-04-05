@@ -40,14 +40,19 @@ pub struct TypeCheckerFrame<'a> {
 
 impl<'a> TypeCheckerFrame<'a> {
     pub fn get_captures(&self) -> Captures<'a> {
-        Captures {
-            captures: self
-                .variables_versioned
+        Captures(
+            self.variables_versioned
                 .iter()
                 .filter(|(_, (_, _, kind))| *kind == VariableKind::Capture)
-                .map(|(version, (ident, data_type, _))| ((*ident, *version), data_type.clone()))
+                .map(|(version, (ident, data_type, _))| {
+                    (
+                        data_type.clone(),
+                        *ident,
+                        DeferedVersion::ResolvedVersion(*version),
+                    )
+                })
                 .collect(),
-        }
+        )
     }
 }
 
@@ -607,7 +612,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
                 }));
         }
 
-        self.captures = DeferedCaptures::ResolvedCaptures(frame.get_captures());
+        self.signature.captures = DeferedCaptures::ResolvedCaptures(frame.get_captures());
 
         // The Function Definition it self should not have a rrtuen type
         Ok(Type::Void)

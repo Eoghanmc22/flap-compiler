@@ -232,9 +232,9 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     signature: FunctionSignature {
                         arguements,
                         return_type,
+                        captures: DeferedCaptures::UnresolvedCaptures,
                     },
                     span,
-                    captures: DeferedCaptures::UnresolvedCaptures,
                 })
             }
             Rule::const_var => {

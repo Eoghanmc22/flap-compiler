@@ -518,9 +518,7 @@ impl DeferedVersion {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Captures<'a> {
-    pub captures: BTreeMap<(IdentRef<'a>, VariableVersion), Type<'a>>,
-}
+pub struct Captures<'a>(pub Arguements<'a>);
 
 #[derive(Debug, Clone, Default)]
 pub enum DeferedCaptures<'a> {
@@ -566,7 +564,6 @@ pub enum FunctionAttribute {
 pub struct FunctionDef<'a> {
     pub attributes: HashSet<FunctionAttribute>,
     pub function: IdentRef<'a>,
-    pub captures: DeferedCaptures<'a>,
     pub contents: Block<'a>,
     pub span: Span<'a>,
     pub signature: FunctionSignature<'a>,
@@ -578,16 +575,27 @@ impl<'a> AsSpan<'a> for FunctionDef<'a> {
     }
 }
 
+pub type Arguement<'a> = (Type<'a>, IdentRef<'a>, DeferedVersion);
+pub type Arguements<'a> = Vec<Arguement<'a>>;
+
 #[derive(Debug, Clone, Default)]
 pub struct FunctionSignature<'a> {
-    pub arguements: Vec<(Type<'a>, IdentRef<'a>, DeferedVersion)>,
+    pub arguements: Arguements<'a>,
+    pub captures: DeferedCaptures<'a>,
     pub return_type: Type<'a>,
 }
 
 impl<'a> FunctionSignature<'a> {
+    pub fn arguements_and_captures(&self) -> Result<impl Iterator<Item = &Arguement<'a>>> {
+        let DeferedCaptures::ResolvedCaptures(captures) = &self.captures else {
+            return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+        };
+
+        Ok(self.arguements.iter().chain(captures.0.iter()))
+    }
+
     pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
-        self.arguements
-            .iter()
+        self.arguements_and_captures()?
             .map(|(var_type, _, _)| var_type.width(ctx))
             .sum::<Result<ClacValue>>()
     }

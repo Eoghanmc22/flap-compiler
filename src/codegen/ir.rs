@@ -160,30 +160,30 @@ pub enum ClacOp<'a> {
 impl<'b, 'a: 'b> ClacOp<'a> {
     pub fn load_inputs(&self, ctx: &mut CodegenCtx<'a, '_>) -> Result<()> {
         match self {
-            ClacOp::Print { value } => ctx.bring_up_references(&[value], 1),
+            ClacOp::Print { value } => ctx.bring_up_references([value], 1),
             ClacOp::Quit => Ok(()),
-            ClacOp::Add { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Sub { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Mul { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Div { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Mod { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Pow { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Lt { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
+            ClacOp::Add { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Sub { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Mul { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Div { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Mod { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Pow { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Lt { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             // lhs and rhs reversed to save an instruction
-            ClacOp::Gt { lhs, rhs } => ctx.bring_up_references(&[rhs, lhs], 2),
+            ClacOp::Gt { lhs, rhs } => ctx.bring_up_references([rhs, lhs], 2),
             // lhs and rhs reversed to save an instruction
-            ClacOp::Le { lhs, rhs } => ctx.bring_up_references(&[rhs, lhs], 2),
-            ClacOp::Ge { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Eq { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Ne { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::Neg { value } => ctx.bring_up_references(&[value], 1),
-            ClacOp::Not { value } => ctx.bring_up_references(&[value], 1),
-            ClacOp::LAnd { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::LOr { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::BShl { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::BShr { lhs, rhs } => ctx.bring_up_references(&[lhs, rhs], 2),
-            ClacOp::BAnd { lhs, rhs: _rhs } => ctx.bring_up_references(&[lhs], 1),
-            ClacOp::If { condition, .. } => ctx.bring_up_references(&[condition], 1),
+            ClacOp::Le { lhs, rhs } => ctx.bring_up_references([rhs, lhs], 2),
+            ClacOp::Ge { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Eq { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Ne { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Neg { value } => ctx.bring_up_references([value], 1),
+            ClacOp::Not { value } => ctx.bring_up_references([value], 1),
+            ClacOp::LAnd { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::LOr { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::BShl { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::BShr { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::BAnd { lhs, rhs: _rhs } => ctx.bring_up_references([lhs], 1),
+            ClacOp::If { condition, .. } => ctx.bring_up_references([condition], 1),
             ClacOp::Call { name, parameters } => {
                 let (_mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
                 ctx.bring_up_references(parameters, def.paramater_width(ctx.type_checker)?)
@@ -434,12 +434,16 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     .ctx()
                     .lookup_definition(*on_true)
                     .wrap_err_with(|| format!("Unknown if on_true definition, '{on_true:?}'"))?;
+                let on_true_impl = on_true_impl.to_vec();
+                let def_true = def_true.clone();
 
                 if let Some(on_false) = on_false {
                     let (on_false_impl, def_false) =
                         out.ctx().lookup_definition(*on_false).wrap_err_with(|| {
                             format!("Unknown if false_true definition, '{on_true:?}'")
                         })?;
+                    let on_false_impl = on_false_impl.to_vec();
+                    let def_false = def_false.clone();
 
                     assert_eq!(
                         def_true.stack_delta(out.ctx().type_checker)?,
@@ -520,12 +524,14 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     .ctx()
                     .lookup_definition(*name)
                     .expect("Call valid definition");
+                let func_impl = func_impl.to_vec();
+                let ret = def.return_type.clone();
 
                 for token in func_impl {
                     out.consume(token)?;
                 }
 
-                def.return_type.clone()
+                ret
             }
             ClacOp::Inline {
                 tokens, signature, ..

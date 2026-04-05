@@ -3,7 +3,7 @@ use color_eyre::{
     eyre::{Context, ContextCompat, Ok, Result, eyre},
 };
 use pest::Span;
-use std::{collections::BTreeMap, fmt::Write, sync::Arc};
+use std::{collections::BTreeMap, fmt::Write};
 use tracing::trace;
 
 use crate::{
@@ -64,6 +64,7 @@ pub fn walk_block<'a, 'b>(
         DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?).into()
     };
 
+    // TODO: need to handle this in early return paths if we ever add that
     if !defered.is_empty() {
         let ret = ret.into_data_ref(ctx)?;
 
@@ -81,29 +82,39 @@ fn walk_function_call<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     func_call: &FunctionCall<'a>,
 ) -> Result<MaybeTailCall<'a>> {
-    let parameters = func_call
-        .parameters
+    let FunctionCall {
+        function,
+        parameters,
+        span,
+    } = func_call;
+
+    let parameters = parameters
         .iter()
         .map(|it| walk_expr(ctx, it)?.into_data_ref(ctx))
         .collect::<Result<Vec<DataReference<'a>>>>()?;
 
-    ctx.call_function_like(func_call.function, parameters, func_call.span)
-        .wrap_err_with(|| format!("Walk function call '{:?}' failed", func_call.function))
-        .with_section(|| generate_span_error_section(func_call.span))
+    ctx.call_function_like(function, parameters, *span)
+        .wrap_err_with(|| format!("Walk function call '{:?}' failed", function))
+        .with_section(|| generate_span_error_section(*span))
 }
 
 fn walk_function_def<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     func_def: &FunctionDef<'a>,
 ) -> Result<()> {
-    ctx.define_function(
-        func_def.function,
-        func_def.signature.clone(),
-        &func_def.attributes,
-        move |ctx| walk_block(ctx, &func_def.contents),
-    )
-    .wrap_err_with(|| format!("Walk function def '{:?}' failed", func_def.function))
-    .with_section(|| generate_span_error_section(func_def.span))?;
+    let FunctionDef {
+        attributes,
+        function,
+        contents,
+        span,
+        signature,
+    } = func_def;
+
+    ctx.define_function(function, signature.clone(), attributes, move |ctx| {
+        walk_block(ctx, contents)
+    })
+    .wrap_err_with(|| format!("Walk function def '{:?}' failed", function))
+    .with_section(|| generate_span_error_section(*span))?;
 
     Ok(())
 }
@@ -165,19 +176,28 @@ fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>
 
 fn walk_assignment<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
-    ptr_assign: &Assignment<'a>,
+    assignment: &Assignment<'a>,
 ) -> Result<MaybeTailCall<'a>> {
-    let expr_data_ref = walk_expr(ctx, &ptr_assign.expr)?.into_data_ref(ctx)?;
-    let target_place = walk_expr(ctx, &ptr_assign.target)?;
+    let Assignment {
+        target,
+        expr,
+        span,
+        expr_span: _,
+        target_type,
+        expr_type,
+    } = assignment;
+
+    let expr_data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
+    let target_place = walk_expr(ctx, &target)?;
     let ExpressionOutput::Dereference(target, target_pointer_type, _span) = target_place else {
         return Err(eyre!(
             "UNIMPLEMENTED: Assignments only support places that simplify to a pointer deref",
         )
-        .with_section(|| generate_span_error_section(ptr_assign.span)));
+        .with_section(|| generate_span_error_section(*span)));
     };
     let target_data_ref = walk_expr(ctx, &*target)?.into_data_ref(ctx)?;
 
-    let DeferedType::ResolvedType(target_type) = ptr_assign.target_type.clone() else {
+    let DeferedType::ResolvedType(target_type) = target_type.clone() else {
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
     assert!(
@@ -185,7 +205,7 @@ fn walk_assignment<'a, 'b>(
             .compatible_with(&target_pointer_type, ctx.type_checker)?
     );
 
-    let DeferedType::ResolvedType(expr_type) = ptr_assign.expr_type.clone() else {
+    let DeferedType::ResolvedType(expr_type) = expr_type.clone() else {
         return Err(eyre!("COMPILER BUG: defered type was not resolved"));
     };
 
@@ -195,20 +215,12 @@ fn walk_assignment<'a, 'b>(
         (0, _) => {}
         (_, Stride::ZST) => unreachable!(),
         (1, Stride::Byte) => {
-            ctx.call_function_like(
-                "write8",
-                vec![target_data_ref, expr_data_ref],
-                ptr_assign.span,
-            )?
-            .into_data_ref(ctx)?;
+            ctx.call_function_like("write8", vec![target_data_ref, expr_data_ref], *span)?
+                .into_data_ref(ctx)?;
         }
         (1, Stride::Native) => {
-            ctx.call_function_like(
-                "write_native",
-                vec![target_data_ref, expr_data_ref],
-                ptr_assign.span,
-            )?
-            .into_data_ref(ctx)?;
+            ctx.call_function_like("write_native", vec![target_data_ref, expr_data_ref], *span)?
+                .into_data_ref(ctx)?;
         }
         (width, Stride::Byte) => {
             for idx in 0..width {
@@ -225,7 +237,7 @@ fn walk_assignment<'a, 'b>(
                     target_data_ref.clone()
                 };
 
-                ctx.call_function_like("write8", vec![target_char, char], ptr_assign.span)?
+                ctx.call_function_like("write8", vec![target_char, char], *span)?
                     .into_data_ref(ctx)?;
             }
         }
@@ -245,7 +257,7 @@ fn walk_assignment<'a, 'b>(
                     target_data_ref.clone()
                 };
 
-                ctx.call_function_like("write_native", vec![target_int, int], ptr_assign.span)?
+                ctx.call_function_like("write_native", vec![target_int, int], *span)?
                     .into_data_ref(ctx)?;
             }
         }
@@ -258,38 +270,31 @@ fn walk_if_expr<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     if_expr: &IfExpr<'a>,
 ) -> Result<MaybeTailCall<'a>> {
-    if if_expr.otherwise.is_none()
-        && !if_expr
-            .return_type
-            .compatible_with(&Type::Void, ctx.type_checker)?
-    {
+    let IfExpr {
+        cases,
+        otherwise,
+        captures,
+        return_type,
+        span,
+    } = if_expr;
+
+    if otherwise.is_none() && !return_type.compatible_with(&Type::Void, ctx.type_checker)? {
         return Err(eyre!(
             "Got non exhustive if statement with non void return type ({:?})",
-            if_expr.return_type
+            return_type
         )
-        .with_section(|| generate_span_error_section(if_expr.span)));
+        .with_section(|| generate_span_error_section(*span)));
     }
 
     let sig = FunctionSignature {
-        arguements: if_expr
-            .captures
-            .unwrap()
-            .captures
-            .iter()
-            .map(|((ident, version), var_type)| {
-                (
-                    var_type.clone(),
-                    *ident,
-                    DeferedVersion::ResolvedVersion(*version),
-                )
-            })
-            .collect(),
-        return_type: if_expr.return_type.clone().unwrap(),
+        arguements: Vec::default(),
+        captures: captures.clone(),
+        return_type: return_type.clone().unwrap(),
     };
 
     trace!("if signature: {sig:?}");
 
-    walk_if_statement_inner(ctx, &if_expr.cases, if_expr.otherwise.as_ref(), sig)
+    walk_if_statement_inner(ctx, &cases, otherwise.as_ref(), sig)
 }
 
 fn walk_if_statement_inner<'a, 'b>(
@@ -338,7 +343,7 @@ fn walk_if_statement_inner<'a, 'b>(
             let AnnotatedDataRef {
                 reference,
                 data_type,
-            } = ctx.lookup_local(version).wrap_err(
+            } = ctx.lookup_local(&version).wrap_err(
                 "Look up local for capture for if statement could not find corosponding local",
             )?;
 
@@ -359,10 +364,10 @@ fn walk_if_statement_inner<'a, 'b>(
         parameters.push(condition);
 
         Ok(MaybeTailCall::TailCall {
-            signature: Arc::new(signature),
+            signature: signature,
             call_span: next_case.span,
             parameters,
-            tokens: Arc::new(tokens.0),
+            tokens: tokens.0,
         })
     } else if let Some(otherwise) = otherwise {
         walk_block(ctx, otherwise)
@@ -435,12 +440,12 @@ impl<'a> ExpressionOutput<'a> {
 
                                 match data_ref {
                                     DataReference::Value(_) => {
-                                        ctx.bring_up_references(&[&target_data_ref], 1)?;
+                                        ctx.bring_up_references([&target_data_ref], 1)?;
                                     }
                                     _ => {}
                                 }
                             } else {
-                                ctx.bring_up_references(&[&target_data_ref], 1)?;
+                                ctx.bring_up_references([&target_data_ref], 1)?;
                             };
 
                             ctx.push_token(ClacToken::Read8)?;
@@ -461,12 +466,12 @@ impl<'a> ExpressionOutput<'a> {
 
                                 match data_ref {
                                     DataReference::Value(_) => {
-                                        ctx.bring_up_references(&[&target_data_ref], 1)?;
+                                        ctx.bring_up_references([&target_data_ref], 1)?;
                                     }
                                     _ => {}
                                 }
                             } else {
-                                ctx.bring_up_references(&[&target_data_ref], 1)?;
+                                ctx.bring_up_references([&target_data_ref], 1)?;
                             };
 
                             ctx.push_token(ClacToken::ReadNative)?;
