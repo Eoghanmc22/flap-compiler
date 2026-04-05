@@ -1,0 +1,12 @@
+#include "../std"
+
+typedef struct {
+  int a;
+  int[2] b;
+} thing;
+
+thing *it = malloc(sizeof<thing>);
+
+print((int)it);
+print((int)&it->b);
+print((int)&it->b[1]);

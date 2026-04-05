@@ -442,6 +442,9 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                                 }));
                         }
                     }
+                    PrefixOp::AddressOf => {
+                        (true, Type::Pointer(operand_type_computed.clone().into()))
+                    }
                 };
 
                 if !valid_types {

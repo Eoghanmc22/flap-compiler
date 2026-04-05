@@ -1,22 +1,11 @@
 // TODO:
 // - I dont think logical and and or are short circuiting
-// - support inlining regular functions? (this doesnt play well with if)
-// - Add structs and arrays
-// - Structs, tuples, arrays
-// - Name spaces and file imports
-// - Cull unused builtins
+// - support inlining regular functions?
+// - Name spaces and methods
 // - Things that should be toggale
-//   - Nested defs
 //   - Source code comment
-//   - use of drop_range for tail recursion (most important)
-//   - tail recursion at large?
-//   - returning types wider than 2 ints since that requires drop range
 // - Add data flow analysis and instruction reordering
-// - Use Skip instead of If for conditionals in code gen
-// - Stanley's syscall extensions
 // - reduce clone/to_string/to_vec/... usage
-// Consider making pointer assignment an expression
-// Pointer arithmetic
 #![feature(try_blocks)]
 
 use std::{path::PathBuf, thread, time::Instant};

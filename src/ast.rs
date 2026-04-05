@@ -178,6 +178,7 @@ impl<'a> AsSpan<'a> for Expr<'a> {
 pub enum PrefixOp<'a> {
     Cast(Type<'a>),
     Dereference,
+    AddressOf,
     Negate,
     LNot,
 }
@@ -187,6 +188,7 @@ impl Display for PrefixOp<'_> {
         match self {
             PrefixOp::Cast(to) => write!(f, "({to})"),
             PrefixOp::Dereference => write!(f, "*"),
+            PrefixOp::AddressOf => write!(f, "&"),
             PrefixOp::Negate => write!(f, "-"),
             PrefixOp::LNot => write!(f, "!"),
         }

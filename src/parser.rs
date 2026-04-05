@@ -42,7 +42,7 @@ lazy_static::lazy_static! {
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))             // + -
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))  // * / %
             .op(Op::prefix(cast))
-            .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate))               // ! - (unary)
+            .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate) | Op::prefix(addrs_of))               // ! - (unary)
             // Highest precedence
             .op(Op::postfix(member) | Op::postfix(member_deref) | Op::postfix(array_idx))
     };
@@ -573,6 +573,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             let pre_op = match op.as_rule() {
                 Rule::cast => PrefixOp::Cast(parse_type(op.clone().into_inner().next().unwrap())?),
                 Rule::dereference => PrefixOp::Dereference,
+                Rule::addrs_of => PrefixOp::AddressOf,
                 Rule::negate => PrefixOp::Negate,
                 Rule::logical_not => PrefixOp::LNot,
                 _ => {

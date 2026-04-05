@@ -832,6 +832,27 @@ fn walk_expr<'a, 'b>(
                         span.clone(),
                     ));
                 }
+                PrefixOp::AddressOf => {
+                    let place = walk_expr(ctx, operand)?;
+
+                    let ExpressionOutput::Dereference(target, target_pointer_type, _span) = place
+                    else {
+                        return Err(eyre!(
+                            "UNIMPLEMENTED: AddressOf only support places that simplify to a pointer deref",
+                        )
+                        .with_section(|| generate_span_error_section(*span)));
+                    };
+
+                    let DeferedType::ResolvedType(operand_type) = operand_type else {
+                        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                    };
+                    assert!(
+                        Type::Pointer(operand_type.clone().into())
+                            .compatible_with(&target_pointer_type, ctx.type_checker)?
+                    );
+
+                    return walk_expr(ctx, &target);
+                }
             };
 
             let ret = clac_op
