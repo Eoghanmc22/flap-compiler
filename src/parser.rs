@@ -149,14 +149,7 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                 Statement::Expr(parse_expr(target.into_inner())?, punctuation)
             }
             Rule::if_statement => {
-                let punctuation =
-                    if matches!(pairs.peek().map(|it| it.as_rule()), Some(Rule::EOI) | None) {
-                        Punctuation::Unpunctuated
-                    } else {
-                        Punctuation::Punctuated
-                    };
-
-                Statement::Expr(Expr::If(parse_if_expr(target)?), punctuation)
+                Statement::Expr(Expr::If(parse_if_expr(target)?), Punctuation::Unpunctuated)
             }
             Rule::function_def => Statement::FunctionDef(parse_function_def(target)?),
             Rule::const_var => Statement::Const(parse_const_var(target)?),
