@@ -16,6 +16,8 @@ int test(int x) {
 
     if (true) {
       inner(y)
+    } else {
+      inner(y)
     }
   }
 
