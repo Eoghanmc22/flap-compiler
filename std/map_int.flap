@@ -74,8 +74,33 @@ map_int_entry map_int_iter_next(map_int_iter *iter) {
 }
 
 void *map_int_insert(map_int *map, map_int_key key, void *value) {
-  void *insert_probe(map_int * map, int start, int iter, map_int_entry entry) {
-    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+  if (map->len >= map->cap / 2) {
+    map_int *dst = map_int_new(map->cap * 2);
+    map_int_iter *src_iter = map_int_iter_new(map);
+
+    void extend_from_iter() {
+      if (map_int_iter_has_next(src_iter)) {
+        map_int_entry entry = map_int_iter_next(src_iter);
+        map_int_insert(dst, entry.key, entry.value);
+        extend_from_iter();
+      }
+    }
+
+    extend_from_iter();
+    *map = *dst;
+  }
+
+  int start_cell = abs(hash_int(key)) % map->cap;
+  map->len = map->len + 1;
+
+  map_int_entry entry = struct {
+    key = key;
+    value = value;
+    status = map_int_STATUS_OCCUPIED;
+  };
+
+  void *insert_probe(int iter) {
+    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry old = map->data[idx];
     if (old.status != map_int_STATUS_OCCUPIED || old.key == entry.key) {
@@ -87,40 +112,18 @@ void *map_int_insert(map_int *map, map_int_key key, void *value) {
         map->default
       }
     } else {
-      insert_probe(map, start, iter + 1, entry)
+      insert_probe(iter + 1)
     }
   }
 
-  void extend_from_iter(map_int * dst, map_int_iter * src_iter) {
-    if (map_int_iter_has_next(src_iter)) {
-      map_int_entry entry = map_int_iter_next(src_iter);
-      map_int_insert(dst, entry.key, entry.value);
-      extend_from_iter(dst, src_iter);
-    }
-  }
-
-  if (map->len >= map->cap / 2) {
-    map_int *dst = map_int_new(map->cap * 2);
-    map_int_iter *iter = map_int_iter_new(map);
-
-    extend_from_iter(dst, iter);
-    *map = *dst;
-  }
-
-  int start_cell = abs(hash_int(key)) % map->cap;
-  map->len = map->len + 1;
-
-  insert_probe(
-      map, start_cell, 0, struct {
-        key = key;
-        value = value;
-        status = map_int_STATUS_OCCUPIED;
-      })
+  insert_probe(0)
 }
 
 void *map_int_get(map_int *map, map_int_key key) {
-  void *get_probe(map_int * map, int start, int iter, map_int_key key) {
-    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+  int start_cell = abs(hash_int(key)) % map->cap;
+
+  void *get_probe(int iter) {
+    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry entry = map->data[idx];
     if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
@@ -128,17 +131,18 @@ void *map_int_get(map_int *map, map_int_key key) {
     } else if (entry.status == map_int_STATUS_FREE) {
       map->default
     } else {
-      get_probe(map, start, iter + 1, key)
+      get_probe(iter + 1)
     }
   }
 
-  int start_cell = abs(hash_int(key)) % map->cap;
-  get_probe(map, start_cell, 0, key)
+  get_probe(0)
 }
 
 bool map_int_contains(map_int *map, map_int_key key) {
-  bool contains_probe(map_int * map, int start, int iter, map_int_key key) {
-    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+  int start_cell = abs(hash_int(key)) % map->cap;
+
+  bool contains_probe(int iter) {
+    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry entry = map->data[idx];
     if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
@@ -146,17 +150,18 @@ bool map_int_contains(map_int *map, map_int_key key) {
     } else if (entry.status == map_int_STATUS_FREE) {
       false
     } else {
-      contains_probe(map, start, iter + 1, key)
+      contains_probe(iter + 1)
     }
   }
 
-  int start_cell = abs(hash_int(key)) % map->cap;
-  contains_probe(map, start_cell, 0, key)
+  contains_probe(0)
 }
 
 bool map_int_remove(map_int *map, map_int_key key) {
-  bool remove_probe(map_int * map, int start, int iter, map_int_key key) {
-    int idx = (start + (iter + iter * iter) / 2) % map->cap;
+  int start_cell = abs(hash_int(key)) % map->cap;
+
+  bool remove_probe(int iter) {
+    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
 
     map_int_entry entry = map->data[idx];
     if (entry.status == map_int_STATUS_OCCUPIED && entry.key == key) {
@@ -165,16 +170,17 @@ bool map_int_remove(map_int *map, map_int_key key) {
     } else if (entry.status == map_int_STATUS_FREE) {
       false
     } else {
-      remove_probe(map, start, iter + 1, key)
+      remove_probe(iter + 1)
     }
   }
 
-  int start_cell = abs(hash_int(key)) % map->cap;
-  remove_probe(map, start_cell, 0, key)
+  remove_probe(0)
 }
 
 void map_int_print(map_int *map) {
-  void inner(map_int_iter * iter) {
+  auto iter = map_int_iter_new(map);
+
+  void inner() {
     if (map_int_iter_has_next(iter)) {
       map_int_entry entry = map_int_iter_next(iter);
 
@@ -182,9 +188,9 @@ void map_int_print(map_int *map) {
       print((int)entry.value);
       print_new_line();
 
-      inner(iter);
+      inner();
     }
   }
 
-  inner(map_int_iter_new(map));
+  inner();
 }

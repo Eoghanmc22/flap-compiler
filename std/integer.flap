@@ -2,46 +2,49 @@
 #include "malloc.flap"
 
 char *convert_int_to_string(int x) {
-  void collect_digits(list_int * list, int rem) {
+  list_int *list = list_int_new(10);
+
+  void collect_digits(int rem) {
     if (rem != 0) {
       list_int_push(list, rem % 10);
-      collect_digits(list, rem / 10);
+      collect_digits(rem / 10);
     }
   }
 
-  void write_digits(char *str, list_int *list) {
+  void write_digits(char *str) {
     if (list->len == 0) {
       *str = '\0';
     } else {
       int digit = list_int_pop(list);
       *str = (char)digit + '0';
-      write_digits(str + 1, list);
+      write_digits(str + 1);
     }
   }
 
-  list_int *list = list_int_new(10);
   if (x == 0) {
     list_int_push(list, 0);
   } else {
-    collect_digits(list, x);
+    collect_digits(x);
   }
 
   char *string = malloc(list->len + 1);
-  write_digits(string, list);
+  write_digits(string);
   list_int_free(list);
 
   string
 }
 
 char *convert_int_to_hex(int x) {
-  void collect_digits(list_int * list, int rem) {
+  list_int *list = list_int_new(10);
+
+  void collect_digits(int rem) {
     if (rem != 0) {
       list_int_push(list, rem % 16);
-      collect_digits(list, rem / 16);
+      collect_digits(rem / 16);
     }
   }
 
-  void write_digits(char *str, list_int *list) {
+  void write_digits(char *str) {
     if (list->len == 0) {
       *str = '\0';
     } else {
@@ -51,20 +54,18 @@ char *convert_int_to_hex(int x) {
       } else {
         *str = (char)(digit - 10) + 'A';
       }
-      write_digits(str + 1, list);
+      write_digits(str + 1);
     }
   }
-
-  list_int *list = list_int_new(10);
 
   if (x == 0) {
     list_int_push(list, 0);
   } else {
-    collect_digits(list, x);
+    collect_digits(x);
   }
 
   char *string = malloc(list->len + 1);
-  write_digits(string, list);
+  write_digits(string);
   list_int_free(list);
 
   string

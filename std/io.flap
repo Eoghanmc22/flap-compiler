@@ -1,6 +1,6 @@
 #include "malloc.flap"
-#include "syscall.flap"
 #include "strings.flap"
+#include "syscall.flap"
 
 int read_all(int fd, char *buf, int count) {
   int new = read(fd, buf, count);
@@ -18,14 +18,14 @@ typedef struct {
 } read_all2_result;
 
 read_all2_result read_all2(int fd) {
-  read_all2_result inner(int fd, char *buf, int read, int len) {
+  read_all2_result inner(char *buf, int read, int len) {
     int new = read_all(fd, buf + read, len - read);
 
     if (read + new >= len) {
       int len = len * 2;
       char *buf = realloc(buf, len);
 
-      inner(fd, buf, read + new, len)
+      inner(buf, read + new, len)
     } else {
       struct {
         data = buf;
@@ -37,7 +37,7 @@ read_all2_result read_all2(int fd) {
   int len = 4096;
   char *buf = malloc(len);
 
-  inner(fd, buf, 0, len)
+  inner(buf, 0, len)
 }
 
 int write_all(int fd, char *buf, int count) {

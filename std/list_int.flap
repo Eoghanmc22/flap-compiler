@@ -43,12 +43,12 @@ list_int_value list_int_pop(list_int *list) {
 }
 
 void list_int_print(list_int *list) {
-  void inner(list_int * list, int idx) {
+  void inner(int idx) {
     if (idx < list->len) {
       print((int)list->data[idx]);
-      inner(list, idx + 1);
+      inner(idx + 1);
     }
   }
 
-  inner(list, 0);
+  inner(0);
 }
