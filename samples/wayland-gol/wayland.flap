@@ -1,0 +1,1419 @@
+#include "../../std"
+
+// TODO: add code to free all the buffers
+
+// https://gaultier.github.io/blog/wayland_from_scratch.html
+// https://wayland.app/
+// https://wayland.freedesktop.org/docs/book/
+
+/* #define cstring_len(s) (sizeof(s) - 1) */
+/* #define roundup_4(n) (((n) + 3) & -4) */
+
+// Conways Game of Life
+
+typedef struct {
+  int dimension;
+  char *buf1;
+  char *buf2;
+} gol_t;
+
+int get_idx(gol_t state, int x, int y) { x + state.dimension *y }
+
+// Returns the status of a cell
+// Returns 1 if the cell at index x, y is alive
+// Returns 0 otherwise
+int get_cell_state(gol_t state, int x, int y) {
+  (int)state.buf1[get_idx(state, x, y)]
+}
+
+// Wrapping offset of logical positions
+// Adds `by` to `pos` mod `DIMENSION`
+int offset(gol_t state, int pos, int by) {
+  if (by >= 0) {
+    (pos + by) % state.dimension
+  } else {
+    (pos + state.dimension + by) % state.dimension
+  }
+}
+
+// Calculates the next state of a cell using the rules of Conways Game of Life
+int update_cell(gol_t state, int x, int y) {
+  int neighbors = 0;
+  for (int dx = -1; dx <= 1; dx = dx + 1) {
+    for (int dy = -1; dy <= 1; dy = dy + 1) {
+      if (dx != 0 || dy != 0) {
+        neighbors = neighbors + get_cell_state(state, offset(state, x, dx),
+                                               offset(state, y, dy));
+      }
+    }
+  }
+
+  int is_alive = get_cell_state(state, x, y);
+
+  if (neighbors < 2) {
+    0
+  } else if (neighbors == 2) {
+    is_alive
+  } else if (neighbors == 3) {
+    1
+  } else {
+    0
+  }
+}
+
+// Compute the next high order bits of the game state
+gol_t compute_next(gol_t state) {
+  for (int x = 0; x < state.dimension; x = x + 1) {
+    for (int y = 0; y < state.dimension; y = y + 1) {
+      state.buf2[get_idx(state, x, y)] = (char)update_cell(state, x, y);
+    }
+  }
+
+  struct {
+    dimension = state.dimension;
+    buf1 = state.buf2;
+    buf2 = state.buf1;
+  }
+}
+
+gol_t gol_new(int dimension) {
+  int size = dimension * dimension;
+  char *buf1 = malloc(size * 2);
+  char *buf2 = buf1 + size;
+
+  init_rng();
+
+  for (int i = 0; i < size; i = i + 1) {
+    buf1[i] = (char)(((rand() / 10) % 2) != 0);
+  }
+
+  struct {
+    dimension = dimension;
+    buf1 = buf1;
+    buf2 = buf2;
+  }
+}
+
+const int *wayland_current_id_ptr = (int *)NEXT_GLOBAL;
+const char *NEXT_GLOBAL =
+    NEXT_GLOBAL + PAGE_SIZE; // roundup_page_size(sizeof<rng>);
+map_global(wayland_current_id_ptr, sizeof<int>);
+
+const int wayland_display_object_id = 1;
+const int wayland_wl_registry_event_global = 0;
+const int wayland_shm_pool_event_format = 0;
+const int wayland_wl_buffer_event_release = 0;
+const int wayland_xdg_wm_base_event_ping = 0;
+const int wayland_xdg_toplevel_event_configure = 0;
+const int wayland_xdg_toplevel_event_close = 1;
+const int wayland_xdg_surface_event_configure = 0;
+const int wayland_wl_display_get_registry_opcode = 1;
+const int wayland_wl_registry_bind_opcode = 0;
+const int wayland_wl_compositor_create_surface_opcode = 0;
+const int wayland_xdg_wm_base_pong_opcode = 3;
+const int wayland_xdg_surface_ack_configure_opcode = 4;
+const int wayland_wl_shm_create_pool_opcode = 0;
+const int wayland_xdg_wm_base_get_xdg_surface_opcode = 2;
+const int wayland_wl_shm_pool_create_buffer_opcode = 0;
+const int wayland_wl_surface_attach_opcode = 1;
+const int wayland_wl_surface_frame_opcode = 3;
+const int wayland_wl_callback_done_opcode = 0;
+const int wayland_xdg_surface_get_toplevel_opcode = 1;
+const int wayland_wl_surface_commit_opcode = 6;
+const int wayland_wl_surface_damage_opcode = 9;
+const int wayland_wl_display_error_event = 0;
+const int wayland_format_xrgb8888 = 1;
+const int wayland_header_size = 8;
+const int color_channels = 4;
+
+typedef int state_state_t;
+const int STATE_NONE = 0;
+const int STATE_SURFACE_ACKED_CONFIGURE = 1;
+const int STATE_SURFACE_ATTACHED = 2;
+
+typedef struct {
+  int wl_registry;
+  int wl_shm;
+  int wl_shm_pool;
+  int wl_buffer;
+  int xdg_wm_base;
+  int xdg_surface;
+  int wl_compositor;
+  int wl_surface;
+  int xdg_toplevel;
+  int frame_callback;
+  int stride;
+  int w;
+  int h;
+  int scale;
+  int shm_pool_size;
+  int shm_fd;
+  char *shm_pool_data;
+  char *scratch;
+  int scratch_len;
+  gol_t game;
+
+  state_state_t state;
+} state_t;
+
+int next_wayland_id() {
+  int next = *wayland_current_id_ptr + 1;
+  *wayland_current_id_ptr = next;
+
+  next
+}
+
+int wayland_display_connect() {
+  int scratch_len = 128;
+  char *scratch = malloc(scratch_len);
+  map_string *env = parse_env();
+
+  *scratch = "XDG_RUNTIME_DIR\0";
+  char *xdg_runtime_dir = map_string_get(env, scratch);
+  assert(xdg_runtime_dir != NULL, __LINE__);
+  int xdg_runtime_dir_len = strlen(xdg_runtime_dir);
+
+  *scratch = "WAYLAND_DISPLAY\0";
+  char *wayland_display = map_string_get(env, scratch);
+
+  if (wayland_display == NULL) {
+    auto wayland_display_default = "wayland-0\0";
+    assert(xdg_runtime_dir_len + 1 + sizeof_packed(wayland_display_default) <=
+               scratch_len,
+           __LINE__);
+
+    char *next = strcpy(scratch, xdg_runtime_dir);
+    *next = '/';
+    *(next + 1) = wayland_display_default;
+  } else {
+    char *next = strcpy(scratch, xdg_runtime_dir);
+    *next = '/';
+    strcpy(next + 1, wayland_display);
+  }
+
+  sockaddr_wrapped addr = mk_unix_sockaddr(scratch);
+  free(scratch);
+
+  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  connect(fd, addr.addr, addr.len);
+
+  fd
+}
+
+int wayland_wl_display_get_registry(int fd) {
+  buf *buffer = buf_new(128);
+
+  buf_write_u32(buffer, wayland_display_object_id);
+  buf_write_u16(buffer, wayland_wl_display_get_registry_opcode);
+
+  /* int msg_announced_size = */
+  /*     wayland_header_size + sizeof(wayland_current_id); */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_display@%u.get_registry: wl_registry=%u\n", */
+  /*        wayland_display_object_id, wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto stack_str = "-> wl_display@";
+  *print_buffer = stack_str;
+  write_all(STDOUT, print_buffer, sizeof_packed(stack_str));
+
+  char *num_buffer = convert_int_to_string(id);
+  write_all(STDOUT, num_buffer, strlen(num_buffer));
+  free(num_buffer);
+
+  auto stack_str = ".get_registry: wl_registry=";
+  *print_buffer = stack_str;
+  write_all(STDOUT, print_buffer, sizeof_packed(stack_str));
+
+  char *num_buffer = convert_int_to_string(id);
+  write_all(STDOUT, num_buffer, strlen(num_buffer));
+  free(num_buffer);
+  print_new_line();
+
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+int wayland_wl_registry_bind(int fd, int registry, int name, char *interface,
+                             int interface_len, int version) {
+  buf *buffer = buf_new(512);
+  buf_write_u32(buffer, registry);
+
+  buf_write_u16(buffer, wayland_wl_registry_bind_opcode);
+
+  /* int msg_announced_size = wayland_header_size + sizeof(name) + */
+  /*                          sizeof(interface_len) + roundup_4(interface_len) +
+   */
+  /*                          sizeof(version) + sizeof(wayland_current_id); */
+  int msg_announced_size =
+      wayland_header_size + 4 + 4 + roundup_4(interface_len) + 4 + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  buf_write_u32(buffer, name);
+  buf_write_lp_string_padded(buffer, interface, interface_len);
+  buf_write_u32(buffer, version);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  assert(buffer->size == roundup_4(buffer->size), __LINE__);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_registry@%u.bind: name=%u interface=%.*s version=%u\n", */
+  /*        registry, name, interface_len, interface, version); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_registry@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num_reg = convert_int_to_string(registry);
+  write_all(STDOUT, num_reg, strlen(num_reg));
+  free(num_reg);
+
+  auto s2 = ".bind: name=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num_name = convert_int_to_string(name);
+  write_all(STDOUT, num_name, strlen(num_name));
+  free(num_name);
+
+  auto s3 = " interface=";
+  *print_buffer = s3;
+  write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+  write_all(STDOUT, interface, interface_len);
+
+  auto s4 = " version=";
+  *print_buffer = s4;
+  write_all(STDOUT, print_buffer, sizeof_packed(s4));
+
+  char *num_ver = convert_int_to_string(version);
+  write_all(STDOUT, num_ver, strlen(num_ver));
+  free(num_ver);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+int wayland_wl_compositor_create_surface(int fd, state_t *state) {
+  assert(state->wl_compositor > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_compositor);
+
+  buf_write_u16(buffer, wayland_wl_compositor_create_surface_opcode);
+
+  /* uint16_t msg_announced_size = */
+  /*     wayland_header_size + sizeof(wayland_current_id); */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_compositor@%u.create_surface: wl_surface=%u\n", */
+  /*        state->wl_compositor, wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_compositor@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_compositor);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".create_surface: wl_surface=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+void create_shared_memory_file(int size, state_t *state) {
+  auto memfd_name = "framebuffer\0";
+  char *memfd_name_ptr = malloc(sizeof(memfd_name));
+  *memfd_name_ptr = memfd_name;
+
+  int fd = memfd_create(memfd_name_ptr, 0);
+  ftruncate(fd, size);
+
+  state->shm_pool_data =
+      mmap(NULL, size, PROT_READ + PROT_WRITE, MAP_SHARED, fd, 0);
+  assert(state->shm_pool_data != NULL, __LINE__);
+
+  state->shm_fd = fd;
+
+  free(memfd_name_ptr);
+}
+
+void wayland_xdg_wm_base_pong(int fd, state_t *state, int ping) {
+  assert(state->xdg_wm_base > 0, __LINE__);
+  assert(state->wl_surface > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->xdg_wm_base);
+
+  buf_write_u16(buffer, wayland_xdg_wm_base_pong_opcode);
+
+  /* int msg_announced_size = wayland_header_size + sizeof(ping); */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  buf_write_u32(buffer, ping);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> xdg_wm_base@%u.pong: ping=%u\n", state->xdg_wm_base, ping); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_wm_base@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_wm_base);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".pong: ping=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(ping);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+}
+
+void wayland_xdg_surface_ack_configure(int fd, state_t *state, int configure) {
+  assert(state->xdg_surface > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->xdg_surface);
+
+  buf_write_u16(buffer, wayland_xdg_surface_ack_configure_opcode);
+
+  /* int msg_announced_size = wayland_header_size + sizeof(configure); */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  buf_write_u32(buffer, configure);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> xdg_surface@%u.ack_configure: configure=%u\n",
+   * state->xdg_surface, configure); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".ack_configure: configure=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(configure);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+}
+
+int wayland_wl_shm_create_pool(int fd, state_t *state) {
+  assert(state->shm_pool_size > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_shm);
+
+  buf_write_u16(buffer, wayland_wl_shm_create_pool_opcode);
+
+  /* uint16_t msg_announced_size = wayland_header_size + */
+  /*                               sizeof(wayland_current_id) + */
+  /*                               sizeof(state->shm_pool_size); */
+  int msg_announced_size = wayland_header_size + 4 + 4;
+
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  buf_write_u32(buffer, state->shm_pool_size);
+
+  assert(roundup_4(buffer->size) == buffer->size, __LINE__);
+
+  // Send the file descriptor as ancillary data.
+  // UNIX/Macros monstrosities ahead.
+
+  /* char buf[CMSG_SPACE(sizeof(state->shm_fd))] = ""; */
+  /**/
+  /* struct iovec io = {.iov_base = msg, .iov_len = buffer->size}; */
+  /* struct msghdr socket_msg = { */
+  /*     .msg_iov = &io, */
+  /*     .msg_iovlen = 1, */
+  /*     .msg_control = buf, */
+  /*     .msg_controllen = sizeof(buf), */
+  /* }; */
+  /**/
+  /* struct cmsghdr *cmsg = CMSG_FIRSTHDR(&socket_msg); */
+  /* cmsg->cmsg_level = SOL_SOCKET; */
+  /* cmsg->cmsg_type = SCM_RIGHTS; */
+  /* cmsg->cbuffer->size = CMSG_LEN(sizeof(state->shm_fd)); */
+  /**/
+  /* *((int *)CMSG_DATA(cmsg)) = state->shm_fd; */
+  /* socket_msg.msg_controllen = CMSG_SPACE(sizeof(state->shm_fd)); */
+
+  int cmsg_size = 24;
+  int iovec_size = sizeof<iovec>;
+  int msghdr_size = sizeof<msghdr>;
+  char *scratch = malloc(24 + iovec_size + msghdr_size);
+
+  cmsghdr *cmsg = (cmsghdr *)scratch;
+  cmsg->cmsg2_level_type_PACKED = SOL_SOCKET + (SCM_RIGHTS << 32);
+  cmsg->cmsg1_len = 20;
+  *((int *)(cmsg + 1)) = state->shm_fd;
+
+  iovec *io = (iovec *)(scratch + cmsg_size);
+  *io = struct {
+    iov1_base = buffer->buf;
+    iov2_len = buffer->size;
+  };
+
+  msghdr *socket_msg = (msghdr *)(scratch + cmsg_size + iovec_size);
+  *socket_msg = struct {
+    msg1_name = NULL;
+    msg2_namelen = 0;
+    msg3_iov = io;
+    msg4_iovlen = 1;
+    msg5_control = cmsg;
+    msg6_controllen = cmsg_size;
+    msg7_flags = 0;
+  };
+
+  sendmsg(fd, socket_msg, 0);
+  free(scratch);
+
+  /* printf("-> wl_shm@%u.create_pool: wl_shm_pool=%u\n", state->wl_shm, */
+  /*        wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_shm@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_shm);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".create_pool: wl_shm_pool=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+int wayland_xdg_wm_base_get_xdg_surface(int fd, state_t *state) {
+  assert(state->xdg_wm_base > 0, __LINE__);
+  assert(state->wl_surface > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->xdg_wm_base);
+
+  buf_write_u16(buffer, wayland_xdg_wm_base_get_xdg_surface_opcode);
+
+  /* uint16_t msg_announced_size = wayland_header_size + */
+  /*                               sizeof(wayland_current_id) + */
+  /*                               sizeof(state->wl_surface); */
+  int msg_announced_size = wayland_header_size + 4 + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  buf_write_u32(buffer, state->wl_surface);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> xdg_wm_base@%u.get_xdg_surface: xdg_surface=%u wl_surface=%u\n",
+   */
+  /*        state->xdg_wm_base, wayland_current_id, state->wl_surface); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_wm_base@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_wm_base);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".get_xdg_surface: xdg_surface=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  auto s3 = " wl_surface=";
+  *print_buffer = s3;
+  write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+  char *num3 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num3, strlen(num3));
+  free(num3);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+int wayland_wl_shm_pool_create_buffer(int fd, state_t *state) {
+  assert(state->wl_shm_pool > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_shm_pool);
+
+  buf_write_u16(buffer, wayland_wl_shm_pool_create_buffer_opcode);
+
+  /* int msg_announced_size = */
+  /*     wayland_header_size + sizeof(wayland_current_id) + sizeof(uint32_t) *
+   * 5; */
+  int msg_announced_size = wayland_header_size + 4 + 4 * 5;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  int offset = 0;
+  buf_write_u32(buffer, offset);
+  buf_write_u32(buffer, state->w);
+  buf_write_u32(buffer, state->h);
+  buf_write_u32(buffer, state->stride);
+
+  int format = wayland_format_xrgb8888;
+  buf_write_u32(buffer, format);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_shm_pool@%u.create_buffer: wl_buffer=%u\n",
+   * state->wl_shm_pool, */
+  /*        wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_shm_pool@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_shm_pool);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".create_buffer: wl_buffer=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+int wayland_wl_surface_frame(int fd, state_t *state) {
+  assert(state->wl_surface > 0, __LINE__);
+  assert(state->wl_buffer > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_surface);
+
+  buf_write_u16(buffer, wayland_wl_surface_frame_opcode);
+
+  /* int msg_announced_size = */
+  /*     wayland_header_size + sizeof(state->wl_buffer) + sizeof(uint32_t) * 2;
+   */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
+  /*        state->wl_buffer); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".frame wl_buffer=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(state->wl_buffer);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+void wayland_wl_surface_attach(int fd, state_t *state) {
+  assert(state->wl_surface > 0, __LINE__);
+  assert(state->wl_buffer > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_surface);
+
+  buf_write_u16(buffer, wayland_wl_surface_attach_opcode);
+
+  /* int msg_announced_size = */
+  /*     wayland_header_size + sizeof(state->wl_buffer) + sizeof(uint32_t) * 2;
+   */
+  int msg_announced_size = wayland_header_size + 4 + 4 * 2;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  buf_write_u32(buffer, state->wl_buffer);
+
+  int x = 0;
+  int y = 0;
+  buf_write_u32(buffer, x);
+  buf_write_u32(buffer, y);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
+  /*        state->wl_buffer); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".attach wl_buffer=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(state->wl_buffer);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+}
+
+void wayland_wl_surface_damage(int fd, state_t *state) {
+  assert(state->wl_surface > 0, __LINE__);
+  assert(state->wl_buffer > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_surface);
+
+  buf_write_u16(buffer, wayland_wl_surface_damage_opcode);
+
+  /* int msg_announced_size = */
+  /*     wayland_header_size + sizeof(state->wl_buffer) + sizeof(uint32_t) * 2;
+   */
+  int msg_announced_size = wayland_header_size + 4 * 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int x = 0;
+  int y = 0;
+  buf_write_u32(buffer, x);
+  buf_write_u32(buffer, y);
+  buf_write_u32(buffer, state->w);
+  buf_write_u32(buffer, state->h);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
+  /*        state->wl_buffer); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".damage wl_buffer=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(state->wl_buffer);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+}
+
+int wayland_xdg_surface_get_toplevel(int fd, state_t *state) {
+  assert(state->xdg_surface > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->xdg_surface);
+
+  buf_write_u16(buffer, wayland_xdg_surface_get_toplevel_opcode);
+
+  /* int msg_announced_size = */
+  /*     wayland_header_size + sizeof(wayland_current_id); */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> xdg_surface@%u.get_toplevel: xdg_toplevel=%u\n", */
+  /*        state->xdg_surface, wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> xdg_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->xdg_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".get_toplevel: xdg_toplevel=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+void wayland_wl_surface_commit(int fd, state_t *state) {
+  assert(state->wl_surface > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_surface);
+
+  buf_write_u16(buffer, wayland_wl_surface_commit_opcode);
+
+  int msg_announced_size = wayland_header_size;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_surface@%u.commit: \n", state->wl_surface); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".commit: ";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+}
+
+void render_frame(char *frame_buffer, state_t *state) {
+  for (int y = 0; y < state->h; y = y + 1) {
+    for (int x = 0; x < state->w; x = x + 1) {
+      char *pixel = &frame_buffer[color_channels * (state->w * y + x)];
+
+      if (get_cell_state(state->game, x / state->scale, y / state->scale) !=
+          0) {
+        pixel[0] = (char)255;
+        pixel[1] = (char)255;
+        pixel[2] = (char)255;
+        pixel[3] = (char)255;
+      } else {
+        pixel[0] = (char)0;
+        pixel[1] = (char)0;
+        pixel[2] = (char)0;
+        pixel[3] = (char)0;
+      }
+    }
+  }
+
+  state->game = compute_next(state->game);
+}
+
+void update_frame(int fd, state_t *state) {
+  // Render a frame.
+  assert(state->wl_surface != 0, __LINE__);
+  assert(state->xdg_surface != 0, __LINE__);
+  assert(state->xdg_toplevel != 0, __LINE__);
+
+  if (state->wl_shm_pool == 0) {
+    state->wl_shm_pool = wayland_wl_shm_create_pool(fd, state);
+  }
+  if (state->wl_buffer == 0) {
+    state->wl_buffer = wayland_wl_shm_pool_create_buffer(fd, state);
+  }
+
+  assert(state->shm_pool_data != NULL, __LINE__);
+  assert(state->shm_pool_size != 0, __LINE__);
+
+  char *pixels = state->shm_pool_data;
+  render_frame(pixels, state);
+
+  wayland_wl_surface_attach(fd, state);
+  wayland_wl_surface_damage(fd, state);
+  state->frame_callback = wayland_wl_surface_frame(fd, state);
+  wayland_wl_surface_commit(fd, state);
+}
+
+void wayland_handle_message(int fd, state_t *state, buf *buffer) {
+  assert(buffer->size >= 8, __LINE__);
+
+  int object_id = buf_read_u32(buffer);
+  assert(object_id <= *wayland_current_id_ptr, __LINE__);
+
+  int opcode = buf_read_u16(buffer);
+
+  int announced_size = buf_read_u16(buffer);
+  assert(roundup_4(announced_size) <= announced_size, __LINE__);
+
+  /* int header_size = sizeof(object_id) + sizeof(opcode) +
+   * sizeof(announced_size); */
+  int header_size = 4 + 2 + 2;
+  assert(announced_size <= header_size + buffer->size, __LINE__);
+
+  if (object_id == state->wl_registry &&
+      opcode == wayland_wl_registry_event_global) {
+    int name = buf_read_u32(buffer);
+
+    int interface_len = buf_read_u32(buffer);
+    int padded_interface_len = roundup_4(interface_len);
+
+    char *interface = state->scratch;
+    char *scratch = state->scratch + padded_interface_len;
+    assert(padded_interface_len <= state->scratch_len, __LINE__);
+
+    buf_read_n(buffer, interface, padded_interface_len);
+    // The length includes the NULL terminator.
+    assert(interface[interface_len - 1] == (char)0, __LINE__);
+
+    int version = buf_read_u32(buffer);
+
+    /* printf("<- wl_registry@%u.global: name=%u interface=%.*s version=%u\n",
+     */
+    /*        state->wl_registry, name, interface_len, interface, version); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- wl_registry@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->wl_registry);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".global: name=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(name);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " interface=";
+    *print_buffer = s3;
+    write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+    write_all(STDOUT, interface, interface_len);
+
+    auto s4 = " version=";
+    *print_buffer = s4;
+    write_all(STDOUT, print_buffer, sizeof_packed(s4));
+
+    char *num3 = convert_int_to_string(version);
+    write_all(STDOUT, num3, strlen(num3));
+    free(num3);
+
+    print_new_line();
+    free(print_buffer);
+
+    /* assert(announced_size == sizeof(object_id) + sizeof(announced_size) + */
+    /*                              sizeof(opcode) + sizeof(name) + */
+    /*                              sizeof(interface_len) + padded_interface_len
+     * + */
+    /*                              sizeof(version)); */
+    assert(announced_size == 4 + 2 + 2 + 4 + 4 + padded_interface_len + 4,
+           __LINE__);
+
+    *scratch = "wl_shm\0";
+    if (strcmp(scratch, interface) == 0) {
+      state->wl_shm = wayland_wl_registry_bind(
+          fd, state->wl_registry, name, interface, interface_len, version);
+    }
+
+    *scratch = "xdg_wm_base\0";
+    if (strcmp(scratch, interface) == 0) {
+      state->xdg_wm_base = wayland_wl_registry_bind(
+          fd, state->wl_registry, name, interface, interface_len, version);
+    }
+
+    *scratch = "wl_compositor\0";
+    if (strcmp(scratch, interface) == 0) {
+      state->wl_compositor = wayland_wl_registry_bind(
+          fd, state->wl_registry, name, interface, interface_len, version);
+    }
+  } else if (object_id == wayland_display_object_id &&
+             opcode == wayland_wl_display_error_event) {
+    int target_object_id = buf_read_u32(buffer);
+    int code = buf_read_u32(buffer);
+
+    char *error = state->scratch;
+    int error_len = buf_read_u32(buffer);
+    buf_read_n(buffer, error, roundup_4(error_len));
+
+    /* fprintf(stderr, "fatal error: target_object_id=%u code=%u error=%s\n", */
+    /*         target_object_id, code, error); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "fatal error: target_object_id=";
+    *print_buffer = s1;
+    write_all(STDERR, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(target_object_id);
+    write_all(STDERR, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = " code=";
+    *print_buffer = s2;
+    write_all(STDERR, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(code);
+    write_all(STDERR, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " error=";
+    *print_buffer = s3;
+    write_all(STDERR, print_buffer, sizeof_packed(s3));
+
+    char *error_str = error; // error is char*
+    write_all(STDERR, error_str, strlen(error_str));
+
+    print_new_line();
+    free(print_buffer);
+    quit();
+  } else if (object_id == state->frame_callback &&
+             opcode == wayland_wl_callback_done_opcode) {
+
+    int callback_data = buf_read_u32(buffer);
+
+    update_frame(fd, state);
+
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- FRAME_CALLBACK: format=";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(callback_data); // Hex conversion
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    print_new_line();
+    free(print_buffer);
+  } else if (object_id == state->wl_shm &&
+             opcode == wayland_shm_pool_event_format) {
+
+    int format = buf_read_u32(buffer);
+    /* printf("<- wl_shm: format=%#x\n", format); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- wl_shm: format=";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_hex(format); // Hex conversion
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    print_new_line();
+    free(print_buffer);
+  } else if (object_id == state->wl_buffer &&
+             opcode == wayland_wl_buffer_event_release) {
+    // No-op, for now.
+
+    /* printf("<- xdg_wl_buffer@%u.release\n", state->wl_buffer); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_wl_buffer@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->wl_buffer);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".release";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    print_new_line();
+    free(print_buffer);
+  } else if (object_id == state->xdg_wm_base &&
+             opcode == wayland_xdg_wm_base_event_ping) {
+    int ping = buf_read_u32(buffer);
+
+    /* printf("<- xdg_wm_base@%u.ping: ping=%u\n", state->xdg_wm_base, ping); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_wm_base@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_wm_base);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".ping: ping=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(ping);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    print_new_line();
+    free(print_buffer);
+
+    wayland_xdg_wm_base_pong(fd, state, ping);
+  } else if (object_id == state->xdg_toplevel &&
+             opcode == wayland_xdg_toplevel_event_configure) {
+    int w = buf_read_u32(buffer);
+    int h = buf_read_u32(buffer);
+    int len = buf_read_u32(buffer);
+    buf_advance_read(buffer, len);
+
+    /* printf("<- xdg_toplevel@%u.configure: w=%u h=%u states[%u]\n", */
+    /*        state->xdg_toplevel, w, h, len); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_toplevel@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_toplevel);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".configure: w=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(w);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " h=";
+    *print_buffer = s3;
+    write_all(STDOUT, print_buffer, sizeof_packed(s3));
+
+    char *num3 = convert_int_to_string(h);
+    write_all(STDOUT, num3, strlen(num3));
+    free(num3);
+
+    auto s4 = " states[";
+    *print_buffer = s4;
+    write_all(STDOUT, print_buffer, sizeof_packed(s4));
+
+    char *num4 = convert_int_to_string(len);
+    write_all(STDOUT, num4, strlen(num4));
+    free(num4);
+
+    auto s5 = "]";
+    *print_buffer = s5;
+    write_all(STDOUT, print_buffer, sizeof_packed(s5));
+
+    print_new_line();
+    free(print_buffer);
+  } else if (object_id == state->xdg_surface &&
+             opcode == wayland_xdg_surface_event_configure) {
+    int configure = buf_read_u32(buffer);
+
+    /* printf("<- xdg_surface@%u.configure: configure=%u\n", state->xdg_surface,
+     */
+    /*        configure); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_surface@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_surface);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".configure: configure=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(configure);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    print_new_line();
+    free(print_buffer);
+
+    wayland_xdg_surface_ack_configure(fd, state, configure);
+    state->state = STATE_SURFACE_ACKED_CONFIGURE;
+  } else if (object_id == state->xdg_toplevel &&
+             opcode == wayland_xdg_toplevel_event_close) {
+
+    /* printf("<- xdg_toplevel@%u.close\n", state->xdg_toplevel); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- xdg_toplevel@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->xdg_toplevel);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".close";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    print_new_line();
+    free(print_buffer);
+
+    quit();
+  } else {
+    /* fprintf(stderr, "object_id=%u opcode=%u buffer->size=%lu\n", object_id,
+     */
+    /*         opcode, *buffer->size); */
+    char *print_buffer = malloc(128);
+
+    auto s1 = "object_id=";
+    *print_buffer = s1;
+    write_all(STDERR, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(object_id);
+    write_all(STDERR, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = " opcode=";
+    *print_buffer = s2;
+    write_all(STDERR, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(opcode);
+    write_all(STDERR, num2, strlen(num2));
+    free(num2);
+
+    auto s3 = " buffer->size=";
+    *print_buffer = s3;
+    write_all(STDERR, print_buffer, sizeof_packed(s3));
+
+    char *num3 = convert_int_to_string(buffer->size); // Hex/Long conversion
+    write_all(STDERR, num3, strlen(num3));
+    free(num3);
+
+    print_new_line();
+    free(print_buffer);
+
+    /* assert(false, __LINE__); */
+    buf_advance_read(buffer, announced_size - header_size);
+  }
+}
+
+void main_loop(int fd, buf *read_buf, state_t *state) {
+  loop {
+    read_buf->size = recv(fd, read_buf->buf, read_buf->cap, 0);
+
+    while (read_buf->size > 0) {
+      wayland_handle_message(fd, state, read_buf);
+    }
+
+    if (state->wl_compositor != 0 && state->wl_shm != 0 &&
+        state->xdg_wm_base != 0 && state->wl_surface == 0) {
+      // Bind phase complete, need to create surface.
+      assert(state->state == STATE_NONE, __LINE__);
+
+      state->wl_surface = wayland_wl_compositor_create_surface(fd, state);
+      state->xdg_surface = wayland_xdg_wm_base_get_xdg_surface(fd, state);
+      state->xdg_toplevel = wayland_xdg_surface_get_toplevel(fd, state);
+      wayland_wl_surface_commit(fd, state);
+    }
+
+    if (state->state == STATE_SURFACE_ACKED_CONFIGURE) {
+      update_frame(fd, state);
+
+      state->state = STATE_SURFACE_ATTACHED;
+    }
+
+    buf_reset(read_buf);
+  }
+}
+
+// Ids need to start at 1
+next_wayland_id();
+
+int fd = wayland_display_connect();
+int scratch_len = 4096;
+
+int width = 50;
+int height = width;
+int scale = 8;
+
+state_t *state = malloc(sizeof<state_t>);
+*state = struct {
+  wl_registry = wayland_wl_display_get_registry(fd);
+  wl_shm = 0;
+  wl_shm_pool = 0;
+  wl_buffer = 0;
+  xdg_wm_base = 0;
+  xdg_surface = 0;
+  wl_compositor = 0;
+  wl_surface = 0;
+  xdg_toplevel = 0;
+  frame_callback = 0;
+  w = width * scale;
+  h = height * scale;
+  scale = scale;
+  state = STATE_NONE;
+  stride = width * scale * color_channels;
+  shm_pool_size = 0;
+  shm_fd = 0;
+  shm_pool_data = (char *)NULL;
+  scratch = malloc(scratch_len);
+  scratch_len = scratch_len;
+  game = gol_new(width);
+};
+
+// Single buffering.
+state->shm_pool_size = state->h * state->stride;
+create_shared_memory_file(state->shm_pool_size, state);
+
+buf *read_buf = buf_new(4096);
+main_loop(fd, read_buf, state);
