@@ -4,69 +4,55 @@
 char *convert_int_to_string(int x) {
   list_int *list = list_int_new(10);
 
-  void collect_digits(int rem) {
-    if (rem != 0) {
-      list_int_push(list, rem % 10);
-      collect_digits(rem / 10);
-    }
-  }
-
-  void write_digits(char *str) {
-    if (list->len == 0) {
-      *str = '\0';
-    } else {
-      int digit = list_int_pop(list);
-      *str = (char)digit + '0';
-      write_digits(str + 1);
-    }
-  }
-
   if (x == 0) {
     list_int_push(list, 0);
   } else {
-    collect_digits(x);
+    while (x != 0) {
+      list_int_push(list, x % 10);
+      x = x / 10;
+    }
   }
 
-  char *string = malloc(list->len + 1);
-  write_digits(string);
+  int num_digits = list->len;
+  char *str = malloc(num_digits + 1);
+
+  for (int i = 0; i < list->len; i = i + 1) {
+    int digit = list_int_pop(list);
+    str[i] = (char)digit + '0';
+  }
+  str[num_digits] = '\0';
+
   list_int_free(list);
 
-  string
+  str
 }
 
 char *convert_int_to_hex(int x) {
   list_int *list = list_int_new(10);
 
-  void collect_digits(int rem) {
-    if (rem != 0) {
-      list_int_push(list, rem % 16);
-      collect_digits(rem / 16);
-    }
-  }
-
-  void write_digits(char *str) {
-    if (list->len == 0) {
-      *str = '\0';
-    } else {
-      int digit = list_int_pop(list);
-      if (digit < 10) {
-        *str = (char)digit + '0';
-      } else {
-        *str = (char)(digit - 10) + 'A';
-      }
-      write_digits(str + 1);
-    }
-  }
-
   if (x == 0) {
     list_int_push(list, 0);
   } else {
-    collect_digits(x);
+    while (x != 0) {
+      list_int_push(list, x % 16);
+      x = x / 16;
+    }
   }
 
-  char *string = malloc(list->len + 1);
-  write_digits(string);
+  int num_digits = list->len;
+  char *str = malloc(num_digits + 1);
+
+  for (int i = 0; i < list->len; i = i + 1) {
+    int digit = list_int_pop(list);
+    if (digit < 10) {
+      str[i] = (char)digit + '0';
+    } else {
+      str[i] = (char)(digit - 10) + 'A';
+    }
+  }
+  str[num_digits] = '\0';
+
   list_int_free(list);
 
-  string
+  str
 }

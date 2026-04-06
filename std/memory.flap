@@ -19,15 +19,13 @@ void map_global(void *at, int size) {
 }
 
 void memcpy_int(int *dst, int *src, int len) {
-  if (len > 0) {
-    *dst = *src;
-    memcpy_int(dst + 1, src + 1, len - 1);
+  for (int i = 0; i < len; i = i + 1) {
+    dst[i] = src[i];
   }
 }
 
 void memcpy_char(char *dst, char *src, int len) {
-  if (len > 0) {
-    *dst = *src;
-    memcpy_char(dst + 1, src + 1, len - 1);
+  for (int i = 0; i < len; i = i + 1) {
+    dst[i] = src[i];
   }
 }

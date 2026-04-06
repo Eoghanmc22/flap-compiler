@@ -1,11 +1,14 @@
-int hash_string(char *x) {
-  int next = (int)*x;
+#include "rand.flap"
 
-  if (next != 0) {
-    next + 37 * hash_string(x + 1)
-  } else {
-    0
+int hash_string(char *x) {
+  int hash = 0;
+
+  while (*x != (char)0) {
+    hash = lcg(hash * lcg((int)*x));
+    x = x + 1;
   }
+
+  hash
 }
 
-int hash_int(int x){x * 1337}
+int hash_int(int x) { lcg(x) }

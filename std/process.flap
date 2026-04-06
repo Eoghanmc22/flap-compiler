@@ -1,7 +1,6 @@
 #include "syscall.flap"
 
 void reap_children() {
-  if (wait(-1, (int *)NULL, WNOHANG, (rusage *)NULL) != 0) {
-    reap_children();
+  while (wait(-1, (int *)NULL, WNOHANG, (rusage *)NULL) != 0) {
   }
 }

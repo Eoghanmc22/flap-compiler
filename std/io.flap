@@ -3,13 +3,15 @@
 #include "syscall.flap"
 
 int read_all(int fd, char *buf, int count) {
-  int new = read(fd, buf, count);
+  int in = read(fd, buf, count);
+  int read = in;
 
-  if (new != 0) {
-    new + read_all(fd, buf + new, count - new)
-  } else {
-    0
+  while (in > 0) {
+    in = read(fd, buf + read, count - read);
+    read = read + in;
   }
+
+  read
 }
 
 typedef struct {
@@ -18,56 +20,62 @@ typedef struct {
 } read_all2_result;
 
 read_all2_result read_all2(int fd) {
-  read_all2_result inner(char *buf, int read, int len) {
-    int new = read_all(fd, buf + read, len - read);
-
-    if (read + new >= len) {
-      int len = len * 2;
-      char *buf = realloc(buf, len);
-
-      inner(buf, read + new, len)
-    } else {
-      struct {
-        data = buf;
-        len = read + new;
-      }
-    }
-  }
-
   int len = 4096;
   char *buf = malloc(len);
 
-  inner(buf, 0, len)
+  int read = read_all(fd, buf, len);
+
+  while (read == len) {
+    len = len * 2;
+    buf = realloc(buf, len);
+
+    read = read + read_all(fd, buf + read, len - read);
+  }
+
+  buf = realloc(buf, read);
+
+  struct {
+    data = buf;
+    len = read;
+  }
 }
 
 int write_all(int fd, char *buf, int count) {
-  int new = write(fd, buf, count);
+  int out = write(fd, buf, count);
+  int written = out;
 
-  if (new != 0) {
-    new + write_all(fd, buf + new, count - new)
-  } else {
-    0
+  while (out > 0) {
+    out = write(fd, buf + written, count - written);
+    written = written + out;
   }
+
+  written
 }
 
-void copy_all(char *buf, int buf_len, int src_fd, int dst_fd) {
+int copy_all(char *buf, int buf_len, int src_fd, int dst_fd) {
   int in = read_all(src_fd, buf, buf_len);
+  int read = in;
 
-  if (in > 0) {
+  while (in > 0) {
     write_all(dst_fd, buf, in);
-    copy_all(buf, buf_len, src_fd, dst_fd);
+    in = read_all(src_fd, buf, buf_len);
+    read = read + in;
   }
+
+  read
 }
 
 int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
   int in = read(src_fd, buf, buf_len);
+  int read = in;
 
-  if (in > 0) {
+  while (in > 0) {
     write_all(dst_fd, buf, in);
-    in + copy(buf, buf_len, src_fd, dst_fd)
-  } else {
-    0
+    in = read_all(src_fd, buf, buf_len);
+    read = read + in;
   }
+
+  read
 }
 
 void print_new_line() {

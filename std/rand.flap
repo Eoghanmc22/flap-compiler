@@ -14,8 +14,11 @@ void init_rng() {
   getrandom(RNG_STATE, sizeof<rng>, 0);
 }
 
+int lcg(int x) {
+  x * (-0x2ECBDABC217D106B) + (-0x78A22B1A1BC639D9)
+}
+
 int rand() {
-  RNG_STATE->seed =
-      RNG_STATE->seed * (-0x2ECBDABC217D106B) + (-0x78A22B1A1BC639D9);
+  RNG_STATE->seed = lcg(RNG_STATE->seed);
   RNG_STATE->seed
 }

@@ -3,7 +3,6 @@
 #include "malloc.flap"
 #include "math.flap"
 #include "memory.flap"
-#include "strings.flap"
 
 const int map_string_STATUS_FREE = 0;
 const int map_string_STATUS_OCCUPIED = 1;
@@ -74,25 +73,22 @@ map_string_entry map_string_iter_next(map_string_iter *iter) {
   iter->map->data[old_idx]
 }
 
+int map_string_probe(map_string *map, int start, int iter) {
+  (start + (iter + iter * iter) / 2) % map->cap
+}
+
 void *map_string_insert(map_string *map, map_string_key key, void *value) {
   if (map->len >= map->cap / 2) {
     map_string *dst = map_string_new(map->cap * 2);
     map_string_iter *src_iter = map_string_iter_new(map);
 
-    void extend_from_iter() {
-      if (map_string_iter_has_next(src_iter)) {
-        map_string_entry entry = map_string_iter_next(src_iter);
-        map_string_insert(dst, entry.key, entry.value);
-        extend_from_iter();
-      }
+    while (map_string_iter_has_next(src_iter)) {
+      map_string_entry entry = map_string_iter_next(src_iter);
+      map_string_insert(dst, entry.key, entry.value);
     }
 
-    extend_from_iter();
     *map = *dst;
   }
-
-  int start_cell = abs(hash_string(key)) % map->cap;
-  map->len = map->len + 1;
 
   map_string_entry entry = struct {
     key = key;
@@ -100,102 +96,102 @@ void *map_string_insert(map_string *map, map_string_key key, void *value) {
     status = map_string_STATUS_OCCUPIED;
   };
 
-  void *insert_probe(int iter) {
-    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
+  int start_cell = abs(hash_string(key)) % map->cap;
+  map->len = map->len + 1;
+
+  bool done = false;
+  void *result = map->default;
+  for (int iter = 0; !done; iter = iter + 1) {
+    int idx = map_string_probe(map, start_cell, iter);
 
     map_string_entry old = map->data[idx];
     if (old.status != map_string_STATUS_OCCUPIED ||
-        strcmp(entry.key, old.key) == 0) {
+        strcmp(old.key, entry.key) == 0) {
       map->data[idx] = entry;
 
       if (old.status == map_string_STATUS_OCCUPIED) {
-        old.value
-      } else {
-        map->default
+        result = old.value;
       }
-    } else {
-      insert_probe(iter + 1)
+
+      done = true;
     }
   }
 
-  insert_probe(0)
+  result
 }
 
 void *map_string_get(map_string *map, map_string_key key) {
   int start_cell = abs(hash_string(key)) % map->cap;
 
-  void *get_probe(int iter) {
-    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
+  bool done = false;
+  void *result = map->default;
+  for (int iter = 0; !done; iter = iter + 1) {
+    int idx = map_string_probe(map, start_cell, iter);
 
     map_string_entry entry = map->data[idx];
     if (entry.status == map_string_STATUS_OCCUPIED &&
         strcmp(entry.key, key) == 0) {
-      entry.value
+      done = true;
+      result = entry.value;
     } else if (entry.status == map_string_STATUS_FREE) {
-      map->default
-    } else {
-      get_probe(iter + 1)
+      done = true;
     }
   }
 
-  get_probe(0)
+  result
 }
 
 bool map_string_contains(map_string *map, map_string_key key) {
   int start_cell = abs(hash_string(key)) % map->cap;
 
-  bool contains_probe(int iter) {
-    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
+  bool done = false;
+  bool found = false;
+  for (int iter = 0; !done; iter = iter + 1) {
+    int idx = map_string_probe(map, start_cell, iter);
 
     map_string_entry entry = map->data[idx];
     if (entry.status == map_string_STATUS_OCCUPIED &&
         strcmp(entry.key, key) == 0) {
-      true
+      done = true;
+      found = true;
     } else if (entry.status == map_string_STATUS_FREE) {
-      false
-    } else {
-      contains_probe(iter + 1)
+      done = true;
     }
   }
 
-  contains_probe(0)
+  found
 }
 
 bool map_string_remove(map_string *map, map_string_key key) {
   int start_cell = abs(hash_string(key)) % map->cap;
 
-  bool remove_probe(int iter) {
-    int idx = (start_cell + (iter + iter * iter) / 2) % map->cap;
+  bool done = false;
+  bool found = false;
+  for (int iter = 0; !done; iter = iter + 1) {
+    int idx = map_string_probe(map, start_cell, iter);
 
     map_string_entry entry = map->data[idx];
     if (entry.status == map_string_STATUS_OCCUPIED &&
         strcmp(entry.key, key) == 0) {
       map->data[idx].status = map_string_STATUS_REMOVED;
-      true
+      done = true;
+      found = true;
     } else if (entry.status == map_string_STATUS_FREE) {
-      false
-    } else {
-      remove_probe(iter + 1)
+      done = true;
     }
   }
 
-  remove_probe(0)
+  found
 }
 
 void map_string_print(map_string *map) {
   auto iter = map_string_iter_new(map);
 
-  void inner() {
-    if (map_string_iter_has_next(iter)) {
-      map_string_entry entry = map_string_iter_next(iter);
+  while (map_string_iter_has_next(iter)) {
+    map_string_entry entry = map_string_iter_next(iter);
 
-      print((int)entry.key);
-      print((int)entry.value);
-      print_new_line();
-
-      inner();
-    }
+    print((int)entry.key);
+    print((int)entry.value);
+    print_new_line();
   }
-
-  inner();
 }
