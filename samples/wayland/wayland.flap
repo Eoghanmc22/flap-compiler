@@ -33,6 +33,7 @@ const int wayland_wl_shm_pool_create_buffer_opcode = 0;
 const int wayland_wl_surface_attach_opcode = 1;
 const int wayland_xdg_surface_get_toplevel_opcode = 1;
 const int wayland_wl_surface_commit_opcode = 6;
+const int wayland_wl_surface_damage_opcode = 9;
 const int wayland_wl_display_error_event = 0;
 const int wayland_format_xrgb8888 = 1;
 const int wayland_header_size = 8;
@@ -56,6 +57,7 @@ typedef struct {
   int stride;
   int w;
   int h;
+  int k;
   int shm_pool_size;
   int shm_fd;
   char *shm_pool_data;
@@ -646,7 +648,60 @@ void wayland_wl_surface_attach(int fd, state_t *state) {
   write_all(STDOUT, num1, strlen(num1));
   free(num1);
 
-  auto s2 = ": wl_buffer=";
+  auto s2 = ".attach wl_buffer=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(state->wl_buffer);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+}
+
+void wayland_wl_surface_damage(int fd, state_t *state) {
+  assert(state->wl_surface > 0, __LINE__);
+  assert(state->wl_buffer > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_surface);
+
+  buf_write_u16(buffer, wayland_wl_surface_damage_opcode);
+
+  /* int msg_announced_size = */
+  /*     wayland_header_size + sizeof(state->wl_buffer) + sizeof(uint32_t) * 2;
+   */
+  int msg_announced_size = wayland_header_size + 4 * 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int x = 0;
+  int y = 0;
+  buf_write_u32(buffer, x);
+  buf_write_u32(buffer, y);
+  buf_write_u32(buffer, state->w);
+  buf_write_u32(buffer, state->h);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
+  /*        state->wl_buffer); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_surface@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_surface);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".damage wl_buffer=";
   *print_buffer = s2;
   write_all(STDOUT, print_buffer, sizeof_packed(s2));
 
@@ -1085,67 +1140,80 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
   }
 }
 
-void handle_messages(int fd, buf *read_buf, state_t *state) {
-  if (read_buf->size > 0) {
-    wayland_handle_message(fd, state, read_buf);
-    handle_messages(fd, read_buf, state);
-  }
-}
+void render_frame(char *frame_buffer, state_t *state) {
+  for (int y = 0; y < state->h; y = y + 1) {
+    for (int x = 0; x < state->w; x = x + 1) {
+      char *pixel = &frame_buffer[color_channels * (state->w * y + x)];
 
-void render_frame(char *frame_buffer, int idx, state_t *state) {
-  if (idx < color_channels * state->w * state->h) {
-    frame_buffer[0] = (char)0;
-    frame_buffer[1] = (char)255;
-    frame_buffer[2] = (char)128;
-    frame_buffer[3] = (char)0;
-    render_frame(frame_buffer + color_channels, idx + color_channels, state);
+      pixel[0] = (char)0;
+      pixel[1] = (char)255;
+      pixel[2] = (char)128;
+      pixel[3] = (char)0;
+    }
   }
+
+  for (int y = state->h / 4; y < state->h / 4 * 3; y = y + 1) {
+    for (int x = state->w / 4; x < state->w / 4 * 3; x = x + 1) {
+      char *pixel = &frame_buffer[color_channels *
+                                  (state->w * y + (x + state->k) % state->w)];
+
+      pixel[0] = (char)0;
+      pixel[1] = (char)0;
+      pixel[2] = (char)0;
+      pixel[3] = (char)0;
+    }
+  }
+
+  state->k = state->k + 20;
 }
 
 void main_loop(int fd, buf *read_buf, state_t *state) {
-  read_buf->size = recv(fd, read_buf->buf, read_buf->cap, 0);
+  loop {
+    read_buf->size = recv(fd, read_buf->buf, read_buf->cap, 0);
 
-  handle_messages(fd, read_buf, state);
-
-  if (state->wl_compositor != 0 && state->wl_shm != 0 &&
-      state->xdg_wm_base != 0 && state->wl_surface == 0) {
-    // Bind phase complete, need to create surface.
-    assert(state->state == STATE_NONE, __LINE__);
-
-    state->wl_surface = wayland_wl_compositor_create_surface(fd, state);
-    state->xdg_surface = wayland_xdg_wm_base_get_xdg_surface(fd, state);
-    state->xdg_toplevel = wayland_xdg_surface_get_toplevel(fd, state);
-    wayland_wl_surface_commit(fd, state);
-  }
-
-  if (state->state == STATE_SURFACE_ACKED_CONFIGURE) {
-    // Render a frame.
-    assert(state->wl_surface != 0, __LINE__);
-    assert(state->xdg_surface != 0, __LINE__);
-    assert(state->xdg_toplevel != 0, __LINE__);
-
-    if (state->wl_shm_pool == 0) {
-      state->wl_shm_pool = wayland_wl_shm_create_pool(fd, state);
-    }
-    if (state->wl_buffer == 0) {
-      state->wl_buffer = wayland_wl_shm_pool_create_buffer(fd, state);
+    while (read_buf->size > 0) {
+      wayland_handle_message(fd, state, read_buf);
     }
 
-    assert(state->shm_pool_data != NULL, __LINE__);
-    assert(state->shm_pool_size != 0, __LINE__);
+    if (state->wl_compositor != 0 && state->wl_shm != 0 &&
+        state->xdg_wm_base != 0 && state->wl_surface == 0) {
+      // Bind phase complete, need to create surface.
+      assert(state->state == STATE_NONE, __LINE__);
 
-    char *pixels = state->shm_pool_data;
-    render_frame(pixels, 0, state);
+      state->wl_surface = wayland_wl_compositor_create_surface(fd, state);
+      state->xdg_surface = wayland_xdg_wm_base_get_xdg_surface(fd, state);
+      state->xdg_toplevel = wayland_xdg_surface_get_toplevel(fd, state);
+      wayland_wl_surface_commit(fd, state);
+    }
 
-    wayland_wl_surface_attach(fd, state);
-    wayland_wl_surface_commit(fd, state);
+    if (state->state == STATE_SURFACE_ACKED_CONFIGURE) {
+      // Render a frame.
+      assert(state->wl_surface != 0, __LINE__);
+      assert(state->xdg_surface != 0, __LINE__);
+      assert(state->xdg_toplevel != 0, __LINE__);
 
-    state->state = STATE_SURFACE_ATTACHED;
+      if (state->wl_shm_pool == 0) {
+        state->wl_shm_pool = wayland_wl_shm_create_pool(fd, state);
+      }
+      if (state->wl_buffer == 0) {
+        state->wl_buffer = wayland_wl_shm_pool_create_buffer(fd, state);
+      }
+
+      assert(state->shm_pool_data != NULL, __LINE__);
+      assert(state->shm_pool_size != 0, __LINE__);
+
+      char *pixels = state->shm_pool_data;
+      render_frame(pixels, state);
+
+      wayland_wl_surface_attach(fd, state);
+      wayland_wl_surface_damage(fd, state);
+      wayland_wl_surface_commit(fd, state);
+
+      state->state = STATE_SURFACE_ATTACHED;
+    }
+
+    buf_reset(read_buf);
   }
-
-  buf_reset(read_buf);
-
-  main_loop(fd, read_buf, state);
 }
 
 // Ids need to start at 1
@@ -1167,6 +1235,7 @@ state_t *state = malloc(sizeof<state_t>);
   xdg_toplevel = 0;
   w = 117;
   h = 150;
+  k = 50;
   state = STATE_NONE;
   stride = 117 * color_channels;
   shm_pool_size = 0;

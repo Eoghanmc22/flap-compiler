@@ -329,6 +329,12 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         Ok(())
     }
 
+    pub fn mangle_function(&mut self, ident: IdentRef<'a>) -> MangledIdent {
+        let num = self.id_counter.fetch_add(1, Ordering::Relaxed);
+        let mangled = format!("func-{}-{}", ident, num);
+        MangledIdent(Arc::new(mangled))
+    }
+
     pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
         &mut self,
         ident: IdentRef<'a>,
@@ -337,14 +343,12 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         scope: F,
     ) -> Result<DefinitionIdent<'a>> {
         let def_ident = DefinitionIdent::Function(ident);
-        let num = self.id_counter.fetch_add(1, Ordering::Relaxed);
 
-        let mangled = if attributes.contains(&FunctionAttribute::NoMangle) {
-            ident.to_string()
+        let mangled = if !attributes.contains(&FunctionAttribute::NoMangle) {
+            self.mangle_function(ident)
         } else {
-            format!("func-{}-{}", ident, num)
+            MangledIdent(Arc::new(ident.to_string()))
         };
-        let mangled = MangledIdent(Arc::new(mangled));
 
         let call = vec![ClacToken::Call {
             mangled_ident: mangled.clone(),

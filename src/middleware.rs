@@ -3,7 +3,7 @@ use color_eyre::{
     eyre::{Context, ContextCompat, Ok, Result, eyre},
 };
 use pest::Span;
-use std::{collections::BTreeMap, fmt::Write};
+use std::{collections::BTreeMap, fmt::Write, sync::Arc};
 use tracing::trace;
 
 use crate::{
@@ -319,8 +319,16 @@ fn walk_loop<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, inner: &Loop<'a>) -> Result<M
         walk_local_def(ctx, init)?;
     }
 
+    // FIXME: this is cooked, but we need to get it to outlive 'a
+    // Only alternative would be to make IdentRef be a Cow?
+    let mangled = Box::leak(
+        Arc::into_inner(ctx.mangle_function("loop!").0)
+            .unwrap()
+            .into_boxed_str(),
+    );
+
     let loop_call = FunctionCall {
-        function: "loop!",
+        function: mangled,
         parameters: Vec::default(),
         span: inner.span,
     };
@@ -363,7 +371,7 @@ fn walk_loop<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, inner: &Loop<'a>) -> Result<M
         ctx,
         &FunctionDef {
             attributes: Default::default(),
-            function: "loop!",
+            function: mangled,
             contents: block,
             span: inner.span,
             signature: FunctionSignature {
@@ -376,7 +384,7 @@ fn walk_loop<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, inner: &Loop<'a>) -> Result<M
     walk_function_call(
         ctx,
         &FunctionCall {
-            function: "loop!",
+            function: mangled,
             parameters: Vec::default(),
             span: inner.span,
         },

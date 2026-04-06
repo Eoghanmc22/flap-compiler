@@ -1,0 +1,9 @@
+void main_loop(int x) {
+  loop {
+    for (int i = 0; i < x; i = i + 1) {
+      print(i);
+    }
+  }
+}
+
+main_loop(67);
