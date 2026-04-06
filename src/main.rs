@@ -133,8 +133,6 @@ fn main() -> Result<()> {
                     .flat_map(ClacToken::as_clac_lang)
                     .collect::<Vec<_>>();
 
-                println!("{program:?}");
-
                 state.execute_tokens(&program)
 
                 // let program = compile::compile_to_string(&file)?;

@@ -12,44 +12,53 @@
 
 // Conways Game of Life
 
+const int DIMENSION = 150;
+
 typedef struct {
-  int dimension;
   char *buf1;
   char *buf2;
 } gol_t;
 
-int get_idx(gol_t state, int x, int y) { x + state.dimension *y }
+int get_idx(int x, int y) { x + DIMENSION *y }
 
 // Returns the status of a cell
 // Returns 1 if the cell at index x, y is alive
 // Returns 0 otherwise
-int get_cell_state(gol_t state, int x, int y) {
-  (int)state.buf1[get_idx(state, x, y)]
-}
+int get_cell_state(char *buf, int x, int y) { (int)buf[get_idx(x, y)] }
 
 // Wrapping offset of logical positions
 // Adds `by` to `pos` mod `DIMENSION`
-int offset(gol_t state, int pos, int by) {
+int offset(int pos, int by) {
   if (by >= 0) {
-    (pos + by) % state.dimension
+    (pos + by) % DIMENSION
   } else {
-    (pos + state.dimension + by) % state.dimension
+    (pos + DIMENSION + by) % DIMENSION
   }
 }
 
 // Calculates the next state of a cell using the rules of Conways Game of Life
-int update_cell(gol_t state, int x, int y) {
-  int neighbors = 0;
-  for (int dx = -1; dx <= 1; dx = dx + 1) {
-    for (int dy = -1; dy <= 1; dy = dy + 1) {
-      if (dx != 0 || dy != 0) {
-        neighbors = neighbors + get_cell_state(state, offset(state, x, dx),
-                                               offset(state, y, dy));
-      }
-    }
-  }
+int update_cell(char *buf, int x, int y) {
+  /* int neighbors = 0; */
+  /* for (int dx = -1; dx <= 1; dx = dx + 1) { */
+  /*   for (int dy = -1; dy <= 1; dy = dy + 1) { */
+  /*     if (dx != 0 || dy != 0) { */
+  /*       neighbors = neighbors + get_cell_state(state, offset(state, x, dx),
+   */
+  /*                                              offset(state, y, dy)); */
+  /*     } */
+  /*   } */
+  /* } */
 
-  int is_alive = get_cell_state(state, x, y);
+  int neighbors = get_cell_state(buf, offset(x, -1), offset(y, -1)) +
+                  get_cell_state(buf, offset(x, 0), offset(y, -1)) +
+                  get_cell_state(buf, offset(x, 1), offset(y, -1)) +
+                  get_cell_state(buf, offset(x, -1), offset(y, 0)) +
+                  get_cell_state(buf, offset(x, 1), offset(y, 0)) +
+                  get_cell_state(buf, offset(x, -1), offset(y, 1)) +
+                  get_cell_state(buf, offset(x, 0), offset(y, 1)) +
+                  get_cell_state(buf, offset(x, 1), offset(y, 1));
+
+  int is_alive = get_cell_state(buf, x, y);
 
   if (neighbors < 2) {
     0
@@ -64,21 +73,29 @@ int update_cell(gol_t state, int x, int y) {
 
 // Compute the next high order bits of the game state
 gol_t compute_next(gol_t state) {
-  for (int x = 0; x < state.dimension; x = x + 1) {
-    for (int y = 0; y < state.dimension; y = y + 1) {
-      state.buf2[get_idx(state, x, y)] = (char)update_cell(state, x, y);
+  for (int x = 0; x < DIMENSION; x = x + 1) {
+    for (int y = 0; y < DIMENSION; y = y + 1) {
+      state.buf2[get_idx(x, y)] = (char)update_cell(state.buf1, x, y);
     }
   }
 
   struct {
-    dimension = state.dimension;
     buf1 = state.buf2;
     buf2 = state.buf1;
   }
 }
 
-gol_t gol_new(int dimension) {
-  int size = dimension * dimension;
+void gol_reset(gol_t state) {
+  int size = DIMENSION * DIMENSION;
+  char *buf1 = state.buf1;
+
+  for (int i = 0; i < size; i = i + 1) {
+    buf1[i] = (char)(((rand() / 10) % 2) != 0);
+  }
+}
+
+gol_t gol_new() {
+  int size = DIMENSION * DIMENSION;
   char *buf1 = malloc(size * 2);
   char *buf2 = buf1 + size;
 
@@ -89,7 +106,6 @@ gol_t gol_new(int dimension) {
   }
 
   struct {
-    dimension = dimension;
     buf1 = buf1;
     buf2 = buf2;
   }
@@ -119,6 +135,10 @@ const int wayland_wl_shm_pool_create_buffer_opcode = 0;
 const int wayland_wl_surface_attach_opcode = 1;
 const int wayland_wl_surface_frame_opcode = 3;
 const int wayland_wl_callback_done_opcode = 0;
+const int wayland_wl_seat_get_pointer_opcode = 0;
+const int wayland_wl_pointer_button_event = 3;
+const int wayland_wl_pointer_button_released = 0;
+const int wayland_wl_pointer_button_pressed = 1;
 const int wayland_xdg_surface_get_toplevel_opcode = 1;
 const int wayland_wl_surface_commit_opcode = 6;
 const int wayland_wl_surface_damage_opcode = 9;
@@ -141,6 +161,8 @@ typedef struct {
   int xdg_surface;
   int wl_compositor;
   int wl_surface;
+  int wl_seat;
+  int wl_pointer;
   int xdg_toplevel;
   int frame_callback;
   int stride;
@@ -353,6 +375,55 @@ int wayland_wl_compositor_create_surface(int fd, state_t *state) {
   free(num1);
 
   auto s2 = ".create_surface: wl_surface=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(id);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+int wayland_wl_seat_get_pointer(int fd, state_t *state) {
+  assert(state->wl_seat > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wl_seat);
+
+  buf_write_u16(buffer, wayland_wl_seat_get_pointer_opcode);
+
+  /* uint16_t msg_announced_size = */
+  /*     wayland_header_size + sizeof(wayland_current_id); */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  /* printf("-> wl_compositor@%u.create_surface: wl_surface=%u\n", */
+  /*        state->wl_compositor, wayland_current_id); */
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wl_seat@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wl_seat);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".get_pointer: wl_surface=";
   *print_buffer = s2;
   write_all(STDOUT, print_buffer, sizeof_packed(s2));
 
@@ -943,12 +1014,16 @@ void wayland_wl_surface_commit(int fd, state_t *state) {
 }
 
 void render_frame(char *frame_buffer, state_t *state) {
-  for (int y = 0; y < state->h; y = y + 1) {
-    for (int x = 0; x < state->w; x = x + 2) {
-      int *pixel = (int *)&frame_buffer[color_channels * (state->w * y + x)];
+  int width = state->w;
+  int height = state->h;
+  int scale = state->scale;
+  char *buf = state->game.buf1;
 
-      *pixel =
-          -1 * get_cell_state(state->game, x / state->scale, y / state->scale);
+  for (int y = 0; y < height; y = y + 1) {
+    for (int x = 0; x < width; x = x + 2) {
+      int *pixel = (int *)&frame_buffer[color_channels * (width * y + x)];
+
+      *pixel = -1 * get_cell_state(buf, x / scale, y / scale);
     }
   }
 
@@ -1076,6 +1151,12 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
       state->wl_compositor = wayland_wl_registry_bind(
           fd, state->wl_registry, name, interface, interface_len, version);
     }
+
+    *scratch = "wl_seat\0";
+    if (strcmp(scratch, interface) == 0) {
+      state->wl_seat = wayland_wl_registry_bind(
+          fd, state->wl_registry, name, interface, interface_len, version);
+    }
   } else if (object_id == wayland_display_object_id &&
              opcode == wayland_wl_display_error_event) {
     int target_object_id = buf_read_u32(buffer);
@@ -1131,6 +1212,61 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     char *num1 = convert_int_to_string(callback_data); // Hex conversion
     write_all(STDOUT, num1, strlen(num1));
     free(num1);
+
+    print_new_line();
+    free(print_buffer);
+  } else if (object_id == state->wl_pointer &&
+             opcode == wayland_wl_pointer_button_event) {
+    int serial = buf_read_u32(buffer);
+    int time = buf_read_u32(buffer);
+    int button = buf_read_u32(buffer);
+    int button_state = buf_read_u32(buffer);
+
+    if (button_state == wayland_wl_pointer_button_pressed) {
+      gol_reset(state->game);
+    }
+
+    char *print_buffer = malloc(128);
+
+    auto s1 = "<- wl_pointer@";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(state->wl_pointer);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s2 = ".button: serial=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(serial);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    auto s2 = " time=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(time);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    auto s2 = " button=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(button);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
+
+    auto s2 = " state=";
+    *print_buffer = s2;
+    write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+    char *num2 = convert_int_to_string(button_state);
+    write_all(STDOUT, num2, strlen(num2));
+    free(num2);
 
     print_new_line();
     free(print_buffer);
@@ -1354,6 +1490,7 @@ void main_loop(int fd, buf *read_buf, state_t *state) {
       state->wl_surface = wayland_wl_compositor_create_surface(fd, state);
       state->xdg_surface = wayland_xdg_wm_base_get_xdg_surface(fd, state);
       state->xdg_toplevel = wayland_xdg_surface_get_toplevel(fd, state);
+      state->wl_pointer = wayland_wl_seat_get_pointer(fd, state);
       wayland_wl_surface_commit(fd, state);
     }
 
@@ -1373,7 +1510,7 @@ next_wayland_id();
 int fd = wayland_display_connect();
 int scratch_len = 4096;
 
-int width = 100;
+int width = DIMENSION;
 int height = width;
 int scale = 4;
 
@@ -1387,6 +1524,8 @@ state_t *state = malloc(sizeof<state_t>);
   xdg_surface = 0;
   wl_compositor = 0;
   wl_surface = 0;
+  wl_pointer = 0;
+  wl_seat = 0;
   xdg_toplevel = 0;
   frame_callback = 0;
   w = width * scale;
@@ -1399,7 +1538,7 @@ state_t *state = malloc(sizeof<state_t>);
   shm_pool_data = (char *)NULL;
   scratch = malloc(scratch_len);
   scratch_len = scratch_len;
-  game = gol_new(width);
+  game = gol_new();
 };
 
 // Single buffering.
