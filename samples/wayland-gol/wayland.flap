@@ -944,21 +944,11 @@ void wayland_wl_surface_commit(int fd, state_t *state) {
 
 void render_frame(char *frame_buffer, state_t *state) {
   for (int y = 0; y < state->h; y = y + 1) {
-    for (int x = 0; x < state->w; x = x + 1) {
-      char *pixel = &frame_buffer[color_channels * (state->w * y + x)];
+    for (int x = 0; x < state->w; x = x + 2) {
+      int *pixel = (int *)&frame_buffer[color_channels * (state->w * y + x)];
 
-      if (get_cell_state(state->game, x / state->scale, y / state->scale) !=
-          0) {
-        pixel[0] = (char)255;
-        pixel[1] = (char)255;
-        pixel[2] = (char)255;
-        pixel[3] = (char)255;
-      } else {
-        pixel[0] = (char)0;
-        pixel[1] = (char)0;
-        pixel[2] = (char)0;
-        pixel[3] = (char)0;
-      }
+      *pixel =
+          -1 * get_cell_state(state->game, x / state->scale, y / state->scale);
     }
   }
 
