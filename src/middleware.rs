@@ -431,16 +431,10 @@ fn walk_if_statement_inner<'a, 'b>(
                 walk_block(ctx, &next_case.contents)
             })?;
 
-        let on_false = if !remaining.is_empty() || otherwise.is_some() {
-            Some(ctx.define_function(
-                "on_false!",
-                signature.clone(),
-                &Default::default(),
-                |ctx| walk_if_statement_inner(ctx, remaining, otherwise, signature.clone()),
-            )?)
-        } else {
-            None
-        };
+        let on_false =
+            ctx.define_function("on_false!", signature.clone(), &Default::default(), |ctx| {
+                walk_if_statement_inner(ctx, remaining, otherwise, signature.clone())
+            })?;
 
         let clac_op = ClacOp::If {
             condition: condition.clone(),

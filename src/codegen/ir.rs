@@ -181,7 +181,7 @@ pub enum ClacOp<'a> {
     If {
         condition: DataReference<'a>,
         on_true: DefinitionIdent<'a>,
-        on_false: Option<DefinitionIdent<'a>>,
+        on_false: DefinitionIdent<'a>,
     },
     Call {
         name: DefinitionIdent<'a>,
@@ -474,88 +474,49 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 let on_true_impl = on_true_impl.to_vec();
                 let def_true = def_true.clone();
 
-                if let Some(on_false) = on_false {
-                    let (on_false_impl, def_false) =
-                        out.ctx().lookup_definition(*on_false).wrap_err_with(|| {
-                            format!("Unknown if false_true definition, '{on_true:?}'")
-                        })?;
-                    let on_false_impl = on_false_impl.to_vec();
-                    let def_false = def_false.clone();
+                let (on_false_impl, def_false) = out
+                    .ctx()
+                    .lookup_definition(*on_false)
+                    .wrap_err_with(|| format!("Unknown if false_true definition, '{on_true:?}'"))?;
+                let on_false_impl = on_false_impl.to_vec();
+                let def_false = def_false.clone();
 
-                    assert_eq!(
-                        def_true.stack_delta(out.ctx().type_checker)?,
-                        def_false.stack_delta(out.ctx().type_checker)?
-                    );
+                assert_eq!(
+                    def_true.stack_delta(out.ctx().type_checker)?,
+                    def_false.stack_delta(out.ctx().type_checker)?
+                );
 
-                    match &on_true_impl[..] {
-                        [] => out.consume(ClacToken::Drop)?,
-                        [true_token] => {
-                            out.consume(ClacToken::If)?;
-                            out.consume(true_token.clone())?;
-                            out.consume(ClacToken::Number(on_false_impl.len() as _))?;
-                            out.consume(ClacToken::Skip)?;
+                match &on_true_impl[..] {
+                    [] => out.consume(ClacToken::Drop)?,
+                    [true_token] => {
+                        out.consume(ClacToken::If)?;
+                        out.consume(true_token.clone())?;
+                        out.consume(ClacToken::Number(on_false_impl.len() as _))?;
+                        out.consume(ClacToken::Skip)?;
 
-                            for token in on_false_impl {
-                                out.consume_silent(token)?;
-                            }
-                        }
-                        [..] => {
-                            out.consume(ClacToken::Number(on_false_impl.len() as ClacValue + 2))?;
-                            out.consume(ClacToken::Mul)?;
-                            out.consume(ClacToken::Skip)?;
-
-                            for token in on_false_impl {
-                                out.consume(token)?;
-                            }
-
-                            out.consume(ClacToken::Number(on_true_impl.len() as _))?;
-                            out.consume(ClacToken::Skip)?;
-
-                            for token in on_true_impl {
-                                out.consume_silent(token)?;
-                            }
+                        for token in on_false_impl {
+                            out.consume_silent(token)?;
                         }
                     }
+                    [..] => {
+                        out.consume(ClacToken::Number(on_false_impl.len() as ClacValue + 2))?;
+                        out.consume(ClacToken::Mul)?;
+                        out.consume(ClacToken::Skip)?;
 
-                    def_true.return_type.clone()
-                } else {
-                    assert!(def_true.stack_delta(out.ctx().type_checker)? <= 0);
-                    // assert!(def_true.return_width(out.ctx().type_checker)? == 0);
-                    assert!(def_true.return_type.width(out.ctx().type_checker)? == 0);
-
-                    let true_delta = def_true.stack_delta(out.ctx().type_checker)?;
-
-                    match &on_true_impl[..] {
-                        [] => out.consume(ClacToken::Drop)?,
-                        [true_token] => {
-                            out.consume(ClacToken::If)?;
-                            out.consume(true_token.clone())?;
-                            out.consume(ClacToken::Number(-true_delta))?;
-                            out.consume(ClacToken::Skip)?;
+                        for token in on_false_impl {
+                            out.consume(token)?;
                         }
-                        [..] => {
-                            out.consume(ClacToken::Number(1))?;
-                            out.consume(ClacToken::Swap)?;
-                            out.consume(ClacToken::Sub)?;
 
-                            out.consume(ClacToken::Number(on_true_impl.len() as ClacValue + 2))?;
-                            out.consume(ClacToken::Mul)?;
-                            out.consume(ClacToken::Skip)?;
+                        out.consume(ClacToken::Number(on_true_impl.len() as _))?;
+                        out.consume(ClacToken::Skip)?;
 
-                            for token in on_true_impl {
-                                out.consume(token)?;
-                            }
-                            out.consume(ClacToken::Number(-true_delta))?;
-                            out.consume(ClacToken::Skip)?;
+                        for token in on_true_impl {
+                            out.consume_silent(token)?;
                         }
                     }
-
-                    for _ in 0..-def_true.stack_delta(out.ctx().type_checker)? {
-                        out.consume_silent(ClacToken::Drop)?;
-                    }
-
-                    Type::Void
                 }
+
+                def_true.return_type.clone()
             }
             ClacOp::Call { name, .. } => {
                 let (func_impl, def) = out
