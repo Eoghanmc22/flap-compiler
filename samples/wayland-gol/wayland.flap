@@ -311,7 +311,7 @@ int wayland_wl_registry_bind(int fd, int registry, int name, char *interface,
   *print_buffer = s3;
   write_all(STDOUT, print_buffer, sizeof_packed(s3));
 
-  write_all(STDOUT, interface, interface_len);
+  write_all(STDOUT, interface, interface_len - 1);
 
   auto s4 = " version=";
   *print_buffer = s4;
@@ -1120,7 +1120,7 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     *print_buffer = s3;
     write_all(STDOUT, print_buffer, sizeof_packed(s3));
 
-    write_all(STDOUT, interface, interface_len);
+    write_all(STDOUT, interface, interface_len - 1);
 
     auto s4 = " version=";
     *print_buffer = s4;
