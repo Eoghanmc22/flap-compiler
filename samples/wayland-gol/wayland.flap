@@ -13,18 +13,17 @@
 // Conways Game of Life
 
 const int DIMENSION = 150;
+const int SCALE = 4;
 
 typedef struct {
   char *buf1;
   char *buf2;
 } gol_t;
 
-int get_idx(int x, int y) { x + DIMENSION *y }
-
 // Returns the status of a cell
 // Returns 1 if the cell at index x, y is alive
 // Returns 0 otherwise
-int get_cell_state(char *buf, int x, int y) { (int)buf[get_idx(x, y)] }
+int get_cell_state(char *buf, int x, int y) { (int)buf[x + DIMENSION * y] }
 
 // Wrapping offset of logical positions
 // Adds `by` to `pos` mod `DIMENSION`
@@ -38,25 +37,15 @@ int offset(int pos, int by) {
 
 // Calculates the next state of a cell using the rules of Conways Game of Life
 int update_cell(char *buf, int x, int y) {
-  /* int neighbors = 0; */
-  /* for (int dx = -1; dx <= 1; dx = dx + 1) { */
-  /*   for (int dy = -1; dy <= 1; dy = dy + 1) { */
-  /*     if (dx != 0 || dy != 0) { */
-  /*       neighbors = neighbors + get_cell_state(state, offset(state, x, dx),
-   */
-  /*                                              offset(state, y, dy)); */
-  /*     } */
-  /*   } */
-  /* } */
-
-  int neighbors = get_cell_state(buf, offset(x, -1), offset(y, -1)) +
-                  get_cell_state(buf, offset(x, 0), offset(y, -1)) +
-                  get_cell_state(buf, offset(x, 1), offset(y, -1)) +
-                  get_cell_state(buf, offset(x, -1), offset(y, 0)) +
-                  get_cell_state(buf, offset(x, 1), offset(y, 0)) +
-                  get_cell_state(buf, offset(x, -1), offset(y, 1)) +
-                  get_cell_state(buf, offset(x, 0), offset(y, 1)) +
-                  get_cell_state(buf, offset(x, 1), offset(y, 1));
+  int left = offset(x, -1);
+  int right = offset(x, 1);
+  int up = offset(y, -1);
+  int down = offset(y, 1);
+  int neighbors =
+      get_cell_state(buf, left, up) + get_cell_state(buf, x, up) +
+      get_cell_state(buf, right, up) + get_cell_state(buf, left, y) +
+      get_cell_state(buf, right, y) + get_cell_state(buf, left, down) +
+      get_cell_state(buf, x, down) + get_cell_state(buf, right, down);
 
   int is_alive = get_cell_state(buf, x, y);
 
@@ -75,7 +64,7 @@ int update_cell(char *buf, int x, int y) {
 gol_t compute_next(gol_t state) {
   for (int x = 0; x < DIMENSION; x = x + 1) {
     for (int y = 0; y < DIMENSION; y = y + 1) {
-      state.buf2[get_idx(x, y)] = (char)update_cell(state.buf1, x, y);
+      state.buf2[x + DIMENSION * y] = (char)update_cell(state.buf1, x, y);
     }
   }
 
@@ -168,7 +157,6 @@ typedef struct {
   int stride;
   int w;
   int h;
-  int scale;
   int shm_pool_size;
   int shm_fd;
   char *shm_pool_data;
@@ -1014,16 +1002,35 @@ void wayland_wl_surface_commit(int fd, state_t *state) {
 }
 
 void render_frame(char *frame_buffer, state_t *state) {
+  assert(SCALE == 4, __LINE__);
+
   int width = state->w;
   int height = state->h;
-  int scale = state->scale;
   char *buf = state->game.buf1;
 
-  for (int y = 0; y < height; y = y + 1) {
-    for (int x = 0; x < width; x = x + 2) {
-      int *pixel = (int *)&frame_buffer[color_channels * (width * y + x)];
+  int vstride = width * color_channels / 8;
+  int off00 = 0;
+  int off01 = 1;
+  int off10 = 1 * vstride + 0;
+  int off11 = 1 * vstride + 1;
+  int off20 = 2 * vstride + 0;
+  int off21 = 2 * vstride + 1;
+  int off30 = 3 * vstride + 0;
+  int off31 = 3 * vstride + 1;
 
-      *pixel = -1 * get_cell_state(buf, x / scale, y / scale);
+  for (int y = 0; y < height; y = y + SCALE) {
+    for (int x = 0; x < width; x = x + SCALE) {
+      int *pixel = (int *)&frame_buffer[color_channels * (width * y + x)];
+      int new_value_double = -1 * get_cell_state(buf, x / SCALE, y / SCALE);
+
+      *pixel = new_value_double;
+      pixel[off01] = new_value_double;
+      pixel[off10] = new_value_double;
+      pixel[off11] = new_value_double;
+      pixel[off20] = new_value_double;
+      pixel[off21] = new_value_double;
+      pixel[off30] = new_value_double;
+      pixel[off31] = new_value_double;
     }
   }
 
@@ -1512,7 +1519,6 @@ int scratch_len = 4096;
 
 int width = DIMENSION;
 int height = width;
-int scale = 4;
 
 state_t *state = malloc(sizeof<state_t>);
 *state = struct {
@@ -1528,11 +1534,10 @@ state_t *state = malloc(sizeof<state_t>);
   wl_seat = 0;
   xdg_toplevel = 0;
   frame_callback = 0;
-  w = width * scale;
-  h = height * scale;
-  scale = scale;
+  w = width * SCALE;
+  h = height * SCALE;
   state = STATE_NONE;
-  stride = width * scale * color_channels;
+  stride = width * SCALE * color_channels;
   shm_pool_size = 0;
   shm_fd = 0;
   shm_pool_data = (char *)NULL;
