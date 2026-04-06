@@ -2,8 +2,9 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     ffi::OsStr,
     fmt::Debug,
+    fmt::Write as _,
     fs::{self, OpenOptions},
-    io::Write,
+    io::Write as _,
     path::{Path, PathBuf},
 };
 
@@ -15,6 +16,7 @@ use crate::{
     ast::{Block, Directive},
     codegen::{
         CodegenCtx,
+        clac::ClacProgram,
         post_process::{
             AttributionPostProcessor, CheckNativeWidth, ExtractDefinitionsPostProcessor,
             PostProcesser, SourceCodeCommentPostProcessor,
@@ -160,7 +162,7 @@ pub struct SourceFile {
     includes: BTreeSet<PathBuf>,
 }
 
-pub fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
+pub fn compile(file: impl AsRef<Path> + Debug) -> Result<ClacProgram> {
     let file = file.as_ref();
 
     let ctx = CompileContext::new(file)?;
@@ -193,6 +195,26 @@ pub fn compile(file: impl AsRef<Path> + Debug) -> Result<()> {
     for post_processor in post_processors {
         post_processor.process(&mut program);
     }
+
+    Ok(program)
+}
+
+pub fn compile_to_string(file: impl AsRef<Path> + Debug) -> Result<String> {
+    let file = file.as_ref();
+
+    let program = compile(file)?;
+
+    let mut s = String::new();
+
+    write!(&mut s, "{program}").wrap_err("Write code")?;
+
+    Ok(s)
+}
+
+pub fn compile_to_file(file: impl AsRef<Path> + Debug) -> Result<()> {
+    let file = file.as_ref();
+
+    let program = compile(file)?;
 
     let output_dir = PathBuf::from("out/");
     fs::create_dir_all(&output_dir).wrap_err("Create out dir")?;

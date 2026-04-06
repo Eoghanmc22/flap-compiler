@@ -1,5 +1,7 @@
 use core::fmt;
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, iter, sync::Arc};
+
+use clac_lang::types::FunctionRef;
 
 use crate::ast::Ident;
 
@@ -146,17 +148,7 @@ impl Display for ClacToken {
             } => write!(f, "{}", ident.0),
             ClacToken::NewLine => writeln!(f),
             ClacToken::Comment(text) => {
-                let ends_with_white_space = text
-                    .chars()
-                    .last()
-                    .map(|it| it.is_whitespace())
-                    .unwrap_or(false);
-
-                if ends_with_white_space {
-                    writeln!(f, ": comment {text};")
-                } else {
-                    writeln!(f, ": comment {text} ;")
-                }
+                writeln!(f, ": comment {} ;", text.trim())
             }
             ClacToken::Silent(clac_token) => <ClacToken as Display>::fmt(clac_token, f),
             ClacToken::Syscall => write!(f, "syscall"),
@@ -197,5 +189,64 @@ impl PartialEq for ClacToken {
             (l0, Self::Silent(r0)) => l0 == &**r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
+    }
+}
+
+impl ClacToken {
+    pub fn as_clac_lang(&self) -> impl Iterator<Item = clac_lang::types::Token> {
+        use clac_lang::types::Token;
+
+        fn call(s: &str) -> Token {
+            Token::FunctionCall(FunctionRef::Unresolved(s.to_string()))
+        }
+
+        if let ClacToken::Silent(inner) = self {
+            return inner.as_clac_lang();
+        }
+
+        iter::from_coroutine(
+            #[coroutine]
+            || {
+                let token = match self {
+                    ClacToken::Number(val) => Token::Literal(*val),
+                    ClacToken::Print => Token::Print,
+                    ClacToken::Quit => Token::Quit,
+                    ClacToken::Add => call("+"),
+                    ClacToken::Sub => call("-"),
+                    ClacToken::Mul => call("*"),
+                    ClacToken::Div => call("/"),
+                    ClacToken::Mod => call("%"),
+                    ClacToken::Pow => call("**"),
+                    ClacToken::Lt => call("<"),
+                    ClacToken::Drop => Token::Drop,
+                    ClacToken::Swap => Token::Swap,
+                    ClacToken::Rot => Token::Rot,
+                    ClacToken::If => Token::If,
+                    ClacToken::Pick => Token::Pick,
+                    ClacToken::Skip => Token::Skip,
+                    ClacToken::StartDef { mangled_ident } => {
+                        yield Token::Colon;
+                        yield call(&mangled_ident.0);
+                        return;
+                    }
+                    ClacToken::EndDef => Token::Semicolon,
+                    ClacToken::Call { mangled_ident, .. } => call(&mangled_ident.0),
+                    ClacToken::NewLine => return,
+                    ClacToken::Comment(_) => return,
+                    ClacToken::Silent(_) => unreachable!(),
+
+                    // clac++ extensions
+                    ClacToken::Syscall => call("syscall"),
+                    ClacToken::Write8 => call("write8"),
+                    ClacToken::WriteNative => call("write_native"),
+                    ClacToken::Read8 => call("read8"),
+                    ClacToken::ReadNative => call("read_native"),
+                    ClacToken::WidthNative => call("width_native"),
+                    ClacToken::DropRange { .. } => call("drop_range"),
+                };
+
+                yield token;
+            },
+        )
     }
 }
