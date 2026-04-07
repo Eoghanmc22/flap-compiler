@@ -9,7 +9,7 @@
 // - consider making loops return the value of their last expression on their last iteration?
 
 use std::{
-    error, fs,
+    fs,
     io::{self, Write},
     path::PathBuf,
     thread,
@@ -41,6 +41,9 @@ enum Commands {
     Repl,
     Run {
         file: PathBuf,
+
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        _extra: Vec<String>,
     },
 }
 
@@ -119,7 +122,7 @@ fn main() -> Result<()> {
                 println!("{:?}", state.stack)
             }
         }
-        Commands::Run { file } => {
+        Commands::Run { file, .. } => {
             let mut state = ClacState::default();
 
             let res = if file.extension() == Some("flap".as_ref()) {
