@@ -16,7 +16,7 @@ char *convert_int_to_string(int x) {
   int num_digits = list->len;
   char *str = malloc(num_digits + 1);
 
-  for (int i = 0; i < list->len; i = i + 1) {
+  for (int i = 0; i < num_digits; i = i + 1) {
     int digit = list_int_pop(list);
     str[i] = (char)digit + '0';
   }
@@ -42,7 +42,7 @@ char *convert_int_to_hex(int x) {
   int num_digits = list->len;
   char *str = malloc(num_digits + 1);
 
-  for (int i = 0; i < list->len; i = i + 1) {
+  for (int i = 0; i < num_digits; i = i + 1) {
     int digit = list_int_pop(list);
     if (digit < 10) {
       str[i] = (char)digit + '0';
