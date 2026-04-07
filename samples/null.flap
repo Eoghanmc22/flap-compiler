@@ -1,0 +1,11 @@
+#include "../std"
+
+// This program only works when run as root lol
+
+int* not_null = NULL;
+map_global(not_null, 4096);
+
+*not_null = 5;
+print(*not_null);
+
+loop {}
