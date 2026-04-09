@@ -8,12 +8,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use color_eyre::eyre::{Context, Result, eyre};
+use color_eyre::eyre::{Context, ContextCompat, Result, eyre};
 use pest::Span;
 use tracing::{debug, warn};
 
 use crate::{
-    ast::{Block, Directive},
+    ast::{AnnotatedSpan, Block, Directive},
     codegen::{
         CodegenCtx,
         clac::ClacProgram,
@@ -75,10 +75,9 @@ impl CompileContext {
 
         let contents = fs::read_to_string(&file).wrap_err("Read file")?;
 
-        let directives = parser::parse_directives(&contents)
-            .map_err(|err| {
-                parser::map_parser_error(err, Some(&file.as_os_str().to_string_lossy()), &contents)
-            })
+        let file_name = file.as_os_str().to_str().wrap_err("Path must be utf8")?;
+        let directives = parser::parse_directives(&contents, &file_name)
+            .map_err(|err| parser::map_parser_error(err, &file_name, &contents))
             .wrap_err("Parse program")?;
 
         let mut includes = BTreeSet::new();
@@ -132,14 +131,9 @@ impl CompileContext {
                 .all(|it| already_included.contains(it));
 
             if ready {
-                let program = parser::parse_program(&source.contents)
-                    .map_err(|err| {
-                        parser::map_parser_error(
-                            err,
-                            Some(&next.as_os_str().to_string_lossy()),
-                            &source.contents,
-                        )
-                    })
+                let file_name = next.as_os_str().to_str().wrap_err("Path must be utf8")?;
+                let program = parser::parse_program(&source.contents, &file_name)
+                    .map_err(|err| parser::map_parser_error(err, &file_name, &source.contents))
                     .wrap_err("Parsing Error")?;
 
                 statements.extend(program.code.statements.into_iter());
@@ -163,7 +157,10 @@ impl CompileContext {
         Ok(Block {
             statements,
             captures: Default::default(),
-            span: Span::new("", 0, 0).unwrap(),
+            span: AnnotatedSpan {
+                span: Span::new("<merged sources>", 0, 16).unwrap(),
+                file_name: "<merged sources>",
+            },
         })
     }
 }

@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, HashSet},
     path::Path,
+    ptr,
 };
 
 use pest::{
@@ -15,8 +16,8 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedCaptures, DeferedType,
-        DeferedVersion, Directive, Expr, FunctionAttribute, FunctionCall, FunctionDef,
+        AnnotatedSpan, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedCaptures,
+        DeferedType, DeferedVersion, Directive, Expr, FunctionAttribute, FunctionCall, FunctionDef,
         FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Program,
         Punctuation, SizeOfMode, Statement, Type, Typedef, Value,
     },
@@ -45,12 +46,19 @@ lazy_static::lazy_static! {
     };
 }
 
-pub fn merge_spans<'i>(a: &Span<'i>, b: &Span<'i>) -> Option<Span<'i>> {
-    Span::new(
-        a.get_input(),
-        core::cmp::min(a.start(), b.start()),
-        core::cmp::max(a.end(), b.end()),
-    )
+pub fn merge_spans<'i>(a: &AnnotatedSpan<'i>, b: &AnnotatedSpan<'i>) -> Option<AnnotatedSpan<'i>> {
+    if a.file_name != b.file_name || !ptr::eq(a.span.get_input(), b.span.get_input()) {
+        return None;
+    }
+
+    Some(AnnotatedSpan {
+        span: Span::new(
+            a.span.get_input(),
+            core::cmp::min(a.span.start(), b.span.start()),
+            core::cmp::max(a.span.end(), b.span.end()),
+        )?,
+        file_name: a.file_name,
+    })
 }
 
 #[derive(Parser)]
@@ -160,7 +168,7 @@ fn rule_renamer(rule: &Rule) -> String {
     .to_string()
 }
 
-pub fn map_parser_error(err: Error<Rule>, file: Option<&str>, file_contents: &str) -> Error<Rule> {
+pub fn map_parser_error(err: Error<Rule>, file_name: &str, file_contents: &str) -> Error<Rule> {
     let err = err.renamed_rules(rule_renamer);
 
     let renamer: pest::error::RuleToMessageFn<Rule> =
@@ -172,14 +180,14 @@ pub fn map_parser_error(err: Error<Rule>, file: Option<&str>, file_contents: &st
 
     let err = if let Some(extra) = extra { extra } else { err };
 
-    if let Some(file) = file.as_ref() {
-        err.with_path(file)
-    } else {
-        err
-    }
+    // if let Some(file) = file_name.as_ref() {
+    err.with_path(file_name)
+    // } else {
+    // err
+    // }
 }
 
-pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
+pub fn parse_program<'a>(input: &'a str, file_name: &'a str) -> Result<Program<'a>> {
     let mut pairs = FlapParser::parse(Rule::program, input)?;
     trace!("Input program tokens: {pairs:#?}");
 
@@ -191,15 +199,15 @@ pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
     for pair in pairs {
         match pair.as_rule() {
             Rule::directive => {
-                directives.push(parse_directive(pair)?);
+                directives.push(parse_directive(pair, file_name)?);
             }
             Rule::program_inner => {
-                let code = parse_block_like(pair)?;
+                let code = parse_block_like(pair, file_name)?;
 
                 return Ok(Program {
                     directives,
                     code,
-                    span,
+                    span: AnnotatedSpan { span, file_name },
                 });
             }
             rule => {
@@ -217,7 +225,7 @@ pub fn parse_program<'a>(input: &'a str) -> Result<Program<'a>> {
     unreachable!()
 }
 
-pub fn parse_directives<'a>(input: &'a str) -> Result<Vec<Directive<'a>>> {
+pub fn parse_directives<'a>(input: &'a str, file_name: &'a str) -> Result<Vec<Directive<'a>>> {
     let mut pairs = FlapParser::parse(Rule::program_directives, input)?;
     trace!("Input program tokens: {pairs:#?}");
 
@@ -227,7 +235,7 @@ pub fn parse_directives<'a>(input: &'a str) -> Result<Vec<Directive<'a>>> {
     for pair in pairs {
         match pair.as_rule() {
             Rule::directive => {
-                directives.push(parse_directive(pair)?);
+                directives.push(parse_directive(pair, file_name)?);
             }
             Rule::EOI => continue,
             rule => {
@@ -245,7 +253,7 @@ pub fn parse_directives<'a>(input: &'a str) -> Result<Vec<Directive<'a>>> {
     return Ok(directives);
 }
 
-fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
+fn parse_directive<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Directive<'a>> {
     let kind = pair.into_inner().next().unwrap();
     let span = kind.as_span();
 
@@ -260,7 +268,7 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
                     .unwrap()
                     .as_str(),
             ),
-            span,
+            AnnotatedSpan { span, file_name },
         )),
         rule => {
             return Err(Error::new_from_span(
@@ -274,7 +282,7 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive> {
     }
 }
 
-fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
+fn parse_block_like<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Block<'a>> {
     trace!("Input block_like tokens: {pair:#?}");
     let span = pair.as_span();
 
@@ -293,21 +301,23 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
                     Punctuation::Unpunctuated
                 };
 
-                Statement::Expr(parse_expr(target.into_inner())?, punctuation)
+                Statement::Expr(parse_expr(target.into_inner(), file_name)?, punctuation)
             }
-            Rule::if_statement => {
-                Statement::Expr(Expr::If(parse_if_expr(target)?), Punctuation::Unpunctuated)
-            }
-            Rule::function_def => Statement::FunctionDef(parse_function_def(target)?),
-            Rule::const_var => Statement::Const(parse_const_var(target)?),
-            Rule::local_var => Statement::Local(parse_local_var(target)?),
-            Rule::assignment => Statement::Assignment(parse_assignment(target)?),
-            Rule::typedef => Statement::Typedef(parse_typedef(target)?),
-            Rule::defer_block => {
-                Statement::Defer(parse_block_like(target.into_inner().next().unwrap())?)
-            }
+            Rule::if_statement => Statement::Expr(
+                Expr::If(parse_if_expr(target, file_name)?),
+                Punctuation::Unpunctuated,
+            ),
+            Rule::function_def => Statement::FunctionDef(parse_function_def(target, file_name)?),
+            Rule::const_var => Statement::Const(parse_const_var(target, file_name)?),
+            Rule::local_var => Statement::Local(parse_local_var(target, file_name)?),
+            Rule::assignment => Statement::Assignment(parse_assignment(target, file_name)?),
+            Rule::typedef => Statement::Typedef(parse_typedef(target, file_name)?),
+            Rule::defer_block => Statement::Defer(parse_block_like(
+                target.into_inner().next().unwrap(),
+                file_name,
+            )?),
             Rule::for_loop | Rule::while_loop | Rule::forever => {
-                Statement::Loop(parse_loop(target)?)
+                Statement::Loop(parse_loop(target, file_name)?)
             }
             Rule::semicolon => continue,
             Rule::EOI => continue,
@@ -341,12 +351,12 @@ fn parse_block_like(pair: Pair<Rule>) -> Result<Block> {
 
     Ok(Block {
         statements,
-        span,
+        span: AnnotatedSpan { span, file_name },
         captures: DeferedCaptures::UnresolvedCaptures,
     })
 }
 
-fn parse_function_def(target: Pair<Rule>) -> Result<FunctionDef> {
+fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<FunctionDef<'a>> {
     let span = target.as_span();
     let mut inner = target.into_inner();
 
@@ -371,8 +381,8 @@ fn parse_function_def(target: Pair<Rule>) -> Result<FunctionDef> {
         }
     }
 
-    let return_type = parse_type(inner.next().unwrap())?;
-    let function = parse_ident(inner.next().unwrap())?;
+    let return_type = parse_type(inner.next().unwrap(), file_name)?;
+    let function = parse_ident(inner.next().unwrap(), file_name)?;
 
     let mut last_arg_type = None;
     let mut arguements = Vec::new();
@@ -380,7 +390,7 @@ fn parse_function_def(target: Pair<Rule>) -> Result<FunctionDef> {
     for pair in inner {
         match pair.as_rule() {
             Rule::var_type => {
-                last_arg_type = Some(parse_type(pair)?);
+                last_arg_type = Some(parse_type(pair, file_name)?);
             }
             Rule::ident => {
                 let Some(last_arg_type) = last_arg_type.take() else {
@@ -392,20 +402,20 @@ fn parse_function_def(target: Pair<Rule>) -> Result<FunctionDef> {
                     ));
                 };
 
-                let ident = parse_ident(pair)?;
+                let ident = parse_ident(pair, file_name)?;
                 arguements.push((last_arg_type, ident, DeferedVersion::UnresolvedVersion));
             }
             Rule::block => {
                 return Ok(FunctionDef {
                     attributes,
                     function,
-                    contents: parse_block_like(pair)?,
+                    contents: parse_block_like(pair, file_name)?,
                     signature: FunctionSignature {
                         arguements,
                         return_type,
                         captures: DeferedCaptures::UnresolvedCaptures,
                     },
-                    span,
+                    span: AnnotatedSpan { span, file_name },
                 });
             }
             _ => {
@@ -431,81 +441,90 @@ fn parse_function_def(target: Pair<Rule>) -> Result<FunctionDef> {
     ))
 }
 
-fn parse_const_var(target: Pair<Rule>) -> Result<ConstDef> {
+fn parse_const_var<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<ConstDef<'a>> {
     let span = target.as_span();
     let mut inner = target.into_inner();
-    let var_type = parse_inferable_type(inner.next().unwrap())?;
-    let name = parse_ident(inner.next().unwrap())?;
+    let var_type = parse_inferable_type(inner.next().unwrap(), file_name)?;
+    let name = parse_ident(inner.next().unwrap(), file_name)?;
 
     let expr_pair = inner.next().unwrap();
     let expr_span = expr_pair.as_span();
-    let expr = parse_expr(expr_pair.into_inner())?;
+    let expr = parse_expr(expr_pair.into_inner(), file_name)?;
 
     Ok(ConstDef {
         name,
         var_type,
         expr,
-        span,
-        expr_span,
+        span: AnnotatedSpan { span, file_name },
+        expr_span: AnnotatedSpan {
+            span: expr_span,
+            file_name,
+        },
         version: DeferedVersion::UnresolvedVersion,
     })
 }
 
-fn parse_local_var(target: Pair<Rule>) -> Result<LocalDef> {
+fn parse_local_var<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<LocalDef<'a>> {
     let span = target.as_span();
     let mut inner = target.into_inner();
-    let var_type = parse_inferable_type(inner.next().unwrap())?;
-    let name = parse_ident(inner.next().unwrap())?;
+    let var_type = parse_inferable_type(inner.next().unwrap(), file_name)?;
+    let name = parse_ident(inner.next().unwrap(), file_name)?;
 
     let expr_pair = inner.next().unwrap();
     let expr_span = expr_pair.as_span();
-    let expr = parse_expr(expr_pair.into_inner())?;
+    let expr = parse_expr(expr_pair.into_inner(), file_name)?;
 
     Ok(LocalDef {
         name,
         var_type,
         expr,
-        span,
-        expr_span,
+        span: AnnotatedSpan { span, file_name },
+        expr_span: AnnotatedSpan {
+            span: expr_span,
+            file_name,
+        },
         version: DeferedVersion::UnresolvedVersion,
     })
 }
 
-fn parse_assignment(target: Pair<Rule>) -> Result<Assignment> {
+fn parse_assignment<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Assignment<'a>> {
     let span = target.as_span();
     let mut inner = target.into_inner();
 
     let target_pair = inner.next().unwrap();
-    let target = parse_expr(target_pair.into_inner())?;
+    let target = parse_expr(target_pair.into_inner(), file_name)?;
 
     let expr_pair = inner.next().unwrap();
     let expr_span = expr_pair.as_span();
-    let expr = parse_expr(expr_pair.into_inner())?;
+    let expr = parse_expr(expr_pair.into_inner(), file_name)?;
 
     Ok(Assignment {
         target,
         expr,
-        span,
-        expr_span,
+        span: AnnotatedSpan { span, file_name },
+        expr_span: AnnotatedSpan {
+            span: expr_span,
+            file_name,
+        },
         target_type: DeferedType::UnresolvedType,
         expr_type: DeferedType::UnresolvedType,
     })
 }
 
-fn parse_typedef(target: Pair<Rule>) -> Result<Typedef> {
+fn parse_typedef<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Typedef<'a>> {
     let span = target.as_span();
     let mut inner = target.into_inner();
-    let type_alias = parse_type(inner.next().unwrap())?;
-    let name = parse_ident(inner.next().unwrap())?;
+    let type_alias = parse_type(inner.next().unwrap(), file_name)?;
+    let name = parse_ident(inner.next().unwrap(), file_name)?;
 
     Ok(Typedef {
         name,
         type_alias,
-        span,
+        span: AnnotatedSpan { span, file_name },
     })
 }
 
-fn parse_loop(target: Pair<Rule>) -> Result<Loop> {
+fn parse_loop<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Loop<'a>> {
     let span = target.as_span();
 
     let mut init = None;
@@ -515,21 +534,21 @@ fn parse_loop(target: Pair<Rule>) -> Result<Loop> {
     for token in target.into_inner() {
         match token.as_rule() {
             Rule::local_var => {
-                init = Some(parse_local_var(token)?);
+                init = Some(parse_local_var(token, file_name)?);
             }
             Rule::expression => {
-                cond = Some(parse_expr(token.into_inner())?);
+                cond = Some(parse_expr(token.into_inner(), file_name)?);
             }
             Rule::assignment => {
-                update = Some(parse_assignment(token)?);
+                update = Some(parse_assignment(token, file_name)?);
             }
             Rule::block => {
                 return Ok(Loop {
                     init,
                     cond,
                     update,
-                    body: parse_block_like(token)?,
-                    span,
+                    body: parse_block_like(token, file_name)?,
+                    span: AnnotatedSpan { span, file_name },
                     captures: DeferedCaptures::UnresolvedCaptures,
                 });
             }
@@ -559,7 +578,7 @@ fn parse_loop(target: Pair<Rule>) -> Result<Loop> {
     ))
 }
 
-fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
+fn parse_if_expr<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<IfExpr<'a>> {
     let span = pair.as_span();
     let inner = pair.into_inner();
     let mut cases = Vec::new();
@@ -568,10 +587,13 @@ fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     for pair in inner {
         match pair.as_rule() {
             Rule::if_block => {
-                cases.push(parse_if_block(pair)?);
+                cases.push(parse_if_block(pair, file_name)?);
             }
             Rule::else_block => {
-                otherwise = Some(parse_block_like(pair.into_inner().next().unwrap())?);
+                otherwise = Some(parse_block_like(
+                    pair.into_inner().next().unwrap(),
+                    file_name,
+                )?);
             }
             rule => {
                 return Err(Error::new_from_span(
@@ -588,32 +610,34 @@ fn parse_if_expr(pair: Pair<Rule>) -> Result<IfExpr> {
     Ok(IfExpr {
         cases,
         otherwise,
-        span,
+        span: AnnotatedSpan { span, file_name },
         return_type: DeferedType::UnresolvedType,
         captures: DeferedCaptures::UnresolvedCaptures,
     })
 }
 
-fn parse_if_block(pair: Pair<Rule>) -> Result<IfCase> {
+fn parse_if_block<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<IfCase<'a>> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
-    let condition = parse_expr(inner.next().unwrap().into_inner())?;
-    let contents = parse_block_like(inner.next().unwrap())?;
+    let condition = parse_expr(inner.next().unwrap().into_inner(), file_name)?;
+    let contents = parse_block_like(inner.next().unwrap(), file_name)?;
 
     Ok(IfCase {
         condition,
         contents,
-        span,
+        span: AnnotatedSpan { span, file_name },
     })
 }
 
-fn parse_inferable_type(pair: Pair<Rule>) -> Result<DeferedType> {
+fn parse_inferable_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<DeferedType<'a>> {
     let mut tokens = pair.into_inner();
     let type_token = tokens.next().unwrap();
 
     match type_token.as_rule() {
         Rule::auto_type => Ok(DeferedType::UnresolvedType),
-        Rule::var_type => Ok(DeferedType::ResolvedType(parse_type(type_token)?)),
+        Rule::var_type => Ok(DeferedType::ResolvedType(parse_type(
+            type_token, file_name,
+        )?)),
         rule => {
             return Err(Error::new_from_span(
                 ErrorVariant::ParsingError {
@@ -626,7 +650,7 @@ fn parse_inferable_type(pair: Pair<Rule>) -> Result<DeferedType> {
     }
 }
 
-fn parse_type(pair: Pair<Rule>) -> Result<Type> {
+fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> {
     let mut tokens = pair.into_inner();
     let type_token = tokens.next().unwrap();
 
@@ -662,8 +686,8 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
             for struct_type_field in struct_type_fields {
                 let mut field_tokens = struct_type_field.into_inner();
 
-                let field_type = parse_type(field_tokens.next().unwrap())?;
-                let field_name = parse_ident(field_tokens.next().unwrap())?;
+                let field_type = parse_type(field_tokens.next().unwrap(), file_name)?;
+                let field_name = parse_ident(field_tokens.next().unwrap(), file_name)?;
                 assert!(field_tokens.next().is_none());
 
                 map.insert(field_name, field_type);
@@ -708,7 +732,7 @@ fn parse_type(pair: Pair<Rule>) -> Result<Type> {
     })
 }
 
-fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
+fn parse_ident<'a>(pair: Pair<'a, Rule>, _file_name: &'a str) -> Result<IdentRef<'a>> {
     if !matches!(pair.as_rule(), Rule::ident) {
         return Err(Error::new_from_span(
             ErrorVariant::ParsingError {
@@ -722,34 +746,37 @@ fn parse_ident(pair: Pair<Rule>) -> Result<IdentRef> {
     Ok(pair.as_str())
 }
 
-fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
+fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>> {
     PRATT_PARSER
         .map_primary(|primary| {
             let span = primary.as_span();
+            let span = AnnotatedSpan { span, file_name };
 
             // Handle primary expressions (atoms)
             match primary.as_rule() {
                 Rule::value => Ok(Expr::Value(parse_value(primary)?, span)),
                 Rule::ident => Ok(Expr::Variable(
-                    parse_ident(primary)?,
+                    parse_ident(primary, file_name)?,
                     DeferedVersion::UnresolvedVersion,
                     span,
                 )),
                 Rule::expression => {
                     // Parenthesized expression
-                    Ok(parse_expr(primary.into_inner())?)
+                    Ok(parse_expr(primary.into_inner(), file_name)?)
                 }
-                Rule::function_call => Ok(Expr::FunctionCall(parse_function_call(primary)?)),
+                Rule::function_call => {
+                    Ok(Expr::FunctionCall(parse_function_call(primary, file_name)?))
+                }
                 Rule::sizeof_builtin => {
                     let inner = primary.clone().into_inner().next().unwrap();
                     match inner.as_rule() {
                         Rule::var_type => Ok(Expr::SizeOfType(
-                            parse_type(inner)?,
+                            parse_type(inner, file_name)?,
                             SizeOfMode::Native,
                             span,
                         )),
                         Rule::expression => Ok(Expr::SizeOfExpr(
-                            parse_expr(inner.into_inner())?.into(),
+                            parse_expr(inner.into_inner(), file_name)?.into(),
                             DeferedType::UnresolvedType,
                             SizeOfMode::Native,
                             span,
@@ -769,12 +796,12 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     let inner = primary.clone().into_inner().next().unwrap();
                     match inner.as_rule() {
                         Rule::var_type => Ok(Expr::SizeOfType(
-                            parse_type(inner)?,
+                            parse_type(inner, file_name)?,
                             SizeOfMode::Packed,
                             span,
                         )),
                         Rule::expression => Ok(Expr::SizeOfExpr(
-                            parse_expr(inner.into_inner())?.into(),
+                            parse_expr(inner.into_inner(), file_name)?.into(),
                             DeferedType::UnresolvedType,
                             SizeOfMode::Packed,
                             span,
@@ -791,10 +818,10 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     }
                 }
                 Rule::line_builtin => Ok(Expr::Value(
-                    Value::Int(span.start_pos().line_col().0 as ClacValue),
+                    Value::Int(span.span.start_pos().line_col().0 as ClacValue),
                     span,
                 )),
-                Rule::if_statement => Ok(Expr::If(parse_if_expr(primary)?)),
+                Rule::if_statement => Ok(Expr::If(parse_if_expr(primary, file_name)?)),
                 Rule::struct_expr => {
                     let struct_expr_fields = primary.into_inner();
                     let mut map = BTreeMap::new();
@@ -802,8 +829,9 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     for struct_value_field in struct_expr_fields {
                         let mut field_tokens = struct_value_field.into_inner();
 
-                        let field_name = parse_ident(field_tokens.next().unwrap())?;
-                        let field_expr = parse_expr(field_tokens.next().unwrap().into_inner())?;
+                        let field_name = parse_ident(field_tokens.next().unwrap(), file_name)?;
+                        let field_expr =
+                            parse_expr(field_tokens.next().unwrap().into_inner(), file_name)?;
                         assert!(field_tokens.next().is_none());
 
                         map.insert(field_name, field_expr);
@@ -816,7 +844,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     let mut exprs = Vec::new();
 
                     for array_value_field in array_value_fields {
-                        let expr = parse_expr(array_value_field.into_inner())?;
+                        let expr = parse_expr(array_value_field.into_inner(), file_name)?;
 
                         exprs.push(expr);
                     }
@@ -893,7 +921,11 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
 
             let lhs = lhs?;
             let rhs = rhs?;
-            let span = merge_spans(&op.as_span(), &rhs.as_span()).unwrap_or(op.as_span());
+            let op_span = AnnotatedSpan {
+                span: op.as_span(),
+                file_name,
+            };
+            let span = merge_spans(&op_span, &rhs.as_span()).unwrap_or(op_span);
             let span = merge_spans(&span, &lhs.as_span()).unwrap_or(span);
 
             Ok(Expr::BinaryOp {
@@ -901,7 +933,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 left: Box::new(lhs),
                 right: Box::new(rhs),
                 span,
-                op_span: op.as_span(),
+                op_span: op_span,
                 left_type: DeferedType::UnresolvedType,
                 right_type: DeferedType::UnresolvedType,
             })
@@ -909,7 +941,10 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         .map_prefix(|op, rhs| {
             // Handle unary operations
             let pre_op = match op.as_rule() {
-                Rule::cast => PrefixOp::Cast(parse_type(op.clone().into_inner().next().unwrap())?),
+                Rule::cast => PrefixOp::Cast(parse_type(
+                    op.clone().into_inner().next().unwrap(),
+                    file_name,
+                )?),
                 Rule::dereference => PrefixOp::Dereference,
                 Rule::addrs_of => PrefixOp::AddressOf,
                 Rule::negate => PrefixOp::Negate,
@@ -932,26 +967,32 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             };
 
             let rhs = rhs?;
-            let span = merge_spans(&op.as_span(), &rhs.as_span()).unwrap_or(op.as_span());
+            let op_span = AnnotatedSpan {
+                span: op.as_span(),
+                file_name,
+            };
+            let span = merge_spans(&op_span, &rhs.as_span()).unwrap_or(op_span);
 
             Ok(Expr::PrefixOp {
                 op: pre_op,
                 operand: Box::new(rhs),
                 span,
-                op_span: op.as_span(),
+                op_span,
                 operand_type: DeferedType::UnresolvedType,
             })
         })
         .map_postfix(|lhs, op| {
             let post_op = match op.as_rule() {
-                Rule::member => {
-                    PostfixOp::Member(parse_ident(op.clone().into_inner().next().unwrap())?)
-                }
-                Rule::member_deref => {
-                    PostfixOp::MemberDeref(parse_ident(op.clone().into_inner().next().unwrap())?)
-                }
+                Rule::member => PostfixOp::Member(parse_ident(
+                    op.clone().into_inner().next().unwrap(),
+                    file_name,
+                )?),
+                Rule::member_deref => PostfixOp::MemberDeref(parse_ident(
+                    op.clone().into_inner().next().unwrap(),
+                    file_name,
+                )?),
                 Rule::array_idx => {
-                    PostfixOp::ArrayIndex(parse_expr(op.clone().into_inner())?.into())
+                    PostfixOp::ArrayIndex(parse_expr(op.clone().into_inner(), file_name)?.into())
                 }
                 rule => {
                     return Err(Error::new_from_span(
@@ -965,35 +1006,39 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             };
 
             let lhs = lhs?;
-            let span = merge_spans(&op.as_span(), &lhs.as_span()).unwrap_or(op.as_span());
+            let op_span = AnnotatedSpan {
+                span: op.as_span(),
+                file_name,
+            };
+            let span = merge_spans(&op_span, &lhs.as_span()).unwrap_or(op_span);
 
             Ok(Expr::PostfixOp {
                 op: post_op,
                 operand: Box::new(lhs),
                 span,
-                op_span: op.as_span(),
+                op_span,
                 operand_type: DeferedType::UnresolvedType,
             })
         })
         .parse(pairs)
 }
 
-fn parse_function_call(pair: Pair<Rule>) -> Result<FunctionCall> {
+fn parse_function_call<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<FunctionCall<'a>> {
     let span = pair.as_span();
     let mut inner = pair.into_inner();
-    let function = parse_ident(inner.next().unwrap())?;
+    let function = parse_ident(inner.next().unwrap(), file_name)?;
 
     Ok(FunctionCall {
         function,
         parameters: inner
             .map(|it| it.into_inner())
-            .map(parse_expr)
+            .map(|it| parse_expr(it, file_name))
             .collect::<Result<_>>()?,
-        span,
+        span: AnnotatedSpan { span, file_name },
     })
 }
 
-fn parse_number(pair: Pair<Rule>) -> Result<ClacValue> {
+fn parse_number<'a>(pair: Pair<'a, Rule>) -> Result<ClacValue> {
     let res = parse_int::parse(pair.as_str());
 
     match res {
@@ -1007,7 +1052,7 @@ fn parse_number(pair: Pair<Rule>) -> Result<ClacValue> {
     }
 }
 
-fn parse_bool(pair: Pair<Rule>) -> Result<bool> {
+fn parse_bool<'a>(pair: Pair<'a, Rule>) -> Result<bool> {
     let res = pair.as_str().parse::<bool>();
 
     match res {
@@ -1029,11 +1074,11 @@ fn handle_escapes(str: &str) -> Cow<'_, str> {
         .into()
 }
 
-fn parse_string(pair: Pair<'_, Rule>) -> Result<Cow<'_, str>> {
+fn parse_string<'a>(pair: Pair<'a, Rule>) -> Result<Cow<'a, str>> {
     Ok(handle_escapes(pair.into_inner().next().unwrap().as_str()))
 }
 
-fn parse_char(pair: Pair<Rule>) -> Result<ClacValue> {
+fn parse_char<'a>(pair: Pair<'a, Rule>) -> Result<ClacValue> {
     let literal = pair.as_str();
     let span = pair.as_span();
     let str = handle_escapes(pair.into_inner().next().unwrap().as_str());
@@ -1055,7 +1100,7 @@ fn parse_char(pair: Pair<Rule>) -> Result<ClacValue> {
     }
 }
 
-fn parse_value(pair: Pair<Rule>) -> Result<Value> {
+fn parse_value<'a>(pair: Pair<'a, Rule>) -> Result<Value<'a>> {
     let target = pair.into_inner().next().unwrap();
 
     match target.as_rule() {

@@ -2,15 +2,14 @@ use color_eyre::{
     Section,
     eyre::{Context, ContextCompat, Ok, Result, eyre},
 };
-use pest::Span;
 use std::{collections::BTreeMap, fmt::Write, sync::Arc};
 use tracing::trace;
 
 use crate::{
     ast::{
-        Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedType, DeferedVersion, Expr,
-        FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, Loop, PostfixOp,
-        PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type, Value,
+        AnnotatedSpan, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedType, DeferedVersion,
+        Expr, FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, Loop,
+        PostfixOp, PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -498,7 +497,7 @@ fn walk_if_statement_inner<'a, 'b>(
 #[derive(Debug)]
 enum ExpressionOutput<'a> {
     TailCall(MaybeTailCall<'a>),
-    Dereference(Box<Expr<'a>>, Type<'a>, Span<'a>),
+    Dereference(Box<Expr<'a>>, Type<'a>, AnnotatedSpan<'a>),
 }
 
 impl<'a> From<DataReference<'a>> for ExpressionOutput<'a> {
@@ -1237,21 +1236,21 @@ fn walk_expr<'a, 'b>(
     }
 }
 
-pub fn generate_span_error_section(span: Span) -> String {
+pub fn generate_span_error_section(span: AnnotatedSpan) -> String {
     generate_span_error_section_with_annotations(span, &[])
 }
 
 pub fn generate_span_error_section_with_annotations(
-    span: Span,
-    annotations: &[(Span, &str)],
+    span: AnnotatedSpan,
+    annotations: &[(AnnotatedSpan, &str)],
 ) -> String {
     let mut string = String::new();
-    for line_span in span.lines_span() {
+    for line_span in span.span.lines_span() {
         let (line, _col) = line_span.start_pos().line_col();
         write!(&mut string, "{line:4} | {}", line_span.as_str()).unwrap();
 
         for (anno_span, annotation) in annotations {
-            for anno_line_span in anno_span.lines_span() {
+            for anno_line_span in anno_span.span.lines_span() {
                 let (anno_line, anno_col_start) = anno_line_span.start_pos().line_col();
                 let width = anno_line_span.end_pos().pos() - anno_line_span.start_pos().pos();
 

@@ -11,14 +11,13 @@ use color_eyre::{
     Section,
     eyre::{Context, ContextCompat, Result, eyre},
 };
-use pest::Span;
 
 use crate::{
     ast::{
-        Assignment, AstSpan, BinaryOp, Block, CaptureKind, Captures, ConstDef, DeferedCaptures,
-        DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef,
-        IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef,
-        Value, VariableVersion,
+        AnnotatedSpan, Assignment, AstSpan, BinaryOp, Block, CaptureKind, Captures, ConstDef,
+        DeferedCaptures, DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef,
+        FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp,
+        Punctuation, Statement, Type, Typedef, Value, VariableVersion,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
     middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
@@ -352,7 +351,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     .map(|expr| Ok((expr.as_span(), expr.check_and_resolve_types(ctx)?)))
                     .collect::<Result<Vec<_>>>()?;
 
-                let mut inner_type: Option<(Span, &Type)> = None;
+                let mut inner_type: Option<(AnnotatedSpan, &Type)> = None;
                 for (span, expr_type) in &types {
                     if let Some((first, inner_type)) = inner_type {
                         if !inner_type.compatible_with(expr_type, ctx)? {
@@ -772,14 +771,19 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
                     generate_span_error_section_with_annotations(
                         self.span,
                         &[(
-                            self.contents
-                                .statements
-                                .last()
-                                .map(|it| it.as_span())
-                                .unwrap_or_else(|| self.contents.as_span())
-                                .lines_span()
-                                .last()
-                                .unwrap_or_else(|| self.contents.as_span()),
+                            AnnotatedSpan {
+                                span: self
+                                    .contents
+                                    .statements
+                                    .last()
+                                    .map(|it| it.as_span())
+                                    .unwrap_or_else(|| self.contents.as_span())
+                                    .span
+                                    .lines_span()
+                                    .last()
+                                    .unwrap_or_else(|| self.contents.as_span().span),
+                                file_name: self.span.file_name,
+                            },
                             &format!(
                                 "has the type `{actual_return_type:?}`, but a `{:?}` is required",
                                 self.signature.return_type

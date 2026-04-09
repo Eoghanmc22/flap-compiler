@@ -43,8 +43,14 @@ impl_display! {
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AnnotatedSpan<'a> {
+    pub span: Span<'a>,
+    pub file_name: &'a str,
+}
+
 pub trait AstSpan<'a> {
-    fn as_span(&self) -> Span<'a>;
+    fn as_span(&self) -> AnnotatedSpan<'a>;
     fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_>;
     fn as_ast_node(&self) -> AstNode<'a, '_>;
 }
@@ -58,8 +64,8 @@ pub fn nearest_node<'a, 'b>(
 
     for child in node.children() {
         let span = child.as_span();
-        let start = span.start_pos().line_col();
-        let end = span.end_pos().line_col();
+        let start = span.span.start_pos().line_col();
+        let end = span.span.end_pos().line_col();
 
         if start <= goal && goal < end {
             return nearest_node(child, line, column);
@@ -192,41 +198,50 @@ pub enum SizeOfMode {
 
 #[derive(Debug, Clone)]
 pub enum Expr<'a> {
-    Value(Value<'a>, Span<'a>),
-    Variable(IdentRef<'a>, DeferedVersion, Span<'a>),
-    Struct(BTreeMap<IdentRef<'a>, Expr<'a>>, DeferedType<'a>, Span<'a>),
-    Array(Vec<Expr<'a>>, DeferedType<'a>, Span<'a>),
+    Value(Value<'a>, AnnotatedSpan<'a>),
+    Variable(IdentRef<'a>, DeferedVersion, AnnotatedSpan<'a>),
+    Struct(
+        BTreeMap<IdentRef<'a>, Expr<'a>>,
+        DeferedType<'a>,
+        AnnotatedSpan<'a>,
+    ),
+    Array(Vec<Expr<'a>>, DeferedType<'a>, AnnotatedSpan<'a>),
     BinaryOp {
         op: BinaryOp,
         left: Box<Expr<'a>>,
         left_type: DeferedType<'a>,
         right: Box<Expr<'a>>,
         right_type: DeferedType<'a>,
-        span: Span<'a>,
-        op_span: Span<'a>,
+        span: AnnotatedSpan<'a>,
+        op_span: AnnotatedSpan<'a>,
     },
     PrefixOp {
         op: PrefixOp<'a>,
         operand: Box<Expr<'a>>,
         operand_type: DeferedType<'a>,
-        span: Span<'a>,
-        op_span: Span<'a>,
+        span: AnnotatedSpan<'a>,
+        op_span: AnnotatedSpan<'a>,
     },
     PostfixOp {
         op: PostfixOp<'a>,
         operand: Box<Expr<'a>>,
         operand_type: DeferedType<'a>,
-        span: Span<'a>,
-        op_span: Span<'a>,
+        span: AnnotatedSpan<'a>,
+        op_span: AnnotatedSpan<'a>,
     },
     FunctionCall(FunctionCall<'a>),
-    SizeOfType(Type<'a>, SizeOfMode, Span<'a>),
-    SizeOfExpr(Box<Expr<'a>>, DeferedType<'a>, SizeOfMode, Span<'a>),
+    SizeOfType(Type<'a>, SizeOfMode, AnnotatedSpan<'a>),
+    SizeOfExpr(
+        Box<Expr<'a>>,
+        DeferedType<'a>,
+        SizeOfMode,
+        AnnotatedSpan<'a>,
+    ),
     If(IfExpr<'a>),
 }
 
 impl<'a> AstSpan<'a> for Expr<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         match self {
             Expr::Value(_, span)
             | Expr::Variable(_, _, span)
@@ -736,11 +751,11 @@ impl<'a> DeferedCaptures<'a> {
 pub struct FunctionCall<'a> {
     pub function: IdentRef<'a>,
     pub parameters: Vec<Expr<'a>>,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for FunctionCall<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -772,12 +787,12 @@ pub struct FunctionDef<'a> {
     pub attributes: HashSet<FunctionAttribute>,
     pub function: IdentRef<'a>,
     pub contents: Block<'a>,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
     pub signature: FunctionSignature<'a>,
 }
 
 impl<'a> AstSpan<'a> for FunctionDef<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -908,12 +923,12 @@ pub struct ConstDef<'a> {
     pub var_type: DeferedType<'a>,
     pub version: DeferedVersion,
     pub expr: Expr<'a>,
-    pub span: Span<'a>,
-    pub expr_span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
+    pub expr_span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for ConstDef<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -935,11 +950,11 @@ impl<'a> AstSpan<'a> for ConstDef<'a> {
 pub struct IfCase<'a> {
     pub condition: Expr<'a>,
     pub contents: Block<'a>,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for IfCase<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -964,12 +979,12 @@ pub struct LocalDef<'a> {
     pub var_type: DeferedType<'a>,
     pub version: DeferedVersion,
     pub expr: Expr<'a>,
-    pub span: Span<'a>,
-    pub expr_span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
+    pub expr_span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for LocalDef<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -991,14 +1006,14 @@ impl<'a> AstSpan<'a> for LocalDef<'a> {
 pub struct Assignment<'a> {
     pub target: Expr<'a>,
     pub expr: Expr<'a>,
-    pub span: Span<'a>,
-    pub expr_span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
+    pub expr_span: AnnotatedSpan<'a>,
     pub target_type: DeferedType<'a>,
     pub expr_type: DeferedType<'a>,
 }
 
 impl<'a> AstSpan<'a> for Assignment<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -1021,11 +1036,11 @@ impl<'a> AstSpan<'a> for Assignment<'a> {
 pub struct Typedef<'a> {
     pub type_alias: Type<'a>,
     pub name: IdentRef<'a>,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for Typedef<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -1044,11 +1059,11 @@ pub struct IfExpr<'a> {
     pub otherwise: Option<Block<'a>>,
     pub captures: DeferedCaptures<'a>,
     pub return_type: DeferedType<'a>,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for IfExpr<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -1078,11 +1093,11 @@ pub struct Loop<'a> {
     pub update: Option<Assignment<'a>>,
     pub captures: DeferedCaptures<'a>,
     pub body: Block<'a>,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for Loop<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -1131,7 +1146,7 @@ pub enum Statement<'a> {
 }
 
 impl<'a> AstSpan<'a> for Statement<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         match self {
             Statement::Expr(expr, _) => expr.as_span(),
             Statement::FunctionDef(function_def) => function_def.as_span(),
@@ -1170,11 +1185,11 @@ pub struct Block<'a> {
     pub statements: Vec<Statement<'a>>,
     pub captures: DeferedCaptures<'a>,
     // pub return_type: Type,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for Block<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -1191,11 +1206,11 @@ impl<'a> AstSpan<'a> for Block<'a> {
 pub struct Program<'a> {
     pub directives: Vec<Directive<'a>>,
     pub code: Block<'a>,
-    pub span: Span<'a>,
+    pub span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for Program<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         self.span
     }
 
@@ -1219,11 +1234,11 @@ impl<'a> AstSpan<'a> for Program<'a> {
 
 #[derive(Debug, Clone)]
 pub enum Directive<'a> {
-    Include(&'a Path, Span<'a>),
+    Include(&'a Path, AnnotatedSpan<'a>),
 }
 
 impl<'a> AstSpan<'a> for Directive<'a> {
-    fn as_span(&self) -> Span<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
         match self {
             Directive::Include(_, span) => *span,
         }

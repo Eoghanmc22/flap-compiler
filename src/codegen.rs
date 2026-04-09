@@ -7,7 +7,6 @@ use color_eyre::{
     Section,
     eyre::{Context, ContextCompat, OptionExt, Result, bail, eyre},
 };
-use pest::Span;
 use tracing::{debug, trace};
 
 use std::{
@@ -25,7 +24,7 @@ use std::{
 
 use crate::{
     ast::{
-        DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type, Value,
+        AnnotatedSpan, DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type, Value,
         VariableVersion,
     },
     codegen::{
@@ -92,7 +91,7 @@ pub enum MaybeTailCall<'a> {
         parameters: Vec<DataReference<'a>>,
         signature: FunctionSignature<'a>,
         tokens: Vec<ClacToken>,
-        call_span: Span<'a>,
+        call_span: AnnotatedSpan<'a>,
     },
 }
 
@@ -626,7 +625,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         &mut self,
         ident: IdentRef<'a>,
         parameters: Vec<DataReference<'a>>,
-        call_span: Span<'a>,
+        call_span: AnnotatedSpan<'a>,
     ) -> Result<MaybeTailCall<'a>> {
         let (func_impl, sig) = self
             .lookup_function_like_signature(ident)

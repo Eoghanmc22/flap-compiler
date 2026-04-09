@@ -278,8 +278,9 @@ fn send_diagnostics(conn: &Connection, diags: Vec<Diagnostic>, doc: &Document) -
 }
 
 fn make_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
-    let res = parser::parse_program(&doc.contents)
-        .map_err(|err| parser::map_parser_error(err, None, &doc.contents));
+    let file_name = "<lsp_tmp_file>";
+    let res = parser::parse_program(&doc.contents, file_name)
+        .map_err(|err| parser::map_parser_error(err, file_name, &doc.contents));
 
     match res {
         Ok(prog) => Ok(prog),
