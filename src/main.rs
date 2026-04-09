@@ -2,11 +2,15 @@
 // - I dont think logical and and or are short circuiting
 // - support inlining regular functions?
 // - Name spaces and methods
-// - Things that should be toggale
+// - Things that should be toggle
 //   - Source code comment
 // - Add data flow analysis and instruction reordering
 // - reduce clone/to_string/to_vec/... usage
 // - consider making loops return the value of their last expression on their last iteration?
+//
+// Missing Features:
+// - Indexing into a stack array with a variable that is not comptime known
+// - Partial Mutation of stack structs and arrays
 
 use std::{
     fs,
@@ -19,7 +23,11 @@ use std::{
 use clac_lang::types::{ClacState, ExecError};
 use clap::Parser;
 use color_eyre::eyre::{Context, Result};
-use flap_compiler::{codegen::clac::ClacToken, compile};
+use flap_compiler::{
+    codegen::clac::ClacToken,
+    compile::{self, CompileConfig},
+    lsp,
+};
 use tracing::{error, info, level_filters::LevelFilter};
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -36,26 +44,63 @@ enum Commands {
     Compile {
         #[arg(long)]
         no_parallel: bool,
+        #[command(flatten)]
+        config: CompileConfigArgs,
         files: Vec<PathBuf>,
     },
     Repl,
     Run {
         file: PathBuf,
+        #[command(flatten)]
+        config: CompileConfigArgs,
 
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         _extra: Vec<String>,
     },
+    Lsp,
+}
+
+#[derive(clap::Args, Clone)]
+struct CompileConfigArgs {
+    #[arg(long, short)]
+    verbose: bool,
+
+    #[arg(long)]
+    no_tree_shaking: bool,
+
+    #[arg(long)]
+    no_width_assert: bool,
+
+    #[arg(long)]
+    no_source_comment: bool,
+
+    #[arg(long)]
+    no_attribution: bool,
+}
+
+impl From<CompileConfigArgs> for CompileConfig {
+    fn from(value: CompileConfigArgs) -> Self {
+        CompileConfig {
+            verbose_parsing_errors: value.verbose,
+            tree_shaking: !value.no_tree_shaking,
+            emit_native_width_assert: !value.no_width_assert,
+            emit_source_code_comment: !value.no_source_comment,
+            emit_attribution_comment: !value.no_attribution,
+        }
+    }
 }
 
 fn main() -> Result<()> {
     let subscriber = tracing_subscriber::Registry::default()
         .with(ErrorLayer::default())
         .with(
-            tracing_subscriber::fmt::layer().with_filter(
-                EnvFilter::builder()
-                    .with_default_directive(LevelFilter::INFO.into())
-                    .from_env()?,
-            ),
+            tracing_subscriber::fmt::layer()
+                .with_writer(io::stderr)
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env()?,
+                ),
         );
     tracing::subscriber::set_global_default(subscriber)?;
 
@@ -66,7 +111,11 @@ fn main() -> Result<()> {
     let start = Instant::now();
     info!("Starting flap to clac compiler");
     match cli.command {
-        Commands::Compile { files, no_parallel } => {
+        Commands::Compile {
+            files,
+            no_parallel,
+            config,
+        } => {
             info!("flap-compiler by Eoghanmc22");
 
             if !no_parallel {
@@ -74,9 +123,10 @@ fn main() -> Result<()> {
                     let mut handles = Vec::new();
 
                     for file in files {
+                        let config = config.clone();
                         let handle = spawner.spawn(move || -> Result<()> {
                             info!("Compiling {file:?}");
-                            compile::compile_to_file(&file)?;
+                            compile::compile_to_file(&file, config.into())?;
                             info!("Finished {file:?}");
 
                             Ok(())
@@ -93,9 +143,12 @@ fn main() -> Result<()> {
                 })?;
             } else {
                 info!("Compiling without parallelism");
+
                 for file in files {
                     info!("Compiling {file:?}");
-                    compile::compile(&file)?;
+
+                    let config = config.clone();
+                    compile::compile(&file, config.into())?;
                 }
             }
         }
@@ -122,14 +175,14 @@ fn main() -> Result<()> {
                 println!("{:?}", state.stack)
             }
         }
-        Commands::Run { file, .. } => {
+        Commands::Run { file, config, .. } => {
             let mut state = ClacState::default();
 
             let res = if file.extension() == Some("flap".as_ref()) {
                 info!("flap-compiler by Eoghanmc22");
                 info!("clac++ interpreter by stanleymw");
 
-                let program = compile::compile(&file)?;
+                let program = compile::compile(&file, config.into())?;
                 let program = program
                     .0
                     .iter()
@@ -155,6 +208,7 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Commands::Lsp => lsp::start_lsp()?,
     }
     info!("Done in {:.2}s!", start.elapsed().as_secs_f64());
 

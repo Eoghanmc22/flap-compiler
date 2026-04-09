@@ -8,7 +8,7 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        AsSpan, Assignment, BinaryOp, Block, ConstDef, DeferedType, DeferedVersion, Expr,
+        Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedType, DeferedVersion, Expr,
         FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, Loop, PostfixOp,
         PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type, Value,
     },
@@ -729,7 +729,7 @@ fn walk_expr<'a, 'b>(
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
             };
 
-            assert_eq!(exprs.len(), *len as _);
+            assert_eq!(exprs.len(), *len as usize);
 
             let data_refs = exprs
                 .iter()
@@ -764,6 +764,7 @@ fn walk_expr<'a, 'b>(
             span,
             left_type,
             right_type,
+            op_span: _,
         } => {
             let DeferedType::ResolvedType(left_type) = left_type else {
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
@@ -909,6 +910,7 @@ fn walk_expr<'a, 'b>(
             operand,
             span,
             operand_type,
+            op_span: _,
         } => {
             let clac_op = match op {
                 PrefixOp::Negate => {
@@ -1011,6 +1013,7 @@ fn walk_expr<'a, 'b>(
             operand,
             span,
             operand_type,
+            op_span,
         } => {
             let DeferedType::ResolvedType(operand_type) = operand_type else {
                 return Err(eyre!("COMPILER BUG: defered type was not resolved"));
@@ -1036,7 +1039,9 @@ fn walk_expr<'a, 'b>(
                                 op: PostfixOp::MemberDeref(ident),
                                 operand: expr,
                                 operand_type: DeferedType::ResolvedType(expr_type),
+                                // TODO: is this the right span?
                                 span,
+                                op_span: *op_span,
                             },
                         ),
                     }
@@ -1087,6 +1092,7 @@ fn walk_expr<'a, 'b>(
                             right: Expr::Value(Value::Int(field_offset.0), *span).into(),
                             right_type: DeferedType::ResolvedType(Type::Int),
                             span: *span,
+                            op_span: *op_span,
                         },
                     };
 
@@ -1099,6 +1105,7 @@ fn walk_expr<'a, 'b>(
                                 field_type.into(),
                             )),
                             span: *span,
+                            op_span: *op_span,
                         },
                     )
                 }
@@ -1157,12 +1164,14 @@ fn walk_expr<'a, 'b>(
                                         right: idx_expr.clone(),
                                         right_type: DeferedType::ResolvedType(Type::Int),
                                         span,
+                                        op_span: *op_span,
                                     }
                                     .into(),
                                     operand_type: DeferedType::ResolvedType(Type::Pointer(
                                         inner_type.clone(),
                                     )),
                                     span,
+                                    op_span: *op_span,
                                 },
                             )
                         }
@@ -1205,6 +1214,7 @@ fn walk_expr<'a, 'b>(
                             right: expr.clone(),
                             right_type: DeferedType::ResolvedType(Type::Int),
                             span: *span,
+                            op_span: *op_span,
                         },
                     };
 
@@ -1215,6 +1225,7 @@ fn walk_expr<'a, 'b>(
                             operand: offset.into(),
                             operand_type: DeferedType::ResolvedType(Type::Pointer(inner.clone())),
                             span: *span,
+                            op_span: *op_span,
                         },
                     )
                 }

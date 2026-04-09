@@ -43,8 +43,54 @@ impl_display! {
 pub type Ident = String;
 pub type IdentRef<'a> = &'a str;
 
-pub trait AsSpan<'a> {
+pub trait AstSpan<'a> {
     fn as_span(&self) -> Span<'a>;
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_>;
+    fn as_ast_node(&self) -> AstNode<'a, '_>;
+}
+
+pub fn nearest_node<'a, 'b>(
+    node: &'b dyn AstSpan<'a>,
+    line: usize,
+    column: usize,
+) -> &'b dyn AstSpan<'a> {
+    let goal = (line, column);
+
+    for child in node.children() {
+        let span = child.as_span();
+        let start = span.start_pos().line_col();
+        let end = span.end_pos().line_col();
+
+        if start <= goal && goal < end {
+            return nearest_node(child, line, column);
+        }
+    }
+
+    node
+}
+
+#[derive(Debug, Clone)]
+pub enum AstNode<'a, 'b> {
+    Expr(&'b Expr<'a>),
+    FunctionCall(&'b FunctionCall<'a>),
+    FunctionDef(&'b FunctionDef<'a>),
+    ConstDef(&'b ConstDef<'a>),
+    IfCase(&'b IfCase<'a>),
+    LocalDef(&'b LocalDef<'a>),
+    Assignment(&'b Assignment<'a>),
+    Typedef(&'b Typedef<'a>),
+    IfExpr(&'b IfExpr<'a>),
+    Loop(&'b Loop<'a>),
+    Statement(&'b Statement<'a>),
+    Block(&'b Block<'a>),
+    Program(&'b Program<'a>),
+    Directive(&'b Directive<'a>),
+}
+
+impl<'a, 'b, T: AstSpan<'a>> From<&'b T> for AstNode<'a, 'b> {
+    fn from(value: &'b T) -> Self {
+        value.as_ast_node()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -157,18 +203,21 @@ pub enum Expr<'a> {
         right: Box<Expr<'a>>,
         right_type: DeferedType<'a>,
         span: Span<'a>,
+        op_span: Span<'a>,
     },
     PrefixOp {
         op: PrefixOp<'a>,
         operand: Box<Expr<'a>>,
         operand_type: DeferedType<'a>,
         span: Span<'a>,
+        op_span: Span<'a>,
     },
     PostfixOp {
         op: PostfixOp<'a>,
         operand: Box<Expr<'a>>,
         operand_type: DeferedType<'a>,
         span: Span<'a>,
+        op_span: Span<'a>,
     },
     FunctionCall(FunctionCall<'a>),
     SizeOfType(Type<'a>, SizeOfMode, Span<'a>),
@@ -176,7 +225,7 @@ pub enum Expr<'a> {
     If(IfExpr<'a>),
 }
 
-impl<'a> AsSpan<'a> for Expr<'a> {
+impl<'a> AstSpan<'a> for Expr<'a> {
     fn as_span(&self) -> Span<'a> {
         match self {
             Expr::Value(_, span)
@@ -191,6 +240,55 @@ impl<'a> AsSpan<'a> for Expr<'a> {
             | Expr::SizeOfExpr(_, _, _, span)
             | Expr::If(IfExpr { span, .. }) => *span,
         }
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || match self {
+                Expr::Value(..) => {}
+                Expr::Variable(..) => {}
+                Expr::Struct(map, ..) => {
+                    for expr in map.values() {
+                        yield expr as &dyn AstSpan<'a>;
+                    }
+                }
+                Expr::Array(exprs, ..) => {
+                    for expr in exprs {
+                        yield expr;
+                    }
+                }
+                Expr::BinaryOp { left, right, .. } => {
+                    yield &**left;
+                    yield &**right;
+                }
+                Expr::PrefixOp { operand, .. } => {
+                    yield &**operand;
+                }
+                Expr::PostfixOp { operand, op, .. } => {
+                    yield &**operand;
+
+                    match op {
+                        PostfixOp::ArrayIndex(expr) => yield &**expr,
+                        _ => {}
+                    }
+                }
+                Expr::FunctionCall(function_call) => {
+                    yield function_call;
+                }
+                Expr::SizeOfType(..) => {}
+                Expr::SizeOfExpr(expr, ..) => {
+                    yield &**expr;
+                }
+                Expr::If(if_expr) => {
+                    yield if_expr;
+                }
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Expr(self)
     }
 }
 
@@ -641,9 +739,24 @@ pub struct FunctionCall<'a> {
     pub span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for FunctionCall<'a> {
+impl<'a> AstSpan<'a> for FunctionCall<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                for expr in &self.parameters {
+                    yield expr as &dyn AstSpan<'a>;
+                }
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::FunctionCall(self)
     }
 }
 
@@ -663,9 +776,17 @@ pub struct FunctionDef<'a> {
     pub signature: FunctionSignature<'a>,
 }
 
-impl<'a> AsSpan<'a> for FunctionDef<'a> {
+impl<'a> AstSpan<'a> for FunctionDef<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::once(&self.contents as &dyn AstSpan<'a>))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::FunctionDef(self)
     }
 }
 
@@ -791,9 +912,22 @@ pub struct ConstDef<'a> {
     pub expr_span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for ConstDef<'a> {
+impl<'a> AstSpan<'a> for ConstDef<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                yield &self.expr as &dyn AstSpan<'a>;
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::ConstDef(self)
     }
 }
 
@@ -804,9 +938,23 @@ pub struct IfCase<'a> {
     pub span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for IfCase<'a> {
+impl<'a> AstSpan<'a> for IfCase<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                yield &self.condition as &dyn AstSpan<'a>;
+                yield &self.contents;
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::IfCase(self)
     }
 }
 
@@ -820,9 +968,22 @@ pub struct LocalDef<'a> {
     pub expr_span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for LocalDef<'a> {
+impl<'a> AstSpan<'a> for LocalDef<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                yield &self.expr as &dyn AstSpan<'a>;
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::LocalDef(self)
     }
 }
 
@@ -836,9 +997,23 @@ pub struct Assignment<'a> {
     pub expr_type: DeferedType<'a>,
 }
 
-impl<'a> AsSpan<'a> for Assignment<'a> {
+impl<'a> AstSpan<'a> for Assignment<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                yield &self.target as &dyn AstSpan<'a>;
+                yield &self.expr;
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Assignment(self)
     }
 }
 
@@ -849,9 +1024,17 @@ pub struct Typedef<'a> {
     pub span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for Typedef<'a> {
+impl<'a> AstSpan<'a> for Typedef<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::empty())
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Typedef(self)
     }
 }
 
@@ -864,9 +1047,27 @@ pub struct IfExpr<'a> {
     pub span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for IfExpr<'a> {
+impl<'a> AstSpan<'a> for IfExpr<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                for case in &self.cases {
+                    yield case as &dyn AstSpan<'a>;
+                }
+                if let Some(otherwise) = &self.otherwise {
+                    yield otherwise;
+                }
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::IfExpr(self)
     }
 }
 
@@ -880,9 +1081,34 @@ pub struct Loop<'a> {
     pub span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for Loop<'a> {
+impl<'a> AstSpan<'a> for Loop<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                if let Some(init) = &self.init {
+                    yield init as &dyn AstSpan<'a>;
+                }
+
+                if let Some(cond) = &self.cond {
+                    yield cond;
+                }
+
+                if let Some(update) = &self.update {
+                    yield update;
+                }
+
+                yield &self.body;
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Loop(self)
     }
 }
 
@@ -904,7 +1130,7 @@ pub enum Statement<'a> {
     Loop(Loop<'a>),
 }
 
-impl<'a> AsSpan<'a> for Statement<'a> {
+impl<'a> AstSpan<'a> for Statement<'a> {
     fn as_span(&self) -> Span<'a> {
         match self {
             Statement::Expr(expr, _) => expr.as_span(),
@@ -917,6 +1143,26 @@ impl<'a> AsSpan<'a> for Statement<'a> {
             Statement::Loop(inner) => inner.as_span(),
         }
     }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || match self {
+                Statement::Expr(expr, ..) => yield expr as &dyn AstSpan<'a>,
+                Statement::FunctionDef(function_def) => yield function_def,
+                Statement::Const(const_def) => yield const_def,
+                Statement::Local(local_def) => yield local_def,
+                Statement::Assignment(assignment) => yield assignment,
+                Statement::Typedef(typedef) => yield typedef,
+                Statement::Defer(block) => yield block,
+                Statement::Loop(inner) => yield inner,
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Statement(self)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -927,9 +1173,17 @@ pub struct Block<'a> {
     pub span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for Block<'a> {
+impl<'a> AstSpan<'a> for Block<'a> {
     fn as_span(&self) -> Span<'a> {
         self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(self.statements.iter().map(|it| it as &dyn AstSpan<'a>))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Block(self)
     }
 }
 
@@ -937,15 +1191,49 @@ impl<'a> AsSpan<'a> for Block<'a> {
 pub struct Program<'a> {
     pub directives: Vec<Directive<'a>>,
     pub code: Block<'a>,
+    pub span: Span<'a>,
 }
 
-impl<'a> AsSpan<'a> for Program<'a> {
+impl<'a> AstSpan<'a> for Program<'a> {
     fn as_span(&self) -> Span<'a> {
-        self.code.span
+        self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                for directive in &self.directives {
+                    yield directive as &dyn AstSpan<'a>;
+                }
+
+                yield &self.code;
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Program(self)
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Directive<'a> {
-    Include(&'a Path),
+    Include(&'a Path, Span<'a>),
+}
+
+impl<'a> AstSpan<'a> for Directive<'a> {
+    fn as_span(&self) -> Span<'a> {
+        match self {
+            Directive::Include(_, span) => *span,
+        }
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::empty())
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Directive(self)
+    }
 }

@@ -5,9 +5,9 @@ singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
 COMMENT            = _{ multiline_comment | singleline_comment }
 WHITESPACE         = _{ " " | "\t" | "\r" | "\n" }
 
-
 escape       = _{ "\\n" | "\\r" | "\\t" | "\\0" }
-char         = @{ "'" ~ (escape | ASCII) ~ "'" }
+char_inner   = @{ escape | ASCII }
+char         = ${ "'" ~ char_inner ~ "'" }
 string_inner = @{ (!"\"" ~ ASCII)* }
 string       = ${ "\"" ~ string_inner ~ "\"" }
 
@@ -32,12 +32,13 @@ array_type_mod = { "[" ~ number ~ "]" }
 pointer_type_mod = { "*" }
 type_mod = _{ array_type_mod | pointer_type_mod }
 
-char_type    = { "char" }
-int_type     = { "int" }
-bool_type    = { "bool" }
-void_type    = { "void" }
-named_type   = { ident }
-var_type     = { (char_type | int_type | bool_type | void_type | struct_type | named_type) ~ type_mod* }
+char_type      =  { "char" }
+int_type       =  { "int" }
+bool_type      =  { "bool" }
+void_type      =  { "void" }
+named_type     =  { ident }
+primitive_type = ${ (char_type | int_type | bool_type | void_type) ~ !ident }
+var_type       =  { (primitive_type | struct_type | named_type) ~ type_mod* }
 
 typedef = { "typedef" ~ var_type ~ ident ~ ";" }
 
@@ -84,15 +85,15 @@ atom       = _{ array_expr | struct_expr | if_statement | sizeof_packed_builtin 
 expression =  { prefix_op* ~ atom ~ postfix_op* ~ (binary_op ~ prefix_op* ~ atom ~ postfix_op*)* }
 
 auto_type      = { "auto" }
-inferable_type = { auto_type |  var_type}
+inferable_type = { auto_type | var_type }
 const_var      = { "const" ~ inferable_type ~ ident ~ "=" ~ expression }
 local_var      = { inferable_type ~ ident ~ "=" ~ expression }
 assignment     = { expression ~ "=" ~ expression }
 
 function_parameters   = _{ (expression ~ ("," ~ expression)*)? }
 function_call         =  { ident ~ "(" ~ function_parameters ~ ")" }
-sizeof_builtin        =  { "sizeof" ~ (("(" ~ (expression) ~ ")") | ("<" ~ (var_type) ~ ">")) }
-sizeof_packed_builtin =  { "sizeof_packed" ~ (("(" ~ (expression) ~ ")") | ("<" ~ (var_type) ~ ">")) }
+sizeof_builtin        =  { "sizeof" ~ (("(" ~ expression ~ ")") | ("<" ~ var_type ~ ">")) }
+sizeof_packed_builtin =  { "sizeof_packed" ~ (("(" ~ expression ~ ")") | ("<" ~ var_type ~ ">")) }
 line_builtin          =  { "__LINE__" }
 
 if_block      =  { "if" ~ "(" ~ expression ~ ")" ~ block }

@@ -75,12 +75,16 @@ impl CompileContext {
 
         let contents = fs::read_to_string(&file).wrap_err("Read file")?;
 
-        let directives = parser::parse_directives(&contents).wrap_err("Parse program")?;
+        let directives = parser::parse_directives(&contents)
+            .map_err(|err| {
+                parser::map_parser_error(err, Some(&file.as_os_str().to_string_lossy()), &contents)
+            })
+            .wrap_err("Parse program")?;
 
         let mut includes = BTreeSet::new();
         for directive in directives {
             match directive {
-                Directive::Include(include_path) => {
+                Directive::Include(include_path, _) => {
                     let include_path = file.parent().unwrap().join(include_path);
                     let include_path = fs::canonicalize(&include_path).map_err(|err| {
                         eyre!(
@@ -128,7 +132,15 @@ impl CompileContext {
                 .all(|it| already_included.contains(it));
 
             if ready {
-                let program = parser::parse_program(&source.contents).wrap_err("Parse program")?;
+                let program = parser::parse_program(&source.contents)
+                    .map_err(|err| {
+                        parser::map_parser_error(
+                            err,
+                            Some(&next.as_os_str().to_string_lossy()),
+                            &source.contents,
+                        )
+                    })
+                    .wrap_err("Parsing Error")?;
 
                 statements.extend(program.code.statements.into_iter());
                 already_included.insert(next);
@@ -162,8 +174,33 @@ pub struct SourceFile {
     includes: BTreeSet<PathBuf>,
 }
 
-pub fn compile(file: impl AsRef<Path> + Debug) -> Result<ClacProgram> {
+#[derive(Debug, Clone)]
+pub struct CompileConfig {
+    pub verbose_parsing_errors: bool,
+    pub tree_shaking: bool,
+    pub emit_native_width_assert: bool,
+    pub emit_source_code_comment: bool,
+    pub emit_attribution_comment: bool,
+}
+
+impl Default for CompileConfig {
+    fn default() -> Self {
+        Self {
+            verbose_parsing_errors: false,
+            tree_shaking: true,
+            emit_native_width_assert: true,
+            emit_source_code_comment: true,
+            emit_attribution_comment: true,
+        }
+    }
+}
+
+pub fn compile(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<ClacProgram> {
     let file = file.as_ref();
+
+    if config.verbose_parsing_errors {
+        pest::set_error_detail(true);
+    }
 
     let ctx = CompileContext::new(file)?;
     let mut program = ctx.flatten_imports()?;
@@ -185,24 +222,39 @@ pub fn compile(file: impl AsRef<Path> + Debug) -> Result<ClacProgram> {
 
     let mut program = codegen.into_tokens();
 
-    let source_code = &ctx.sources.get(&ctx.root).unwrap().contents;
-    let post_processors: [&mut dyn PostProcesser; _] = [
-        &mut ExtractDefinitionsPostProcessor { tree_shaking: true },
-        &mut CheckNativeWidth,
-        &mut SourceCodeCommentPostProcessor(source_code),
-        &mut AttributionPostProcessor,
-    ];
-    for post_processor in post_processors {
-        post_processor.process(&mut program);
+    {
+        // Code gen emits clac code with nested definitions which is not valid clac code
+        // Flatten the definitions in this postprocessing step
+        ExtractDefinitionsPostProcessor {
+            tree_shaking: config.tree_shaking,
+        }
+        .process(&mut program);
+
+        // Emit an assert that the runtime native width is the same as what the compiler expects
+        if config.emit_native_width_assert {
+            CheckNativeWidth.process(&mut program);
+        }
+
+        // Emit a comment containing the programs source code
+        if config.emit_source_code_comment {
+            let source_code = &ctx.sources.get(&ctx.root).unwrap().contents;
+
+            SourceCodeCommentPostProcessor(source_code).process(&mut program);
+        }
+
+        // Emit a comment attributing the generated clac code to this compiler
+        if config.emit_attribution_comment {
+            AttributionPostProcessor.process(&mut program);
+        }
     }
 
     Ok(program)
 }
 
-pub fn compile_to_string(file: impl AsRef<Path> + Debug) -> Result<String> {
+pub fn compile_to_string(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<String> {
     let file = file.as_ref();
 
-    let program = compile(file)?;
+    let program = compile(file, config)?;
 
     let mut s = String::new();
 
@@ -211,10 +263,10 @@ pub fn compile_to_string(file: impl AsRef<Path> + Debug) -> Result<String> {
     Ok(s)
 }
 
-pub fn compile_to_file(file: impl AsRef<Path> + Debug) -> Result<()> {
+pub fn compile_to_file(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<()> {
     let file = file.as_ref();
 
-    let program = compile(file)?;
+    let program = compile(file, config)?;
 
     let output_dir = PathBuf::from("out/");
     fs::create_dir_all(&output_dir).wrap_err("Create out dir")?;

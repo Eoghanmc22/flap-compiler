@@ -15,7 +15,7 @@ use pest::Span;
 
 use crate::{
     ast::{
-        AsSpan, Assignment, BinaryOp, Block, CaptureKind, Captures, ConstDef, DeferedCaptures,
+        Assignment, AstSpan, BinaryOp, Block, CaptureKind, Captures, ConstDef, DeferedCaptures,
         DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IdentRef,
         IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef,
         Value, VariableVersion,
@@ -391,6 +391,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 span,
                 left_type,
                 right_type,
+                op_span: _,
             } => {
                 assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
@@ -463,6 +464,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 operand,
                 span,
                 operand_type,
+                op_span: _,
             } => {
                 let operand_type_computed = match op {
                     PrefixOp::Cast(_) => {
@@ -546,6 +548,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 operand,
                 span,
                 operand_type,
+                op_span: _,
             } => {
                 let operand_type_computed = match op {
                     PostfixOp::Member(_) => {
