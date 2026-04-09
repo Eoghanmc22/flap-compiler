@@ -1,4 +1,5 @@
 // TODO:
+// - Why are typedefs not scoped? also we check for name collisions
 // - I dont think logical and and or are short circuiting
 // - support inlining regular functions?
 // - Name spaces and methods

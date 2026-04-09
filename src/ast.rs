@@ -457,15 +457,15 @@ impl Display for Type<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Type::Typedef(name) => write!(f, "{name}"),
-            Type::Struct(map) => write!(f, "struct {map:?}"),
-            Type::NamedTuple(items) => write!(f, "tuple_struct {items:?}"),
-            Type::Tuple(items) => write!(f, "tuple {items:?}"),
+            Type::Struct(map) => write!(f, "struct {map:#?}"),
+            Type::NamedTuple(items) => write!(f, "tuple_struct {items:#?}"),
+            Type::Tuple(items) => write!(f, "tuple {items:#?}"),
             Type::Pointer(target) => write!(f, "{target}*"),
             Type::Int => write!(f, "int"),
             Type::Char => write!(f, "char"),
             Type::Bool => write!(f, "bool"),
             Type::Void => write!(f, "void"),
-            Type::Array(inner_type, len) => write!(f, "[{inner_type}, {len}]"),
+            Type::Array(inner_type, len) => write!(f, "{inner_type}[{len}]"),
         }
     }
 }
@@ -948,6 +948,36 @@ impl<'a> FunctionSignature<'a> {
         }
 
         Ok(true)
+    }
+
+    pub fn lsp_render_short(&self, ident: IdentRef) -> String {
+        let mut args = String::new();
+
+        for (arg_type, _arg_name, _) in &self.arguements {
+            args.push_str(&format!("{arg_type}, "));
+        }
+
+        format!(
+            "{} {}({})",
+            self.return_type,
+            ident,
+            args.strip_suffix(", ").unwrap_or(&args)
+        )
+    }
+
+    pub fn lsp_render_full(&self, ident: IdentRef) -> String {
+        let mut args = String::new();
+
+        for (arg_type, arg_name, _) in &self.arguements {
+            args.push_str(&format!("{arg_type} {arg_name}, "));
+        }
+
+        format!(
+            "{} {}({})",
+            self.return_type,
+            ident,
+            args.strip_suffix(", ").unwrap_or(&args)
+        )
     }
 }
 

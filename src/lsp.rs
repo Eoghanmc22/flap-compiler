@@ -1,6 +1,11 @@
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::sync::LazyLock;
 use std::usize;
 use std::{error::Error, io::Write};
 
@@ -42,21 +47,117 @@ use lsp_types::{
     // requests
     request::{Completion, Formatting, GotoDefinition, HoverRequest},
 };
-use lsp_types::{DiagnosticRelatedInformation, HoverParams, Location, NumberOrString};
+use lsp_types::{
+    CompletionItemLabelDetails, CompletionParams, DiagnosticRelatedInformation, Documentation,
+    HoverParams, Location, MarkupContent, MarkupKind, NumberOrString,
+};
 use pest::Span;
 use pest::error::LineColLocation;
+use regex::Regex;
 use tracing::{error, info};
 
 use crate::ast::{self, AnnotatedSpan, Block, Program};
 use crate::compile::{self, CompileConfig, CompileContext, CompileError, FileCache};
+use crate::lsp::ast_cache::{CachedParsedAst, CachedTypedAst};
 use crate::parser;
-use crate::type_check::{TypeCheck, TypeChecker};
+use crate::type_check::{TypeCheck, TypeChecker, VariableKind};
 
-#[derive(Debug, Clone)]
+mod ast_cache {
+    use std::{mem, rc::Rc};
+
+    use lsp_types::Diagnostic;
+
+    use crate::{
+        ast::{Block, Program},
+        compile::CompileContext,
+        type_check::TypeChecker,
+    };
+
+    #[derive(Clone)]
+    pub struct CachedParsedAst {
+        // NOTE: These lifetimes aren't really static,
+        // they represent the lifetime of whats behind the Rc.
+        parsed: Program<'static>,
+
+        // These needs to be last since it needs to be dropped after the other fields
+        file_name: Rc<str>,
+        contents: Rc<str>,
+    }
+
+    impl CachedParsedAst {
+        pub fn new<F, E>(file_name: Rc<str>, contents: Rc<str>, parse: F) -> Result<Self, E>
+        where
+            F: for<'a> Fn(&'a str, &'a str) -> Result<Program<'a>, E>,
+        {
+            let file_name_ref = &file_name;
+            let content_ref = &contents;
+            let parsed = (parse)(file_name_ref, content_ref)?;
+            let parsed = unsafe { mem::transmute(parsed) };
+
+            Ok(Self {
+                parsed,
+                contents,
+                file_name,
+            })
+        }
+
+        pub fn parsed<'a>(&'a self) -> &'a Program<'a> {
+            &self.parsed
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct CachedTypedAst {
+        // NOTE: These lifetimes aren't really static,
+        // they represent the lifetime of whats behind the Rc.
+        type_checker: TypeChecker<'static>,
+        block: Block<'static>,
+
+        // This needs to be last since it needs to be dropped after the other fields
+        contents: Rc<CompileContext>,
+    }
+
+    impl CachedTypedAst {
+        pub fn new<F>(ctx: Rc<CompileContext>, type_check: F) -> (Self, Vec<Diagnostic>)
+        where
+            F: for<'a> Fn(&'a CompileContext) -> (TypeChecker<'a>, Block<'a>, Vec<Diagnostic>),
+        {
+            let ctx_ref = &ctx;
+            let (type_checker, block, diagnostics) = (type_check)(ctx_ref);
+
+            let type_checker = unsafe { mem::transmute(type_checker) };
+            let block = unsafe { mem::transmute(block) };
+
+            (
+                Self {
+                    type_checker,
+                    block,
+                    contents: ctx,
+                },
+                diagnostics,
+            )
+        }
+
+        pub fn type_checker<'a>(&'a self) -> &'a TypeChecker<'a> {
+            &self.type_checker
+        }
+
+        pub fn block<'a>(&'a self) -> &'a Block<'a> {
+            &self.block
+        }
+    }
+}
+
+type DocumentMap = HashMap<Uri, Rc<Document>>;
+
 struct Document {
     uri: Uri,
-    contents: String,
+    file_name: Rc<str>,
+    contents: Rc<str>,
     version: i32,
+
+    parsed_ast: RefCell<Option<ast_cache::CachedParsedAst>>,
+    typed_ast: RefCell<Option<ast_cache::CachedTypedAst>>,
 }
 
 pub fn start_lsp() -> Result<()> {
@@ -89,7 +190,7 @@ pub fn start_lsp() -> Result<()> {
 
 fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     let _init: InitializeParams = serde_json::from_value(params)?;
-    let mut docs: HashMap<Uri, Document> = HashMap::default();
+    let mut docs: DocumentMap = HashMap::default();
 
     for msg in &connection.receiver {
         // eprintln!("{msg:?}");
@@ -121,35 +222,51 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
 fn handle_notification(
     conn: &Connection,
     note: &lsp_server::Notification,
-    docs: &mut HashMap<Uri, Document>,
+    docs: &mut DocumentMap,
 ) -> Result<()> {
     match note.method.as_str() {
         DidOpenTextDocument::METHOD => {
             let p: DidOpenTextDocumentParams = serde_json::from_value(note.params.clone())?;
-            let doc = Document {
-                uri: p.text_document.uri,
-                contents: p.text_document.text,
+            let doc = Rc::new(Document {
+                contents: p.text_document.text.into(),
                 version: p.text_document.version,
-            };
+                file_name: p.text_document.uri.path().as_str().into(),
+                uri: p.text_document.uri,
+                parsed_ast: None.into(),
+                typed_ast: None.into(),
+            });
 
             docs.insert(doc.uri.clone(), doc.clone());
 
             let file_cache = make_file_cache(docs);
-            compute_and_send_diagnostics(conn, &doc, &file_cache)?;
+            build_asts_and_send_diagnostics(conn, &doc, &file_cache)?;
         }
         DidChangeTextDocument::METHOD => {
             let p: DidChangeTextDocumentParams = serde_json::from_value(note.params.clone())?;
             if let Some(change) = p.content_changes.into_iter().next() {
-                let doc = Document {
-                    uri: p.text_document.uri,
-                    contents: change.text,
+                let (parsed_ast, typed_ast) = docs
+                    .remove(&p.text_document.uri)
+                    .map(|it| {
+                        (
+                            it.parsed_ast.borrow().clone(),
+                            it.typed_ast.borrow().clone(),
+                        )
+                    })
+                    .unwrap_or((None, None));
+
+                let doc = Rc::new(Document {
+                    contents: change.text.into(),
                     version: p.text_document.version,
-                };
+                    file_name: p.text_document.uri.path().as_str().into(),
+                    uri: p.text_document.uri,
+                    parsed_ast: parsed_ast.into(),
+                    typed_ast: typed_ast.into(),
+                });
 
                 docs.insert(doc.uri.clone(), doc.clone());
 
                 let file_cache = make_file_cache(docs);
-                compute_and_send_diagnostics(conn, &doc, &file_cache)?;
+                build_asts_and_send_diagnostics(conn, &doc, &file_cache)?;
             }
         }
         _ => {}
@@ -161,11 +278,7 @@ fn handle_notification(
 // requests
 // =====================================================================
 
-fn handle_request(
-    conn: &Connection,
-    req: &ServerRequest,
-    docs: &mut HashMap<Uri, Document>,
-) -> Result<()> {
+fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap) -> Result<()> {
     match req.method.as_str() {
         GotoDefinition::METHOD => {
             send_ok(
@@ -175,13 +288,95 @@ fn handle_request(
             )?;
         }
         Completion::METHOD => {
-            let item = CompletionItem {
-                label: "HelloFromLSP".into(),
-                kind: Some(CompletionItemKind::FUNCTION),
-                detail: Some("dummy completion".into()),
-                ..Default::default()
+            let p: CompletionParams = serde_json::from_value(req.params.clone())?;
+
+            let doc = docs
+                .get(&p.text_document_position.text_document.uri)
+                .wrap_err("Completion Request in unknown document")?;
+
+            let Some(ast) = &*doc.typed_ast.borrow_mut() else {
+                send_err(
+                    conn,
+                    req.id.clone(),
+                    lsp_server::ErrorCode::RequestFailed,
+                    "AST not avaible due to syntax error",
+                )?;
+                return Ok(());
             };
-            send_ok(conn, req.id.clone(), &CompletionResponse::Array(vec![item]))?;
+
+            // let (line, col) = lsp_position_to_pest_position(p.text_document_position.position);
+            // let node = ast::nearest_node(ast.parsed(), line, col);
+
+            let type_checker = ast.type_checker();
+            let mut items = vec![];
+
+            for scope in &type_checker.scope_stack {
+                for (function_name, signature) in &scope.functions {
+                    let hint_full = signature.lsp_render_full(*function_name);
+                    let hint_short = signature.lsp_render_short(*function_name);
+
+                    items.push(CompletionItem {
+                        label: (*function_name).into(),
+                        label_details: Some(CompletionItemLabelDetails {
+                            detail: Some(cleanup_whitespace(&hint_short).into()),
+                            description: None,
+                        }),
+                        kind: Some(CompletionItemKind::FUNCTION),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: format!("```c\n{hint_full}\n```"),
+                        })),
+                        ..Default::default()
+                    })
+                }
+
+                for (var_name, var_version) in &scope.variables {
+                    let Some((_, var_type, kind)) = scope.variables_versioned.get(var_version)
+                    else {
+                        continue;
+                    };
+
+                    let lsp_kind = match kind {
+                        VariableKind::Local => CompletionItemKind::VARIABLE,
+                        VariableKind::Constant => CompletionItemKind::CONSTANT,
+                        VariableKind::Capture(_) => CompletionItemKind::REFERENCE,
+                    };
+
+                    items.push(CompletionItem {
+                        label: (*var_name).into(),
+                        label_details: Some(CompletionItemLabelDetails {
+                            detail: Some(cleanup_whitespace(&format!("{var_type}")).into()),
+                            description: None,
+                        }),
+                        kind: Some(lsp_kind),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: format!("```c\n{var_type} {var_name} // {kind:?}\n```"),
+                        })),
+                        ..Default::default()
+                    })
+                }
+            }
+
+            for (typedef_name, typedef_type) in &type_checker.typedefs {
+                let hint = format!("typedef {typedef_type} {typedef_name}");
+
+                items.push(CompletionItem {
+                    label: (*typedef_name).into(),
+                    label_details: Some(CompletionItemLabelDetails {
+                        detail: Some(cleanup_whitespace(&hint).into()),
+                        description: None,
+                    }),
+                    kind: Some(CompletionItemKind::STRUCT),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: format!("```c\n{hint}\n```"),
+                    })),
+                    ..Default::default()
+                })
+            }
+
+            send_ok(conn, req.id.clone(), &CompletionResponse::Array(items))?;
         }
         HoverRequest::METHOD => {
             let p: HoverParams = serde_json::from_value(req.params.clone())?;
@@ -189,7 +384,8 @@ fn handle_request(
             let doc = docs
                 .get(&p.text_document_position_params.text_document.uri)
                 .wrap_err("Hover Request in unknown document")?;
-            let Ok(ast) = parse_ast(&doc) else {
+
+            let Some(ast) = &*doc.parsed_ast.borrow_mut() else {
                 send_err(
                     conn,
                     req.id.clone(),
@@ -202,7 +398,7 @@ fn handle_request(
             let (line, col) =
                 lsp_position_to_pest_position(p.text_document_position_params.position);
 
-            let node = ast::nearest_node(&ast, line, col);
+            let node = ast::nearest_node(ast.parsed(), line, col);
 
             let mut str = String::new();
             write!(&mut str, "{:#?}", node.as_ast_node())?;
@@ -216,7 +412,7 @@ fn handle_request(
         WorkspaceDiagnosticRefresh::METHOD => {
             let file_cache = make_file_cache(docs);
             for doc in docs.values() {
-                compute_and_send_diagnostics(conn, doc, &file_cache)?;
+                build_asts_and_send_diagnostics(conn, doc, &file_cache)?;
             }
         }
         // Formatting::METHOD => {
@@ -246,28 +442,63 @@ fn handle_request(
 // helpers
 // =====================================================================
 
-fn make_file_cache(docs: &HashMap<Uri, Document>) -> FileCache<'_> {
+fn cleanup_whitespace(str: &str) -> Cow<'_, str> {
+    static REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
+
+    REGEX.replace_all(str, " ")
+}
+
+fn make_file_cache(docs: &DocumentMap) -> FileCache<'_> {
     docs.into_iter()
         .map(|(uri, doc)| (uri.path().as_str().as_ref(), doc.contents.as_ref()))
         .collect()
 }
 
-fn compute_and_send_diagnostics(
+fn build_asts_and_send_diagnostics(
     conn: &Connection,
     doc: &Document,
     file_cache: &FileCache,
 ) -> Result<()> {
-    let res = parse_ast(&doc).and_then(|_| full_run(&doc, file_cache));
-    match res {
-        Ok(_) => {
-            send_diagnostics(conn, vec![], &doc)?;
-        }
-        Err(diag) => {
-            send_diagnostics(conn, vec![diag], &doc)?;
-        }
-    }
+    let res = try {
+        let parsed_ast = CachedParsedAst::new(
+            doc.file_name.clone(),
+            doc.contents.clone(),
+            |file_name, contents| parse_ast(file_name, contents),
+        )?;
+        *doc.parsed_ast.borrow_mut() = Some(parsed_ast);
 
-    Ok(())
+        let ctx = CompileContext::new(&*doc.file_name, file_cache);
+        let ctx = match ctx {
+            Ok(ctx) => Ok(ctx),
+            Err(err) => Err(vec![Diagnostic {
+                range: first_line(&doc.contents),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: Some(NumberOrString::String(
+                    "Could not collect imports".to_string(),
+                )),
+                code_description: None,
+                source: Some("flap-ls".to_string()),
+                message: format!("{err:?}"),
+                related_information: None,
+                tags: None,
+                data: None,
+            }]),
+        }?;
+
+        let (typed_ast, diagnostics) = CachedTypedAst::new(Rc::new(ctx), |ctx| type_check(ctx));
+        *doc.typed_ast.borrow_mut() = Some(typed_ast);
+
+        if !diagnostics.is_empty() {
+            Err(diagnostics)?;
+        }
+
+        full_run(doc, file_cache)?;
+    };
+
+    match res {
+        Ok(()) => send_diagnostics(conn, vec![], doc),
+        Err(diags) => send_diagnostics(conn, diags, doc),
+    }
 }
 
 fn send_diagnostics(conn: &Connection, diags: Vec<Diagnostic>, doc: &Document) -> Result<()> {
@@ -285,10 +516,9 @@ fn send_diagnostics(conn: &Connection, diags: Vec<Diagnostic>, doc: &Document) -
     Ok(())
 }
 
-fn parse_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
-    let file_name = doc.uri.path().as_str();
-    let res = parser::parse_program(&doc.contents, file_name)
-        .map_err(|err| parser::map_parser_error(err, file_name, &doc.contents));
+fn parse_ast<'a>(file_name: &'a str, contents: &'a str) -> Result<Program<'a>, Vec<Diagnostic>> {
+    let res = parser::parse_program(contents, file_name)
+        .map_err(|err| parser::map_parser_error(err, file_name, contents));
 
     match res {
         Ok(prog) => Ok(prog),
@@ -304,7 +534,7 @@ fn parse_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
                 ),
             };
 
-            Err(Diagnostic {
+            Err(vec![Diagnostic {
                 range,
                 severity: Some(DiagnosticSeverity::ERROR),
                 code: Some(NumberOrString::String("Syntax Error".to_string())),
@@ -314,40 +544,12 @@ fn parse_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
                 related_information: None,
                 tags: None,
                 data: None,
-            })
+            }])
         }
     }
 }
 
-fn check_imports_fine_grained<'a>(
-    ctx: &'a CompileContext,
-) -> (Option<(Block<'a>, TypeChecker<'a>)>, Vec<Diagnostic>) {
-    // let file_name = doc.uri.path().as_str();
-    // let ctx = CompileContext::new(file_name, file_cache);
-    //
-    // let ctx = match ctx {
-    //     Ok(ctx) => ctx,
-    //     Err(err) => {
-    //         // TODO: make this failure mode fine grained too
-    //         return (
-    //             None,
-    //             vec![Diagnostic {
-    //                 range: full_range(&doc.contents),
-    //                 severity: Some(DiagnosticSeverity::ERROR),
-    //                 code: Some(NumberOrString::String(
-    //                     "Could not create compile context".to_string(),
-    //                 )),
-    //                 code_description: None,
-    //                 source: Some("flap-ls".to_string()),
-    //                 message: format!("{err:?}"),
-    //                 related_information: None,
-    //                 tags: None,
-    //                 data: None,
-    //             }],
-    //         );
-    //     }
-    // };
-
+fn type_check<'a>(ctx: &'a CompileContext) -> (TypeChecker<'a>, Block<'a>, Vec<Diagnostic>) {
     let mut segments = ctx.collect_segments();
     let mut type_checker = TypeChecker::default();
     let mut statements = Vec::new();
@@ -364,16 +566,12 @@ fn check_imports_fine_grained<'a>(
 
         match &mut segment.ast {
             Ok(program) => {
-                let checkpoint = type_checker.clone();
-                let res = program.code.check_and_resolve_types(&mut type_checker);
-                match res {
-                    Ok(_type) => {
-                        statements.extend(program.code.statements.drain(..));
-                    }
-                    Err(err) => {
-                        type_checker = checkpoint;
+                for statement in &mut program.code.statements {
+                    let res = statement.check_and_resolve_types(&mut type_checker);
 
-                        diagnostics.push(Diagnostic {
+                    match res {
+                        Ok(_type) => {}
+                        Err(err) => diagnostics.push(Diagnostic {
                             range,
                             severity: Some(DiagnosticSeverity::ERROR),
                             code: Some(NumberOrString::String("Type Check Failed".to_string())),
@@ -383,9 +581,11 @@ fn check_imports_fine_grained<'a>(
                             related_information: None,
                             tags: None,
                             data: None,
-                        })
+                        }),
                     }
                 }
+
+                statements.extend(program.code.statements.drain(..));
             }
             Err(err) => match err {
                 CompileError::Parsing(err) => {
@@ -441,28 +641,26 @@ fn check_imports_fine_grained<'a>(
     }
 
     (
-        Some((
-            Block {
-                statements,
-                captures: Default::default(),
-                span: AnnotatedSpan {
-                    span: Span::new("<merged sources>", 0, 16).unwrap(),
-                    file_name: "<merged sources>",
-                },
+        type_checker,
+        Block {
+            statements,
+            captures: Default::default(),
+            span: AnnotatedSpan {
+                span: Span::new("<merged sources>", 0, 16).unwrap(),
+                file_name: "<merged sources>",
             },
-            type_checker,
-        )),
+        },
         diagnostics,
     )
 }
 
-fn full_run(doc: &Document, file_cache: &FileCache) -> Result<(), Diagnostic> {
+fn full_run(doc: &Document, file_cache: &FileCache) -> Result<(), Vec<Diagnostic>> {
     let file = doc.uri.path().as_str();
     let res = compile::compile(file, CompileConfig::default(), file_cache);
 
     match res {
         Ok(_) => Ok(()),
-        Err(err) => Err(Diagnostic {
+        Err(err) => Err(vec![Diagnostic {
             range: full_range(&doc.contents),
             severity: Some(DiagnosticSeverity::ERROR),
             code: Some(NumberOrString::String("Compile fail".to_string())),
@@ -472,7 +670,7 @@ fn full_run(doc: &Document, file_cache: &FileCache) -> Result<(), Diagnostic> {
             related_information: None,
             tags: None,
             data: None,
-        }),
+        }]),
     }
 }
 
@@ -480,6 +678,12 @@ fn full_range(text: &str) -> Range {
     let last_line_idx = text.lines().count().saturating_sub(1) as u32;
     let last_col = text.lines().last().map_or(0, |l| l.chars().count()) as u32;
     Range::new(Position::new(0, 0), Position::new(last_line_idx, last_col))
+}
+
+fn first_line(text: &str) -> Range {
+    let last_col = text.lines().next().map_or(1, |l| l.chars().count()) as u32;
+
+    Range::new(Position::new(0, 0), Position::new(0, last_col))
 }
 
 fn send_ok<T: serde::Serialize>(conn: &Connection, id: RequestId, result: &T) -> Result<()> {

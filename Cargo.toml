@@ -13,6 +13,7 @@ lsp-types = "0.97.0"
 parse_int = "0.9.0"
 pest = "2.8.2"
 pest_derive = "2.8.2"
+regex = "1.12.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
