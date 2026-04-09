@@ -6,7 +6,7 @@ use std::{error::Error, io::Write};
 use std::process::Stdio;
 
 use color_eyre::Result;
-use color_eyre::eyre::ContextCompat;
+use color_eyre::eyre::{Context, ContextCompat};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{Request, WorkspaceDiagnosticRefresh};
@@ -46,7 +46,9 @@ use pest::error::LineColLocation;
 use tracing::{error, info};
 
 use crate::ast::{self, Program};
+use crate::compile::{self, CompileConfig, CompileContext};
 use crate::parser;
+use crate::type_check::{TypeCheck, TypeChecker};
 
 struct Document {
     uri: Uri,
@@ -127,15 +129,7 @@ fn handle_notification(
                 version: p.text_document.version,
             };
 
-            let ast = make_ast(&doc);
-            match ast {
-                Ok(_) => {
-                    send_diagnostics(conn, vec![], &doc)?;
-                }
-                Err(diag) => {
-                    send_diagnostics(conn, vec![diag], &doc)?;
-                }
-            }
+            compute_and_send_diagnostics(conn, &doc)?;
 
             docs.insert(doc.uri.clone(), doc);
         }
@@ -148,15 +142,7 @@ fn handle_notification(
                     version: p.text_document.version,
                 };
 
-                let ast = make_ast(&doc);
-                match ast {
-                    Ok(_) => {
-                        send_diagnostics(conn, vec![], &doc)?;
-                    }
-                    Err(diag) => {
-                        send_diagnostics(conn, vec![diag], &doc)?;
-                    }
-                }
+                compute_and_send_diagnostics(conn, &doc)?;
 
                 docs.insert(doc.uri.clone(), doc);
             }
@@ -198,7 +184,7 @@ fn handle_request(
             let doc = docs
                 .get(&p.text_document_position_params.text_document.uri)
                 .wrap_err("Hover Request in unknown document")?;
-            let Ok(ast) = make_ast(&doc) else {
+            let Ok(ast) = parse_ast(&doc) else {
                 send_err(
                     conn,
                     req.id.clone(),
@@ -224,15 +210,7 @@ fn handle_request(
         }
         WorkspaceDiagnosticRefresh::METHOD => {
             for doc in docs.values() {
-                let ast = make_ast(&doc);
-                match ast {
-                    Ok(_) => {
-                        send_diagnostics(conn, vec![], &doc)?;
-                    }
-                    Err(diag) => {
-                        send_diagnostics(conn, vec![diag], &doc)?;
-                    }
-                }
+                compute_and_send_diagnostics(conn, doc)?;
             }
         }
         // Formatting::METHOD => {
@@ -261,6 +239,19 @@ fn handle_request(
 // =====================================================================
 // helpers
 // =====================================================================
+fn compute_and_send_diagnostics(conn: &Connection, doc: &Document) -> Result<()> {
+    let res = parse_ast(&doc).and_then(|_| full_run(&doc));
+    match res {
+        Ok(_) => {
+            send_diagnostics(conn, vec![], &doc)?;
+        }
+        Err(diag) => {
+            send_diagnostics(conn, vec![diag], &doc)?;
+        }
+    }
+
+    Ok(())
+}
 
 fn send_diagnostics(conn: &Connection, diags: Vec<Diagnostic>, doc: &Document) -> Result<()> {
     let params = PublishDiagnosticsParams {
@@ -277,8 +268,8 @@ fn send_diagnostics(conn: &Connection, diags: Vec<Diagnostic>, doc: &Document) -
     Ok(())
 }
 
-fn make_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
-    let file_name = "<lsp_tmp_file>";
+fn parse_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
+    let file_name = doc.uri.path().as_str();
     let res = parser::parse_program(&doc.contents, file_name)
         .map_err(|err| parser::map_parser_error(err, file_name, &doc.contents));
 
@@ -308,6 +299,42 @@ fn make_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
                 data: None,
             })
         }
+    }
+}
+
+fn full_run(doc: &Document) -> Result<(), Diagnostic> {
+    if let Some(scheme) = doc.uri.scheme()
+        && scheme.eq_lowercase("file")
+    {
+        let file = doc.uri.path().as_str();
+        let res = compile::compile(file, CompileConfig::default());
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(err) => Err(Diagnostic {
+                range: full_range(&doc.contents),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: Some(NumberOrString::String("Compile fail".to_string())),
+                code_description: None,
+                source: Some("flap-ls".to_string()),
+                message: format!("{err:?}"),
+                related_information: None,
+                tags: None,
+                data: None,
+            }),
+        }
+    } else {
+        Err(Diagnostic {
+            range: full_range(&doc.contents),
+            severity: Some(DiagnosticSeverity::ERROR),
+            code: Some(NumberOrString::String("Compile fail".to_string())),
+            code_description: None,
+            source: Some("flap-ls".to_string()),
+            message: format!("Source code uri `{}` has an unknown scheme", *doc.uri),
+            related_information: None,
+            tags: None,
+            data: None,
+        })
     }
 }
 

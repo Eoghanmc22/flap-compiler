@@ -45,7 +45,7 @@ impl CompileContext {
         Ok(ctx)
     }
 
-    pub fn collect_sources(&mut self, file: impl AsRef<Path>) -> Result<()> {
+    fn collect_sources(&mut self, file: impl AsRef<Path>) -> Result<()> {
         let file = fs::canonicalize(file.as_ref()).wrap_err("Get canonical path")?;
 
         if fs::metadata(&file)?.is_dir() {

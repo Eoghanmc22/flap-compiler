@@ -22,7 +22,10 @@ use std::{
 
 use clac_lang::types::{ClacState, ExecError};
 use clap::Parser;
-use color_eyre::eyre::{Context, Result};
+use color_eyre::{
+    config::Theme,
+    eyre::{Context, Result},
+};
 use flap_compiler::{
     codegen::clac::ClacToken,
     compile::{self, CompileConfig},
@@ -104,9 +107,19 @@ fn main() -> Result<()> {
         );
     tracing::subscriber::set_global_default(subscriber)?;
 
-    color_eyre::install()?;
-
     let cli = Cli::parse();
+
+    // Disable colors in error messages in lsp mode
+    match cli.command {
+        Commands::Lsp => {
+            color_eyre::config::HookBuilder::default()
+                .theme(Theme::default())
+                .install()?;
+        }
+        _ => {
+            color_eyre::install()?;
+        }
+    }
 
     let start = Instant::now();
     info!("Starting flap to clac compiler");

@@ -1245,6 +1245,7 @@ pub fn generate_span_error_section_with_annotations(
     annotations: &[(AnnotatedSpan, &str)],
 ) -> String {
     let mut string = String::new();
+    writeln!(&mut string, "{}", span.file_name).unwrap();
     for line_span in span.span.lines_span() {
         let (line, _col) = line_span.start_pos().line_col();
         write!(&mut string, "{line:4} | {}", line_span.as_str()).unwrap();
