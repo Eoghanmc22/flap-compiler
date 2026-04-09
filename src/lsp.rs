@@ -248,7 +248,7 @@ fn handle_request(
 
 fn make_file_cache(docs: &HashMap<Uri, Document>) -> FileCache<'_> {
     docs.into_iter()
-        .map(|(uri, doc)| (uri.as_str().as_ref(), doc.contents.as_ref()))
+        .map(|(uri, doc)| (uri.path().as_str().as_ref(), doc.contents.as_ref()))
         .collect()
 }
 
