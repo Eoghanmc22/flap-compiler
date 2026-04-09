@@ -1,19 +1,21 @@
+use color_eyre::eyre::WrapErr;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    backtrace::Backtrace,
+    collections::{BTreeMap, HashMap, HashSet},
     ffi::OsStr,
-    fmt::Debug,
-    fmt::Write as _,
+    fmt::{self, Debug, Write as _},
     fs::{self, OpenOptions},
-    io::Write as _,
+    io::{self, Write as _},
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
-use color_eyre::eyre::{Context, ContextCompat, Result, eyre};
 use pest::Span;
+use thiserror::Error;
 use tracing::{debug, warn};
 
 use crate::{
-    ast::{AnnotatedSpan, Block, Directive},
+    ast::{AnnotatedSpan, Block, Directive, OwnedSpan, Program},
     codegen::{
         CodegenCtx,
         clac::ClacProgram,
@@ -26,27 +28,53 @@ use crate::{
     type_check::{TypeCheck, TypeChecker},
 };
 
+// TODO add path canonicalize error
+#[derive(Error, Debug)]
+pub enum CompileError {
+    #[error(transparent)]
+    Parsing(#[from] parser::ParsingError),
+
+    #[error(transparent)]
+    TypeCheck(color_eyre::Report),
+
+    #[error(transparent)]
+    Middleware(color_eyre::Report),
+
+    #[error("I/O Error")]
+    IoError(#[from] io::Error, Backtrace),
+
+    #[error("fmt Error")]
+    FmtError(#[from] fmt::Error, Backtrace),
+
+    #[error("Path Contained Invalid Characters")]
+    NonUtf8Path,
+}
+
+type Result<T, E = CompileError> = core::result::Result<T, E>;
+
 pub struct CompileContext {
     sources: BTreeMap<PathBuf, SourceFile>,
     root: PathBuf,
 }
 
+pub type FileCache<'a> = HashMap<&'a Path, &'a str>;
+
 impl CompileContext {
-    pub fn new(root: impl AsRef<Path>) -> Result<Self> {
-        let root = fs::canonicalize(root.as_ref()).wrap_err("Get canonical path")?;
+    pub fn new(root: impl AsRef<Path>, file_cache: &FileCache) -> Result<Self> {
+        let root = fs::canonicalize(root.as_ref())?;
 
         let mut ctx = CompileContext {
             sources: Default::default(),
             root: root.clone(),
         };
 
-        ctx.collect_sources(&root)?;
+        ctx.collect_sources(&root, file_cache)?;
 
         Ok(ctx)
     }
 
-    fn collect_sources(&mut self, file: impl AsRef<Path>) -> Result<()> {
-        let file = fs::canonicalize(file.as_ref()).wrap_err("Get canonical path")?;
+    fn collect_sources(&mut self, file: impl AsRef<Path>, file_cache: &FileCache) -> Result<()> {
+        let file = fs::canonicalize(file.as_ref())?;
 
         if fs::metadata(&file)?.is_dir() {
             let mut source_file = SourceFile::default();
@@ -59,8 +87,10 @@ impl CompileContext {
                     continue;
                 }
 
-                self.collect_sources(&file)?;
-                source_file.includes.insert(file);
+                self.collect_sources(&file, file_cache)?;
+
+                let span = OwnedSpan::new("<dir contents>", file.to_string_lossy());
+                source_file.includes.insert(file, span);
             }
 
             let file = fs::canonicalize(file)?;
@@ -73,25 +103,23 @@ impl CompileContext {
             return Ok(());
         }
 
-        let contents = fs::read_to_string(&file).wrap_err("Read file")?;
+        let contents = file_cache
+            .get(file.as_path())
+            .map(|it| Ok(it.to_string()))
+            .unwrap_or_else(|| fs::read_to_string(&file))?;
 
-        let file_name = file.as_os_str().to_str().wrap_err("Path must be utf8")?;
+        let file_name = file.as_os_str().to_str().ok_or(CompileError::NonUtf8Path)?;
         let directives = parser::parse_directives(&contents, &file_name)
-            .map_err(|err| parser::map_parser_error(err, &file_name, &contents))
-            .wrap_err("Parse program")?;
+            .map_err(|err| parser::map_parser_error(err, &file_name, &contents))?;
 
-        let mut includes = BTreeSet::new();
+        let mut includes = BTreeMap::new();
         for directive in directives {
             match directive {
-                Directive::Include(include_path, _) => {
+                Directive::Include(include_path, span) => {
                     let include_path = file.parent().unwrap().join(include_path);
-                    let include_path = fs::canonicalize(&include_path).map_err(|err| {
-                        eyre!(
-                            "Could not canonicalize {include_path:?} referenced by {file:?}: {err}"
-                        )
-                    })?;
+                    let include_path = fs::canonicalize(&include_path)?;
 
-                    includes.insert(include_path);
+                    includes.insert(include_path, span.into());
                 }
             }
         }
@@ -101,23 +129,23 @@ impl CompileContext {
             includes: includes.clone(),
         });
 
-        for include in &includes {
-            self.collect_sources(include)?;
+        for (include, _) in &includes {
+            self.collect_sources(include, file_cache)?;
         }
 
         Ok(())
     }
 
     // TODO: Is this correct?
-    pub fn flatten_imports<'a>(&'a self) -> Result<Block<'a>> {
+    pub fn collect_segments<'a>(&'a self) -> Vec<Segment<'a>> {
         let mut seen = HashSet::new();
         let mut already_included = HashSet::new();
         let mut stack = Vec::new();
-        let mut statements = Vec::new();
+        let mut segments = Vec::new();
 
-        stack.push(&self.root);
+        stack.push((&self.root, Rc::new(SegmentPath::TopLevel)));
 
-        while let Some(next) = stack.pop() {
+        while let Some((next, segment)) = stack.pop() {
             if already_included.contains(next) {
                 continue;
             }
@@ -127,25 +155,31 @@ impl CompileContext {
 
             let ready = source
                 .includes
-                .iter()
+                .keys()
                 .all(|it| already_included.contains(it));
 
             if ready {
-                let file_name = next.as_os_str().to_str().wrap_err("Path must be utf8")?;
-                let program = parser::parse_program(&source.contents, &file_name)
-                    .map_err(|err| parser::map_parser_error(err, &file_name, &source.contents))
-                    .wrap_err("Parsing Error")?;
+                let res = try {
+                    let file_name = next.as_os_str().to_str().ok_or(CompileError::NonUtf8Path)?;
+                    parser::parse_program(&source.contents, &file_name).map_err(|err| {
+                        parser::map_parser_error(err, &file_name, &source.contents).into()
+                    })?
+                };
 
-                statements.extend(program.code.statements.into_iter());
+                segments.push(Segment {
+                    ast: res,
+                    path: segment.to_vec(),
+                });
                 already_included.insert(next);
             } else {
-                stack.push(next);
-                for include in &source.includes {
+                stack.push((next, segment.clone()));
+                for (include, span) in &source.includes {
                     if !seen.contains(include) {
-                        stack.push(include);
+                        let sub_segment = SegmentPath::Imported(&span, segment.clone());
+                        stack.push((include, Rc::new(sub_segment)));
                     }
                 }
-                if let Some(top) = stack.last() {
+                if let Some((top, _)) = stack.last() {
                     if *top == next {
                         warn!("Cyclical imports detected at {next:?}");
                         stack.pop();
@@ -153,6 +187,18 @@ impl CompileContext {
                 }
             }
         }
+
+        segments
+    }
+
+    pub fn flatten_imports<'a>(&'a self) -> Result<Block<'a>> {
+        let segments = self.collect_segments();
+
+        let res = segments
+            .into_iter()
+            .map(|it| it.ast)
+            .collect::<Result<Vec<_>>>()?;
+        let statements = res.into_iter().flat_map(|it| it.code.statements).collect();
 
         Ok(Block {
             statements,
@@ -163,12 +209,41 @@ impl CompileContext {
             },
         })
     }
+
+    pub fn root(&self) -> &SourceFile {
+        self.sources.get(&self.root).unwrap()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct SourceFile {
-    contents: String,
-    includes: BTreeSet<PathBuf>,
+    pub contents: String,
+    pub includes: BTreeMap<PathBuf, OwnedSpan>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum SegmentPath<'a> {
+    TopLevel,
+    Imported(&'a OwnedSpan, Rc<SegmentPath<'a>>),
+}
+
+impl<'a> SegmentPath<'a> {
+    pub fn to_vec(&self) -> Vec<&'a OwnedSpan> {
+        let mut vec = vec![];
+
+        let mut cur = self;
+        while let SegmentPath::Imported(span, next) = cur {
+            vec.push(*span);
+            cur = next;
+        }
+
+        vec
+    }
+}
+
+pub struct Segment<'a> {
+    pub path: Vec<&'a OwnedSpan>,
+    pub ast: Result<Program<'a>>,
 }
 
 #[derive(Debug, Clone)]
@@ -192,32 +267,39 @@ impl Default for CompileConfig {
     }
 }
 
-pub fn compile(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<ClacProgram> {
+pub fn compile(
+    file: impl AsRef<Path> + Debug,
+    config: CompileConfig,
+    file_cache: &FileCache,
+) -> Result<ClacProgram> {
     let file = file.as_ref();
 
     if config.verbose_parsing_errors {
         pest::set_error_detail(true);
     }
 
-    let ctx = CompileContext::new(file)?;
+    let ctx = CompileContext::new(file, file_cache)?;
     let mut program = ctx.flatten_imports()?;
     debug!("Parsed AST: {program:#?}");
 
     let mut type_checker = TypeChecker::default();
     let return_type = program
         .check_and_resolve_types(&mut type_checker)
-        .wrap_err("Type Check Program")?;
+        .map_err(CompileError::TypeCheck)?;
 
     let mut codegen = CodegenCtx::new(&type_checker);
-    let tail_expr = middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
-    let tail_data_ref = tail_expr
-        .into_data_ref(&mut codegen)
-        .wrap_err("Get tail data ref")?;
-    codegen
-        .bring_up_references(&[tail_data_ref], return_type.width(&type_checker)?)
-        .wrap_err("Bring up tail expr")?;
+    let mut program = try {
+        let tail_expr = middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
+        let tail_data_ref = tail_expr
+            .into_data_ref(&mut codegen)
+            .wrap_err("Get tail data ref")?;
+        codegen
+            .bring_up_references(&[tail_data_ref], return_type.width(&type_checker)?)
+            .wrap_err("Bring up tail expr")?;
 
-    let mut program = codegen.into_tokens();
+        codegen.into_tokens()
+    }
+    .map_err(CompileError::Middleware)?;
 
     {
         // Code gen emits clac code with nested definitions which is not valid clac code
@@ -251,11 +333,11 @@ pub fn compile(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<
 pub fn compile_to_string(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<String> {
     let file = file.as_ref();
 
-    let program = compile(file, config)?;
+    let program = compile(file, config, &FileCache::default())?;
 
     let mut s = String::new();
 
-    write!(&mut s, "{program}").wrap_err("Write code")?;
+    write!(&mut s, "{program}")?;
 
     Ok(s)
 }
@@ -263,10 +345,10 @@ pub fn compile_to_string(file: impl AsRef<Path> + Debug, config: CompileConfig) 
 pub fn compile_to_file(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<()> {
     let file = file.as_ref();
 
-    let program = compile(file, config)?;
+    let program = compile(file, config, &FileCache::default())?;
 
     let output_dir = PathBuf::from("out/");
-    fs::create_dir_all(&output_dir).wrap_err("Create out dir")?;
+    fs::create_dir_all(&output_dir)?;
     let out_file = output_dir.join(
         file.with_extension("clac")
             .file_name()
@@ -277,9 +359,8 @@ pub fn compile_to_file(file: impl AsRef<Path> + Debug, config: CompileConfig) ->
         .create(true)
         .truncate(true)
         .write(true)
-        .open(out_file)
-        .wrap_err("Open output file")?;
-    write!(&mut file, "{program}").wrap_err("Write code")?;
+        .open(out_file)?;
+    write!(&mut file, "{program}")?;
 
     Ok(())
 }

@@ -28,7 +28,7 @@ use color_eyre::{
 };
 use flap_compiler::{
     codegen::clac::ClacToken,
-    compile::{self, CompileConfig},
+    compile::{self, CompileConfig, FileCache},
     lsp,
 };
 use tracing::{error, info, level_filters::LevelFilter};
@@ -161,7 +161,7 @@ fn main() -> Result<()> {
                     info!("Compiling {file:?}");
 
                     let config = config.clone();
-                    compile::compile(&file, config.into())?;
+                    compile::compile(&file, config.into(), &FileCache::default())?;
                 }
             }
         }
@@ -195,7 +195,7 @@ fn main() -> Result<()> {
                 info!("flap-compiler by Eoghanmc22");
                 info!("clac++ interpreter by stanleymw");
 
-                let program = compile::compile(&file, config.into())?;
+                let program = compile::compile(&file, config.into(), &FileCache::default())?;
                 let program = program
                     .0
                     .iter()

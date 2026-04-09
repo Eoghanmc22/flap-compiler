@@ -49,6 +49,40 @@ pub struct AnnotatedSpan<'a> {
     pub file_name: &'a str,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct OwnedSpan {
+    pub start: (usize, usize),
+    pub end: (usize, usize),
+    pub content: String,
+    pub file_name: String,
+}
+
+impl OwnedSpan {
+    pub fn new(content: impl Into<String>, file_name: impl Into<String>) -> Self {
+        let content = content.into();
+        let file_name = file_name.into();
+        Self {
+            start: (1, 1),
+            end: (1, content.len() + 1),
+            content,
+            file_name,
+        }
+    }
+}
+
+impl From<AnnotatedSpan<'_>> for OwnedSpan {
+    fn from(value: AnnotatedSpan) -> Self {
+        let (start, end) = value.span.split();
+
+        Self {
+            start: start.line_col(),
+            end: end.line_col(),
+            content: value.span.as_str().to_owned(),
+            file_name: value.file_name.to_owned(),
+        }
+    }
+}
+
 pub trait AstSpan<'a> {
     fn as_span(&self) -> AnnotatedSpan<'a>;
     fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_>;

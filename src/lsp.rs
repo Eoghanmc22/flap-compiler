@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::path::Path;
 use std::usize;
 use std::{error::Error, io::Write};
 
@@ -41,15 +42,17 @@ use lsp_types::{
     // requests
     request::{Completion, Formatting, GotoDefinition, HoverRequest},
 };
-use lsp_types::{HoverParams, NumberOrString};
+use lsp_types::{DiagnosticRelatedInformation, HoverParams, Location, NumberOrString};
+use pest::Span;
 use pest::error::LineColLocation;
 use tracing::{error, info};
 
-use crate::ast::{self, Program};
-use crate::compile::{self, CompileConfig, CompileContext};
+use crate::ast::{self, AnnotatedSpan, Block, Program};
+use crate::compile::{self, CompileConfig, CompileContext, CompileError, FileCache};
 use crate::parser;
 use crate::type_check::{TypeCheck, TypeChecker};
 
+#[derive(Debug, Clone)]
 struct Document {
     uri: Uri,
     contents: String,
@@ -129,9 +132,10 @@ fn handle_notification(
                 version: p.text_document.version,
             };
 
-            compute_and_send_diagnostics(conn, &doc)?;
+            docs.insert(doc.uri.clone(), doc.clone());
 
-            docs.insert(doc.uri.clone(), doc);
+            let file_cache = make_file_cache(docs);
+            compute_and_send_diagnostics(conn, &doc, &file_cache)?;
         }
         DidChangeTextDocument::METHOD => {
             let p: DidChangeTextDocumentParams = serde_json::from_value(note.params.clone())?;
@@ -142,9 +146,10 @@ fn handle_notification(
                     version: p.text_document.version,
                 };
 
-                compute_and_send_diagnostics(conn, &doc)?;
+                docs.insert(doc.uri.clone(), doc.clone());
 
-                docs.insert(doc.uri.clone(), doc);
+                let file_cache = make_file_cache(docs);
+                compute_and_send_diagnostics(conn, &doc, &file_cache)?;
             }
         }
         _ => {}
@@ -209,8 +214,9 @@ fn handle_request(
             send_ok(conn, req.id.clone(), &hover)?;
         }
         WorkspaceDiagnosticRefresh::METHOD => {
+            let file_cache = make_file_cache(docs);
             for doc in docs.values() {
-                compute_and_send_diagnostics(conn, doc)?;
+                compute_and_send_diagnostics(conn, doc, &file_cache)?;
             }
         }
         // Formatting::METHOD => {
@@ -239,8 +245,19 @@ fn handle_request(
 // =====================================================================
 // helpers
 // =====================================================================
-fn compute_and_send_diagnostics(conn: &Connection, doc: &Document) -> Result<()> {
-    let res = parse_ast(&doc).and_then(|_| full_run(&doc));
+
+fn make_file_cache(docs: &HashMap<Uri, Document>) -> FileCache<'_> {
+    docs.into_iter()
+        .map(|(uri, doc)| (uri.as_str().as_ref(), doc.contents.as_ref()))
+        .collect()
+}
+
+fn compute_and_send_diagnostics(
+    conn: &Connection,
+    doc: &Document,
+    file_cache: &FileCache,
+) -> Result<()> {
+    let res = parse_ast(&doc).and_then(|_| full_run(&doc, file_cache));
     match res {
         Ok(_) => {
             send_diagnostics(conn, vec![], &doc)?;
@@ -302,39 +319,160 @@ fn parse_ast(doc: &Document) -> Result<Program<'_>, Diagnostic> {
     }
 }
 
-fn full_run(doc: &Document) -> Result<(), Diagnostic> {
-    if let Some(scheme) = doc.uri.scheme()
-        && scheme.eq_lowercase("file")
-    {
-        let file = doc.uri.path().as_str();
-        let res = compile::compile(file, CompileConfig::default());
+fn check_imports_fine_grained<'a>(
+    ctx: &'a CompileContext,
+) -> (Option<(Block<'a>, TypeChecker<'a>)>, Vec<Diagnostic>) {
+    // let file_name = doc.uri.path().as_str();
+    // let ctx = CompileContext::new(file_name, file_cache);
+    //
+    // let ctx = match ctx {
+    //     Ok(ctx) => ctx,
+    //     Err(err) => {
+    //         // TODO: make this failure mode fine grained too
+    //         return (
+    //             None,
+    //             vec![Diagnostic {
+    //                 range: full_range(&doc.contents),
+    //                 severity: Some(DiagnosticSeverity::ERROR),
+    //                 code: Some(NumberOrString::String(
+    //                     "Could not create compile context".to_string(),
+    //                 )),
+    //                 code_description: None,
+    //                 source: Some("flap-ls".to_string()),
+    //                 message: format!("{err:?}"),
+    //                 related_information: None,
+    //                 tags: None,
+    //                 data: None,
+    //             }],
+    //         );
+    //     }
+    // };
 
-        match res {
-            Ok(_) => Ok(()),
-            Err(err) => Err(Diagnostic {
-                range: full_range(&doc.contents),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: Some(NumberOrString::String("Compile fail".to_string())),
-                code_description: None,
-                source: Some("flap-ls".to_string()),
-                message: format!("{err:?}"),
-                related_information: None,
-                tags: None,
-                data: None,
-            }),
+    let mut segments = ctx.collect_segments();
+    let mut type_checker = TypeChecker::default();
+    let mut statements = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    for segment in &mut segments {
+        let range = match segment.path.last() {
+            Some(import) => Range::new(
+                pest_position_to_lsp_position(import.start),
+                pest_position_to_lsp_position(import.end),
+            ),
+            None => full_range(&ctx.root().contents),
+        };
+
+        match &mut segment.ast {
+            Ok(program) => {
+                let checkpoint = type_checker.clone();
+                let res = program.code.check_and_resolve_types(&mut type_checker);
+                match res {
+                    Ok(_type) => {
+                        statements.extend(program.code.statements.drain(..));
+                    }
+                    Err(err) => {
+                        type_checker = checkpoint;
+
+                        diagnostics.push(Diagnostic {
+                            range,
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            code: Some(NumberOrString::String("Type Check Failed".to_string())),
+                            code_description: None,
+                            source: Some("flap-ls".to_string()),
+                            message: format!("{err:?}"),
+                            related_information: None,
+                            tags: None,
+                            data: None,
+                        })
+                    }
+                }
+            }
+            Err(err) => match err {
+                CompileError::Parsing(err) => {
+                    let mut related_information = vec![];
+                    if let Some(path) = err.path() {
+                        let range = match err.line_col {
+                            LineColLocation::Pos(start) => Range::new(
+                                pest_position_to_lsp_position(start),
+                                pest_position_to_lsp_position(start),
+                            ),
+                            LineColLocation::Span(start, end) => Range::new(
+                                pest_position_to_lsp_position(start),
+                                pest_position_to_lsp_position(end),
+                            ),
+                        };
+
+                        related_information.push(DiagnosticRelatedInformation {
+                            location: Location {
+                                uri: format!("file://{}", path).parse().expect("Build uri"),
+                                range,
+                            },
+                            message: format!("{err}"),
+                        });
+                    }
+
+                    diagnostics.push(Diagnostic {
+                        range,
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        code: Some(NumberOrString::String(
+                            "Syntax Error in imported file".to_string(),
+                        )),
+                        code_description: None,
+                        source: Some("flap-ls".to_string()),
+                        message: format!("{err}"),
+                        related_information: Some(related_information),
+                        tags: None,
+                        data: None,
+                    });
+                }
+                err => diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    code: Some(NumberOrString::String("Unknown Error".to_string())),
+                    code_description: None,
+                    source: Some("flap-ls".to_string()),
+                    message: format!("{err:?}"),
+                    related_information: None,
+                    tags: None,
+                    data: None,
+                }),
+            },
         }
-    } else {
-        Err(Diagnostic {
+    }
+
+    (
+        Some((
+            Block {
+                statements,
+                captures: Default::default(),
+                span: AnnotatedSpan {
+                    span: Span::new("<merged sources>", 0, 16).unwrap(),
+                    file_name: "<merged sources>",
+                },
+            },
+            type_checker,
+        )),
+        diagnostics,
+    )
+}
+
+fn full_run(doc: &Document, file_cache: &FileCache) -> Result<(), Diagnostic> {
+    let file = doc.uri.path().as_str();
+    let res = compile::compile(file, CompileConfig::default(), file_cache);
+
+    match res {
+        Ok(_) => Ok(()),
+        Err(err) => Err(Diagnostic {
             range: full_range(&doc.contents),
             severity: Some(DiagnosticSeverity::ERROR),
             code: Some(NumberOrString::String("Compile fail".to_string())),
             code_description: None,
             source: Some("flap-ls".to_string()),
-            message: format!("Source code uri `{}` has an unknown scheme", *doc.uri),
+            message: format!("{err:?}"),
             related_information: None,
             tags: None,
             data: None,
-        })
+        }),
     }
 }
 
