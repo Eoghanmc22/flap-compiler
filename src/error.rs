@@ -1,5 +1,11 @@
 use core::fmt;
-use std::{backtrace::Backtrace, borrow::Cow, error::Error, fmt::Write, io};
+use std::{
+    backtrace::Backtrace,
+    borrow::Cow,
+    error::Error,
+    fmt::{Display, Write},
+    io,
+};
 
 use thiserror::Error;
 
@@ -15,6 +21,27 @@ use crate::{
 
 pub use parser::ParsingError;
 
+fn flatten_err(it: impl Display) -> Box<dyn Error + Send + Sync + 'static> {
+    struct StringError(String);
+
+    impl Error for StringError {}
+
+    impl fmt::Display for StringError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt::Display::fmt(&self.0, f)
+        }
+    }
+
+    // Purposefully skip printing "StringError(..)"
+    impl fmt::Debug for StringError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt::Display::fmt(&self.0, f)
+        }
+    }
+
+    Box::new(StringError(it.to_string()))
+}
+
 // TODO add path canonicalize error
 #[derive(Error, Debug)]
 pub enum CompileError<'a> {
@@ -29,9 +56,6 @@ pub enum CompileError<'a> {
 
     #[error(transparent)]
     Middleware(MiddlewareError<'a>),
-
-    #[error(transparent)]
-    ColoyEyre(#[from] color_eyre::Report),
 
     #[error("I/O Error")]
     IoError(#[from] io::Error, Backtrace),
@@ -466,7 +490,7 @@ impl<'a, T> SpannedErrorExt<'a> for Result<T, CompileError<'a>> {
     fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
         match self {
             Ok(ok) => Ok(ok),
-            Err(err) => Err(err.to_string().into()),
+            Err(err) => Err(flatten_err(err)),
         }
     }
 }
@@ -540,7 +564,7 @@ impl<'a, T> SpannedErrorExt<'a> for Result<T, TypeError<'a>> {
     fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
         match self {
             Ok(ok) => Ok(ok),
-            Err(err) => Err(err.to_string().into()),
+            Err(err) => Err(flatten_err(err)),
         }
     }
 }
@@ -614,7 +638,7 @@ impl<'a, T> SpannedErrorExt<'a> for Result<T, CodegenError<'a>> {
     fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
         match self {
             Ok(ok) => Ok(ok),
-            Err(err) => Err(err.to_string().into()),
+            Err(err) => Err(flatten_err(err)),
         }
     }
 }
@@ -693,7 +717,7 @@ impl<'a, T> SpannedErrorExt<'a> for Result<T, MiddlewareError<'a>> {
     fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
         match self {
             Ok(ok) => Ok(ok),
-            Err(err) => Err(err.to_string().into()),
+            Err(err) => Err(flatten_err(err)),
         }
     }
 }

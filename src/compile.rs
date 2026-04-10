@@ -1,11 +1,9 @@
-use color_eyre::eyre::WrapErr;
 use std::{
-    backtrace::Backtrace,
     collections::{BTreeMap, HashMap, HashSet},
     ffi::OsStr,
-    fmt::{self, Debug, Write as _},
+    fmt::{Debug, Write as _},
     fs::{self, OpenOptions},
-    io::{self, Write as _},
+    io::Write as _,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -179,7 +177,7 @@ impl CompileContext {
         segments
     }
 
-    pub fn flatten_imports<'a>(&'a self) -> Result<Block<'a>> {
+    pub fn flatten_imports<'a>(&'a self) -> Result<'a, Block<'a>> {
         let segments = self.collect_segments();
 
         let res = segments
@@ -259,7 +257,7 @@ impl Default for CompileConfig {
     }
 }
 
-pub fn compile(ctx: &CompileContext) -> Result<ClacProgram> {
+pub fn compile(ctx: &CompileContext) -> Result<'_, ClacProgram> {
     let config = ctx.config();
 
     if config.verbose_parsing_errors {
@@ -310,7 +308,7 @@ pub fn compile(ctx: &CompileContext) -> Result<ClacProgram> {
     Ok(program)
 }
 
-pub fn compile_to_string(ctx: &CompileContext) -> Result<String> {
+pub fn compile_to_string(ctx: &CompileContext) -> Result<'_, String> {
     let program = compile(ctx)?;
 
     let mut s = String::new();
@@ -320,7 +318,7 @@ pub fn compile_to_string(ctx: &CompileContext) -> Result<String> {
     Ok(s)
 }
 
-pub fn compile_to_file(ctx: &CompileContext) -> Result<()> {
+pub fn compile_to_file(ctx: &CompileContext) -> Result<'_, ()> {
     let program = compile(ctx)?;
 
     let output_dir = PathBuf::from("out/");

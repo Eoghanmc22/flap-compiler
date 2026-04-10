@@ -1,18 +1,11 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::Write as _;
-use std::path::Path;
-use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::LazyLock;
-use std::usize;
-use std::{error::Error, io::Write};
 
-use std::process::Stdio;
-
-use color_eyre::Result;
-use color_eyre::eyre::{Context, ContextCompat};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::{DidCloseTextDocument, Notification as _}; // for METHOD consts
 use lsp_types::request::{Request, WorkspaceDiagnosticRefresh};
@@ -26,7 +19,6 @@ use lsp_types::{
     DiagnosticSeverity,
     DidChangeTextDocumentParams,
     DidOpenTextDocumentParams,
-    DocumentFormattingParams,
     Hover,
     HoverContents,
     HoverProviderCapability,
@@ -40,12 +32,11 @@ use lsp_types::{
     ServerCapabilities,
     TextDocumentSyncCapability,
     TextDocumentSyncKind,
-    TextEdit,
     Uri,
     // notifications
     notification::{DidChangeTextDocument, DidOpenTextDocument, PublishDiagnostics},
     // requests
-    request::{Completion, Formatting, GotoDefinition, HoverRequest},
+    request::{Completion, GotoDefinition, HoverRequest},
 };
 use lsp_types::{
     CompletionItemLabelDetails, CompletionParams, DiagnosticRelatedInformation,
@@ -82,8 +73,8 @@ mod ast_cache {
         parsed: Program<'static>,
 
         // These needs to be last since it needs to be dropped after the other fields
-        file_name: Rc<str>,
-        contents: Rc<str>,
+        _file_name: Rc<str>,
+        _contents: Rc<str>,
     }
 
     impl CachedParsedAst {
@@ -98,8 +89,8 @@ mod ast_cache {
 
             Ok(Self {
                 parsed,
-                contents,
-                file_name,
+                _contents: contents,
+                _file_name: file_name,
             })
         }
 
@@ -116,7 +107,7 @@ mod ast_cache {
         block: Block<'static>,
 
         // This needs to be last since it needs to be dropped after the other fields
-        contents: Rc<CompileContext>,
+        _contents: Rc<CompileContext>,
     }
 
     impl CachedTypedAst {
@@ -134,7 +125,7 @@ mod ast_cache {
                 Self {
                     type_checker,
                     block,
-                    contents: ctx,
+                    _contents: ctx,
                 },
                 diagnostics,
             )
@@ -150,6 +141,7 @@ mod ast_cache {
     }
 }
 
+type Result<T, E = Box<dyn Error + Send + Sync + 'static>> = std::result::Result<T, E>;
 type DocumentMap = HashMap<Uri, Rc<Document>>;
 
 struct Document {
@@ -176,7 +168,7 @@ pub fn start_lsp() -> Result<()> {
         definition_provider: Some(OneOf::Left(true)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         document_formatting_provider: Some(OneOf::Left(false)),
-        semantic_tokens_provider: todo!(),
+        // semantic_tokens_provider: todo!(),
         ..Default::default()
     };
     let init_params = connection.initialize(serde_json::json!(caps))?;
@@ -300,7 +292,7 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
 
             let doc = docs
                 .get(&p.text_document_position.text_document.uri)
-                .wrap_err("Completion Request in unknown document")?;
+                .ok_or("Completion Request in unknown document")?;
 
             let Some(ast) = &*doc.typed_ast.borrow_mut() else {
                 send_err(
@@ -391,7 +383,7 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
 
             let doc = docs
                 .get(&p.text_document_position_params.text_document.uri)
-                .wrap_err("Hover Request in unknown document")?;
+                .ok_or("Hover Request in unknown document")?;
 
             let Some(ast) = &*doc.parsed_ast.borrow_mut() else {
                 send_err(
@@ -668,7 +660,8 @@ fn full_run(ctx: &CompileContext) -> Result<(), Vec<Diagnostic>> {
     match res {
         Ok(_) => Ok(()),
         Err(err) => Err(vec![Diagnostic {
-            range: todo!(),
+            // range: todo!(),
+            range: full_range(&ctx.root().contents),
             severity: Some(DiagnosticSeverity::ERROR),
             code: Some(NumberOrString::String("Compile fail".to_string())),
             code_description: None,

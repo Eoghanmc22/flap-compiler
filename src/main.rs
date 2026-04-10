@@ -18,13 +18,13 @@ use std::{
     fs,
     io::{self, Write},
     path::PathBuf,
+    process::Termination,
     thread,
     time::Instant,
 };
 
 use clac_lang::types::{ClacState, ExecError};
 use clap::Parser;
-use color_eyre::{config::Theme, eyre::Context};
 use flap_compiler::{
     codegen::clac::ClacToken,
     compile::{self, CompileConfig, CompileContext, FileCache},
@@ -32,7 +32,6 @@ use flap_compiler::{
     lsp,
 };
 use tracing::{error, info, level_filters::LevelFilter};
-use tracing_error::ErrorLayer;
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 #[derive(Parser)]
@@ -96,32 +95,18 @@ impl From<CompileConfigArgs> for CompileConfig {
 type Result<T, E = Box<dyn Error + Send + Sync>> = std::result::Result<T, E>;
 
 fn main() -> Result<()> {
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(ErrorLayer::default())
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(io::stderr)
-                .with_filter(
-                    EnvFilter::builder()
-                        .with_default_directive(LevelFilter::INFO.into())
-                        .from_env()?,
-                ),
-        );
+    let subscriber = tracing_subscriber::Registry::default().with(
+        tracing_subscriber::fmt::layer()
+            .with_writer(io::stderr)
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env()?,
+            ),
+    );
     tracing::subscriber::set_global_default(subscriber)?;
 
     let cli = Cli::parse();
-
-    // Disable colors in error messages in lsp mode
-    match cli.command {
-        Commands::Lsp => {
-            color_eyre::config::HookBuilder::default()
-                .theme(Theme::default())
-                .install()?;
-        }
-        _ => {
-            color_eyre::install()?;
-        }
-    }
 
     let start = Instant::now();
     info!("Starting flap to clac compiler");
@@ -215,7 +200,7 @@ fn main() -> Result<()> {
                 // let program = compile::compile_to_string(&file)?;
                 // state.execute_str(&program)
             } else if file.extension() == Some("clac".as_ref()) {
-                let program = fs::read_to_string(file).wrap_err("Read input file")?;
+                let program = fs::read_to_string(file)?;
                 state.execute_str(&program)
             } else {
                 error!("Error: unknown extension {:?}", file.extension());

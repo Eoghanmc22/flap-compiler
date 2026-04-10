@@ -1,4 +1,4 @@
-use std::{backtrace::Backtrace, collections::BTreeMap, fmt::Write, sync::Arc};
+use std::{backtrace::Backtrace, collections::BTreeMap, sync::Arc};
 use tracing::trace;
 
 use crate::{
