@@ -3,13 +3,10 @@ pub mod clac;
 pub mod ir;
 pub mod post_process;
 
-use color_eyre::{
-    Section,
-    eyre::{Context, ContextCompat, OptionExt, Result, bail, eyre},
-};
 use tracing::{debug, trace};
 
 use std::{
+    backtrace::Backtrace,
     borrow::Borrow,
     collections::{HashMap, HashSet},
     fmt::Debug,
@@ -32,9 +29,11 @@ use crate::{
         clac::{ClacProgram, ClacToken, ClacValue, MangledIdent},
         ir::{DataReference, DerivedFrom},
     },
-    middleware::generate_span_error_section,
+    error::{CodegenError, SpannedErrorExt, TypeError},
     type_check::TypeChecker,
 };
+
+type Result<'a, T, E = CodegenError<'a>> = std::result::Result<T, E>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DefinitionIdent<'a> {
@@ -96,7 +95,10 @@ pub enum MaybeTailCall<'a> {
 }
 
 impl<'a> MaybeTailCall<'a> {
-    pub fn into_data_ref(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<DataReference<'a>> {
+    pub fn into_data_ref(
+        self,
+        ctx: &mut CodegenCtx<'a, '_>,
+    ) -> Result<'a, DataReference<'a>, CodegenError<'a>> {
         match self {
             MaybeTailCall::Regular(data_reference) => Ok(data_reference),
             MaybeTailCall::TailCall {
@@ -105,7 +107,7 @@ impl<'a> MaybeTailCall<'a> {
                 tokens,
                 call_span,
             } => {
-                let res: Result<_> = try {
+                let res = try bikeshed Result<'a, _, CodegenError<'a>> {
                     ctx.bring_up_references(
                         signature
                             .captures_read()?
@@ -140,8 +142,7 @@ impl<'a> MaybeTailCall<'a> {
                         None,
                     )
                 };
-                res.wrap_err("Error running tail call")
-                    .with_section(|| generate_span_error_section(call_span))
+                res.wrap_span_desc(call_span, "Error running tail call")
             }
         }
     }
@@ -230,7 +231,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         }
     }
 
-    pub fn allocate_tempoary(&mut self, var_type: Type<'a>) -> Result<TempoaryIdent> {
+    pub fn allocate_tempoary(&mut self, var_type: Type<'a>) -> Result<'a, TempoaryIdent> {
         assert!(self.cursor >= var_type.width(self.type_checker)?);
         let offset = Offset(self.cursor - var_type.width(self.type_checker)?);
 
@@ -242,7 +243,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         var_type: Type<'a>,
         base: &DataReference<'a>,
         rel_offset: Offset,
-    ) -> Result<DataReference<'a>> {
+    ) -> Result<'a, DataReference<'a>> {
         match self.dereference_data_ref(base)? {
             DataReference::Value(value, derived_from) => {
                 let derived_from = derived_from.map(|it| DerivedFrom {
@@ -282,9 +283,10 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                 }
             }
             DataReference::Tempoary(tempoary_ident, derived_from) => {
-                let (base_type, base_offset) = self
-                    .lookup_temporary(tempoary_ident)
-                    .ok_or_eyre("Bad tempoary")?;
+                let (base_type, base_offset) =
+                    self.lookup_temporary(tempoary_ident).ok_or_else(|| {
+                        CodegenError::UnknownTempoary(tempoary_ident, Backtrace::capture())
+                    })?;
                 assert!(0 <= rel_offset.0 && rel_offset.0 < base_type.width(self.type_checker)?);
 
                 Ok(DataReference::Tempoary(
@@ -314,7 +316,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         data_ref: &DataReference<'a>,
         version: VariableVersion,
         data_type: Type<'a>,
-    ) -> Result<()> {
+    ) -> Result<'a, ()> {
         let reference = self.dereference_data_ref(data_ref)?;
 
         self.top_scope_frame().locals.insert(
@@ -334,13 +336,18 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         MangledIdent(Arc::new(mangled))
     }
 
-    pub fn define_function<F: FnOnce(&mut Self) -> Result<MaybeTailCall<'a>>>(
+    pub fn define_function<E, F: FnOnce(&mut Self) -> Result<'a, MaybeTailCall<'a>, E>>(
         &mut self,
         ident: IdentRef<'a>,
         signature: FunctionSignature<'a>,
         attributes: &HashSet<FunctionAttribute>,
         scope: F,
-    ) -> Result<DefinitionIdent<'a>> {
+    ) -> Result<'a, DefinitionIdent<'a>, E>
+    where
+        E: From<CodegenError<'a>>,
+        E: From<TypeError<'a>>,
+        Result<'a, DefinitionIdent<'a>, E>: SpannedErrorExt<'a>,
+    {
         let def_ident = DefinitionIdent::Function(ident);
 
         let mangled = if !attributes.contains(&FunctionAttribute::NoMangle) {
@@ -372,9 +379,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
             for (var_type, _ident, version) in signature.arguements_and_captures()? {
                 let DeferedVersion::ResolvedVersion(version) = version else {
-                    return Err(eyre!(
-                        "COMPILER BUG: attempted to define a function whose args have unresolved version"
-                    ));
+                    return Err(CodegenError::CompilerBug(Backtrace::force_capture()).into());
                 };
 
                 let cur_offset = Offset(frame.frame_start + offset);
@@ -415,11 +420,14 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     if signature.return_type.width(self.type_checker)?
                         != tail_call_sig.return_type.width(self.type_checker)?
                     {
-                        return Err(eyre!(
-                            "Attempted to tail call in `{ident}` but it returns a {:?}, and the calling runction returns a {:?}, and these types differ in width",
-                            tail_call_sig.return_type,
-                            signature.return_type
-                        )).with_section(|| generate_span_error_section(call_span));
+                        return Err(CodegenError::BadTailCall {
+                            function: ident,
+                            tail_return_type: tail_call_sig.return_type.clone(),
+                            return_type: signature.return_type.clone(),
+                            backtrace: Backtrace::capture(),
+                        }
+                        .into())
+                        .wrap_span(call_span);
                     }
 
                     self.bring_up_references(
@@ -431,8 +439,10 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                             .chain(parameters),
                         tail_call_sig.paramater_width(self.type_checker)?,
                     )
-                    .wrap_err("COMPILER BUG: error bringing up references for tail call")
-                    .with_section(|| generate_span_error_section(call_span))?;
+                    .wrap_span_desc(
+                        call_span,
+                        "COMPILER BUG: error bringing up references for tail call",
+                    )?;
 
                     (
                         tail_call_sig.paramater_width(self.type_checker)?,
@@ -529,7 +539,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         &mut self,
         references: impl IntoIterator<Item = impl Borrow<DataReference<'a>>>,
         expected_width: ClacValue,
-    ) -> Result<()> {
+    ) -> Result<'a, ()> {
         trace!("bring up references, expected_width, {expected_width}");
 
         // TODO: Optimize
@@ -545,9 +555,9 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     }
                 }
                 DataReference::Const(version, ident) => {
-                    let val = self
-                        .lookup_const(version)
-                        .ok_or_else(|| eyre!("Bring up valid const `{ident} {version}`"))?;
+                    let val = self.lookup_const(version).ok_or_else(|| {
+                        CodegenError::UnknownConstant(*version, *ident, Backtrace::capture())
+                    })?;
 
                     for num in val.as_repr() {
                         self.push_token(ClacToken::Number(num))?
@@ -557,9 +567,9 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     let AnnotatedDataRef {
                         reference,
                         data_type,
-                    } = self
-                        .lookup_local(version)
-                        .ok_or_else(|| eyre!("Bring up valid local `{ident} {version}`"))?;
+                    } = self.lookup_local(version).ok_or_else(|| {
+                        CodegenError::UnknownLocal(*version, *ident, Backtrace::capture())
+                    })?;
 
                     trace!("recursing to bring up local reference '{ident} {version}'",);
                     self.bring_up_references(
@@ -583,7 +593,10 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     );
                     for _ in 0..var_type.width(self.type_checker)? {
                         if rel_offset <= 0 {
-                            bail!("Got rel_offset {rel_offset} < 0");
+                            return Err(CodegenError::NegativeStackOffset {
+                                offset: rel_offset,
+                                backtrace: Backtrace::capture(),
+                            });
                         }
                         self.push_token(ClacToken::Number(rel_offset))?;
                         self.push_token(ClacToken::Pick)?;
@@ -593,16 +606,17 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         }
 
         if self.cursor - starting_cursor != expected_width {
-            bail!(
-                "Type error?: expected to load width {expected_width}, actually loaded: {}",
-                self.cursor - starting_cursor
-            )
+            return Err(CodegenError::BadBringUp {
+                expected_width,
+                actual_width: self.cursor - starting_cursor,
+                backtrace: Backtrace::capture(),
+            });
         }
 
         Ok(())
     }
 
-    pub fn push_token(&mut self, token: ClacToken) -> Result<()> {
+    pub fn push_token(&mut self, token: ClacToken) -> Result<'a, ()> {
         self.cursor += token.stack_delta();
 
         if !self.top_scope_frame().allow_underflow {
@@ -626,11 +640,10 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         ident: IdentRef<'a>,
         parameters: Vec<DataReference<'a>>,
         call_span: AnnotatedSpan<'a>,
-    ) -> Result<MaybeTailCall<'a>> {
+    ) -> Result<'a, MaybeTailCall<'a>> {
         let (func_impl, sig) = self
             .lookup_function_like_signature(ident)
-            .wrap_err("Attempted to call unknown function-like")
-            .with_section(|| generate_span_error_section(call_span))?;
+            .wrap_span(call_span)?;
 
         Ok(MaybeTailCall::TailCall {
             parameters,
@@ -644,31 +657,32 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     pub fn lookup_function_like_signature(
         &self,
         ident: IdentRef<'a>,
-    ) -> Option<(&[ClacToken], &FunctionSignature<'a>)> {
+    ) -> Result<'a, (&[ClacToken], &FunctionSignature<'a>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((func_impl, sig)) = frame.definitions.get(&DefinitionIdent::Inline(ident)) {
-                return Some((func_impl, sig));
+                return Ok((func_impl, sig));
             }
             if let Some((func_impl, sig)) = frame.definitions.get(&DefinitionIdent::Function(ident))
             {
-                return Some((func_impl, sig));
+                return Ok((func_impl, sig));
             }
         }
 
-        None
+        Err(CodegenError::UnknownFunction(ident, Backtrace::capture()))
     }
 
     pub fn lookup_definition(
         &self,
         ident: DefinitionIdent<'a>,
-    ) -> Option<(&[ClacToken], &FunctionSignature<'a>)> {
+    ) -> Result<'a, (&[ClacToken], &FunctionSignature<'a>)> {
         for frame in self.scope_stack.iter().rev() {
             if let Some((func_impl, sig)) = frame.definitions.get(&ident) {
-                return Some((func_impl, sig));
+                return Ok((func_impl, sig));
             }
         }
 
-        None
+        let (DefinitionIdent::Inline(ident) | DefinitionIdent::Function(ident)) = ident;
+        Err(CodegenError::UnknownFunction(ident, Backtrace::capture()))
     }
 
     pub fn lookup_const(&self, version: &VariableVersion) -> Option<Value<'a>> {
@@ -768,30 +782,32 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
     //     Ok(lookup)
     // }
 
-    pub fn dereference_data_ref(&self, data_ref: &DataReference<'a>) -> Result<DataReference<'a>> {
+    pub fn dereference_data_ref(
+        &self,
+        data_ref: &DataReference<'a>,
+    ) -> Result<'a, DataReference<'a>> {
         match data_ref {
             DataReference::Local(version, ident) => self.dereference_data_ref(
                 &self
                     .lookup_local(version)
                     .ok_or_else(|| {
-                        eyre!(
-                            "Attempted to deref a data reference pointing to a non existant local by name `{ident} {version}`"
-                        )
+                        CodegenError::UnknownLocal(*version, *ident, Backtrace::capture())
                     })?
                     .reference
                     .mark_originator(*version, Offset(0)),
             ),
             DataReference::Const(version, ident) => {
                 let value = self.lookup_const(version).ok_or_else(|| {
-                    eyre!("Attempted to deref a data reference pointing to a non existant constant by name `{ident} {version}`")
+                    CodegenError::UnknownConstant(*version, *ident, Backtrace::capture())
                 })?;
 
-                Ok(
-                    DataReference::Value(value, Some(DerivedFrom {
+                Ok(DataReference::Value(
+                    value,
+                    Some(DerivedFrom {
                         version: *version,
                         offset: Offset(0),
-                    }))
-                )
+                    }),
+                ))
             }
             data_ref => Ok(data_ref.clone()),
         }

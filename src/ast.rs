@@ -1,11 +1,11 @@
 use crate::{
     codegen::{Offset, clac::ClacValue},
-    middleware::generate_span_error_section,
+    error::TypeError,
     type_check::TypeChecker,
 };
-use color_eyre::eyre::{Result, eyre};
 use pest::Span;
 use std::{
+    backtrace::Backtrace,
     borrow::Cow,
     collections::{BTreeMap, HashSet},
     fmt::{self, Debug, Display},
@@ -19,7 +19,15 @@ macro_rules! impl_display {
         $(
             impl Display for $the_type {
                 fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "\n{}", generate_span_error_section(self.as_span()))
+                    let span = self.as_span();
+
+                    writeln!(f, "{}", span.file_name).unwrap();
+                    for line_span in span.span.lines_span() {
+                        let (line, _col) = line_span.start_pos().line_col();
+                        write!(f, "{line:4} | {}", line_span.as_str()).unwrap();
+                    }
+
+                    Ok(())
                 }
             }
         )*
@@ -471,7 +479,11 @@ impl Display for Type<'_> {
 }
 
 impl<'a> Type<'a> {
-    pub fn compatible_with(&self, other: &Type<'a>, ctx: &TypeChecker<'a>) -> Result<bool> {
+    pub fn compatible_with(
+        &self,
+        other: &Type<'a>,
+        ctx: &TypeChecker<'a>,
+    ) -> Result<bool, TypeError<'a>> {
         let lhs = self;
         let rhs = other;
 
@@ -556,47 +568,66 @@ impl<'a> Type<'a> {
         }
     }
 
-    pub fn resolve_once(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
+    pub fn resolve_once(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>, TypeError<'a>> {
         match self {
             Type::Typedef(ident) => ctx
                 .typedefs
                 .get(ident)
-                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
                 .and_then(|it| it.resolve_once(ctx)),
             _ => Ok(self.clone()),
         }
     }
 
-    pub fn dereference(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>> {
+    pub fn dereference(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>, TypeError<'a>> {
         match self {
             Type::Typedef(ident) => ctx
                 .typedefs
                 .get(ident)
-                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
                 .and_then(|it| it.dereference(ctx)),
             Type::Pointer(target) => Ok((**target).clone()),
-            _ => Err(eyre!("Can not dereference type `{self}`")),
+            _ => Err(TypeError::DereferenceNonPointer {
+                operand_type: self.clone(),
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 
-    pub fn member(&self, ctx: &TypeChecker<'a>, ident: IdentRef<'a>) -> Result<Type<'a>> {
+    pub fn member(
+        &self,
+        ctx: &TypeChecker<'a>,
+        ident: IdentRef<'a>,
+    ) -> Result<Type<'a>, TypeError<'a>> {
         match self {
             Type::Typedef(type_def_ident) => ctx
                 .typedefs
                 .get(type_def_ident)
-                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
                 .and_then(|it| it.member(ctx, ident)),
             Type::Struct(map) => map
                 .get(ident)
-                .ok_or_else(|| eyre!("Type `{self}` has no member with name {ident}"))
+                .ok_or_else(|| TypeError::UnknownStructMember {
+                    operand_type: self.clone(),
+                    member: ident,
+                    backtrace: Backtrace::capture(),
+                })
                 .cloned(),
             Type::NamedTuple(items) => items
                 .iter()
                 .find(|(name, _)| *name == ident)
                 .map(|(_, field_type)| field_type)
-                .ok_or_else(|| eyre!("Type `{self}` has no member with name {ident}"))
+                .ok_or_else(|| TypeError::UnknownStructMember {
+                    operand_type: self.clone(),
+                    member: ident,
+                    backtrace: Backtrace::capture(),
+                })
                 .cloned(),
-            _ => Err(eyre!("Type `{self}` has no members")),
+            _ => Err(TypeError::UnknownStructMember {
+                operand_type: self.clone(),
+                member: ident,
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 
@@ -604,12 +635,12 @@ impl<'a> Type<'a> {
         &self,
         ctx: &TypeChecker<'a>,
         ident: IdentRef<'a>,
-    ) -> Result<(Type<'a>, Offset)> {
+    ) -> Result<(Type<'a>, Offset), TypeError<'a>> {
         match self {
             Type::Typedef(type_def_ident) => ctx
                 .typedefs
                 .get(type_def_ident)
-                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
                 .and_then(|it| it.member_and_offset(ctx, ident)),
             Type::Struct(map) => {
                 let mut offset = 0;
@@ -622,7 +653,11 @@ impl<'a> Type<'a> {
                     offset += field_type.width(ctx)?;
                 }
 
-                Err(eyre!("Type `{self}` has no member with name {ident}"))
+                Err(TypeError::UnknownStructMember {
+                    operand_type: self.clone(),
+                    member: ident,
+                    backtrace: Backtrace::capture(),
+                })
             }
             Type::NamedTuple(items) => {
                 let mut offset = 0;
@@ -635,43 +670,51 @@ impl<'a> Type<'a> {
                     offset += field_type.width(ctx)?;
                 }
 
-                Err(eyre!("Type `{self}` has no member with name {ident}"))
+                Err(TypeError::UnknownStructMember {
+                    operand_type: self.clone(),
+                    member: ident,
+                    backtrace: Backtrace::capture(),
+                })
             }
-            _ => Err(eyre!("Type `{self}` has no members")),
+            _ => Err(TypeError::UnknownStructMember {
+                operand_type: self.clone(),
+                member: ident,
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 
-    pub fn width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
+    pub fn width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue, TypeError<'a>> {
         match self {
             Type::Typedef(ident) => ctx
                 .typedefs
                 .get(ident)
-                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
                 .and_then(|it| it.width(ctx)),
             Type::Struct(map) => map
                 .values()
                 .map(|it| it.width(ctx))
-                .sum::<Result<ClacValue>>(),
+                .sum::<Result<ClacValue, _>>(),
             Type::NamedTuple(items) => items
                 .iter()
                 .map(|(_name, field_type)| field_type.width(ctx))
-                .sum::<Result<ClacValue>>(),
+                .sum::<Result<ClacValue, _>>(),
             Type::Tuple(items) => items
                 .iter()
                 .map(|it| it.width(ctx))
-                .sum::<Result<ClacValue>>(),
+                .sum::<Result<ClacValue, _>>(),
             Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => Ok(1),
             Type::Void => Ok(0),
             Type::Array(inner_type, len) => Ok(inner_type.width(ctx)? * *len),
         }
     }
 
-    pub fn stride(&self, ctx: &TypeChecker<'a>) -> Result<Stride> {
+    pub fn stride(&self, ctx: &TypeChecker<'a>) -> Result<Stride, TypeError<'a>> {
         match self {
             Type::Typedef(ident) => ctx
                 .typedefs
                 .get(ident)
-                .ok_or_else(|| eyre!("No typedef `{ident}` in scope"))
+                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
                 .and_then(|it| it.stride(ctx)),
             Type::Char => Ok(Stride::Byte),
             Type::Void => Ok(Stride::ZST),
@@ -699,12 +742,14 @@ impl Display for DeferedType<'_> {
 }
 
 impl<'a> DeferedType<'a> {
-    pub fn compatible_with(&self, other: &Type<'a>, ctx: &TypeChecker<'a>) -> Result<bool> {
+    pub fn compatible_with(
+        &self,
+        other: &Type<'a>,
+        ctx: &TypeChecker<'a>,
+    ) -> Result<bool, TypeError<'a>> {
         match self {
             DeferedType::ResolvedType(inner) => inner.compatible_with(other, ctx),
-            DeferedType::UnresolvedType => Err(eyre!(
-                "COMPILER BUG: compatible_with called on unresolved defered type"
-            )),
+            DeferedType::UnresolvedType => Err(TypeError::CompilerBug(Backtrace::force_capture())),
         }
     }
 
@@ -850,9 +895,9 @@ pub struct FunctionSignature<'a> {
 }
 
 impl<'a> FunctionSignature<'a> {
-    pub fn captures_read(&self) -> Result<impl Iterator<Item = Capture<'a>>> {
+    pub fn captures_read(&self) -> Result<impl Iterator<Item = Capture<'a>>, TypeError<'a>> {
         let DeferedCaptures::ResolvedCaptures(captures) = &self.captures else {
-            return Err(eyre!("COMPILER BUG: defered captures was not resolved"));
+            return Err(TypeError::CompilerBug(Backtrace::force_capture()));
         };
 
         Ok(captures
@@ -861,9 +906,9 @@ impl<'a> FunctionSignature<'a> {
             .map(|(version, (var_type, ident, kind))| (var_type.clone(), *ident, *version, *kind)))
     }
 
-    pub fn captures_write(&self) -> Result<impl Iterator<Item = Capture<'a>>> {
+    pub fn captures_write(&self) -> Result<impl Iterator<Item = Capture<'a>>, TypeError<'a>> {
         let DeferedCaptures::ResolvedCaptures(captures) = &self.captures else {
-            return Err(eyre!("COMPILER BUG: defered captures was not resolved"));
+            return Err(TypeError::CompilerBug(Backtrace::force_capture()));
         };
 
         Ok(captures
@@ -873,7 +918,9 @@ impl<'a> FunctionSignature<'a> {
             .map(|(version, (var_type, ident, kind))| (var_type.clone(), *ident, *version, *kind)))
     }
 
-    pub fn arguements_and_captures(&self) -> Result<impl Iterator<Item = Arguement<'a>>> {
+    pub fn arguements_and_captures(
+        &self,
+    ) -> Result<impl Iterator<Item = Arguement<'a>>, TypeError<'a>> {
         Ok(self
             .captures_read()?
             .map(|(var_type, ident, version, _kind)| {
@@ -886,7 +933,7 @@ impl<'a> FunctionSignature<'a> {
             ))
     }
 
-    pub fn full_return_type(&self) -> Result<Type<'a>> {
+    pub fn full_return_type(&self) -> Result<Type<'a>, TypeError<'a>> {
         Ok(Type::Tuple(
             self.captures_write()?
                 .map(|(var_type, _, _, _)| var_type)
@@ -895,24 +942,27 @@ impl<'a> FunctionSignature<'a> {
         ))
     }
 
-    pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
+    pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue, TypeError<'a>> {
         self.arguements_and_captures()?
             .map(|(var_type, _, _)| var_type.width(ctx))
-            .sum::<Result<ClacValue>>()
+            .sum()
     }
 
-    pub fn return_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
+    pub fn return_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue, TypeError<'a>> {
         self.full_return_type()?.width(ctx)
     }
 
-    pub fn stack_delta(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue> {
+    pub fn stack_delta(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue, TypeError<'a>> {
         self.return_width(ctx).and_then(|ret_width| {
             self.paramater_width(ctx)
                 .map(|parm_width| ret_width - parm_width)
         })
     }
 
-    pub fn compatible_captures_read(&self, other: &FunctionSignature<'a>) -> Result<bool> {
+    pub fn compatible_captures_read(
+        &self,
+        other: &FunctionSignature<'a>,
+    ) -> Result<bool, TypeError<'a>> {
         let lhs_count = self.captures_read()?.count();
         let rhs_count = other.captures_read()?.count();
 
@@ -931,7 +981,10 @@ impl<'a> FunctionSignature<'a> {
         Ok(true)
     }
 
-    pub fn compatible_captures_write(&self, other: &FunctionSignature<'a>) -> Result<bool> {
+    pub fn compatible_captures_write(
+        &self,
+        other: &FunctionSignature<'a>,
+    ) -> Result<bool, TypeError<'a>> {
         let lhs_count = self.captures_write()?.count();
         let rhs_count = other.captures_write()?.count();
 
@@ -988,7 +1041,6 @@ pub struct ConstDef<'a> {
     pub version: DeferedVersion,
     pub expr: Expr<'a>,
     pub span: AnnotatedSpan<'a>,
-    pub expr_span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for ConstDef<'a> {
@@ -1044,7 +1096,6 @@ pub struct LocalDef<'a> {
     pub version: DeferedVersion,
     pub expr: Expr<'a>,
     pub span: AnnotatedSpan<'a>,
-    pub expr_span: AnnotatedSpan<'a>,
 }
 
 impl<'a> AstSpan<'a> for LocalDef<'a> {

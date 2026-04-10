@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use color_eyre::eyre::{ContextCompat, Result, bail};
+use std::{backtrace::Backtrace, sync::Arc};
 
 use crate::{
     ast::{FunctionSignature, IdentRef, Type, Value, VariableVersion},
@@ -8,19 +6,22 @@ use crate::{
         CodegenCtx, DefinitionIdent, Offset, TempoaryIdent,
         clac::{ClacProgram, ClacToken, ClacValue, ClacValueUnsigned},
     },
+    error::CodegenError,
 };
 
+type Result<'a, T, E = CodegenError<'a>> = std::result::Result<T, E>;
+
 pub trait TokenConsumer<'a, 'b> {
-    fn consume(&mut self, token: ClacToken) -> Result<()>;
+    fn consume(&mut self, token: ClacToken) -> Result<'a, ()>;
     fn ctx(&mut self) -> &mut CodegenCtx<'a, 'b>;
 
-    fn consume_silent(&mut self, token: ClacToken) -> Result<()> {
+    fn consume_silent(&mut self, token: ClacToken) -> Result<'a, ()> {
         self.consume(ClacToken::Silent(Box::new(token)))
     }
 }
 
 impl<'a, 'b> TokenConsumer<'a, 'b> for &mut CodegenCtx<'a, 'b> {
-    fn consume(&mut self, token: ClacToken) -> Result<()> {
+    fn consume(&mut self, token: ClacToken) -> Result<'a, ()> {
         self.push_token(token)
     }
 
@@ -30,7 +31,7 @@ impl<'a, 'b> TokenConsumer<'a, 'b> for &mut CodegenCtx<'a, 'b> {
 }
 
 impl<'a, 'b> TokenConsumer<'a, 'b> for (&mut ClacProgram, &mut CodegenCtx<'a, 'b>) {
-    fn consume(&mut self, token: ClacToken) -> Result<()> {
+    fn consume(&mut self, token: ClacToken) -> Result<'a, ()> {
         self.0.0.push(token);
 
         Ok(())
@@ -195,7 +196,7 @@ pub enum ClacOp<'a> {
 }
 
 impl<'b, 'a: 'b> ClacOp<'a> {
-    pub fn load_inputs(&self, ctx: &mut CodegenCtx<'a, '_>) -> Result<()> {
+    pub fn load_inputs(&self, ctx: &mut CodegenCtx<'a, '_>) -> Result<'a, ()> {
         match self {
             ClacOp::Print { value } => ctx.bring_up_references([value], 1),
             ClacOp::Quit => Ok(()),
@@ -233,7 +234,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         }
     }
 
-    pub fn execute<C: TokenConsumer<'a, 'b>>(&self, mut out: C) -> Result<Type<'a>> {
+    pub fn execute<C: TokenConsumer<'a, 'b>>(&self, mut out: C) -> Result<'a, Type<'a>> {
         let return_type = match self {
             ClacOp::Print { .. } => {
                 out.consume(ClacToken::Print)?;
@@ -389,9 +390,10 @@ impl<'b, 'a: 'b> ClacOp<'a> {
             // and loops for ever when rhs is -1
             ClacOp::BAnd { rhs, .. } => {
                 let Some((rhs, _rhs_type)) = rhs.as_clac_value() else {
-                    bail!(
-                        "Bit wise AND is only implemented for anding with a literal int, or an int that ends up getting inlined"
-                    );
+                    return Err(CodegenError::UnimplementedFeature {
+                        msg: "Bit wise AND is only implemented for anding with a literal int, or an int that ends up getting inlined".into(),
+                        backtrace: Backtrace::capture()
+                    });
                 };
                 let mut rhs = rhs as ClacValueUnsigned;
 
@@ -467,17 +469,11 @@ impl<'b, 'a: 'b> ClacOp<'a> {
             ClacOp::If {
                 on_true, on_false, ..
             } => {
-                let (on_true_impl, def_true) = out
-                    .ctx()
-                    .lookup_definition(*on_true)
-                    .wrap_err_with(|| format!("Unknown if on_true definition, '{on_true:?}'"))?;
+                let (on_true_impl, def_true) = out.ctx().lookup_definition(*on_true)?;
                 let on_true_impl = on_true_impl.to_vec();
                 let def_true = def_true.clone();
 
-                let (on_false_impl, def_false) = out
-                    .ctx()
-                    .lookup_definition(*on_false)
-                    .wrap_err_with(|| format!("Unknown if false_true definition, '{on_true:?}'"))?;
+                let (on_false_impl, def_false) = out.ctx().lookup_definition(*on_false)?;
                 let on_false_impl = on_false_impl.to_vec();
                 let def_false = def_false.clone();
 
@@ -690,7 +686,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         Some(ret)
     }
 
-    pub fn append_into(&self, ctx: &mut CodegenCtx<'a, 'b>) -> Result<DataReference<'a>> {
+    pub fn append_into(&self, ctx: &mut CodegenCtx<'a, 'b>) -> Result<'a, DataReference<'a>> {
         if let Some(res) = self.try_execute_const(ctx) {
             return Ok(res);
         }

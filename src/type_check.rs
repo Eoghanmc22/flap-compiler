@@ -1,15 +1,11 @@
 use std::{
+    backtrace::Backtrace,
     collections::{BTreeMap, HashMap, HashSet},
     fmt::{self, Debug, Display},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-};
-
-use color_eyre::{
-    Section,
-    eyre::{Context, ContextCompat, Result, eyre},
 };
 
 use crate::{
@@ -20,8 +16,10 @@ use crate::{
         Punctuation, Statement, Type, Typedef, Value, VariableVersion,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
-    middleware::{generate_span_error_section, generate_span_error_section_with_annotations},
+    error::{SpannedErrorExt as _, TypeError},
 };
+
+type Result<'a, T, E = TypeError<'a>> = std::result::Result<T, E>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VariableKind {
@@ -213,11 +211,14 @@ impl<'a> TypeChecker<'a> {
         version
     }
 
-    pub fn define_type(&mut self, ident: IdentRef<'a>, type_alias: Type<'a>) -> Result<()> {
+    pub fn define_type(&mut self, ident: IdentRef<'a>, type_alias: Type<'a>) -> Result<'a, ()> {
         let res = self.typedefs.insert(ident, type_alias);
 
         match res {
-            Some(_) => Err(eyre!("Type `{ident}` is defined multiple times")),
+            Some(_) => Err(TypeError::TypedefMultipleDefined(
+                ident.into(),
+                Backtrace::force_capture(),
+            )),
             None => Ok(()),
         }
     }
@@ -230,14 +231,17 @@ impl<'a> TypeChecker<'a> {
         self.top_scope_frame().capture_kind
     }
 
-    pub fn lookup_function(&mut self, ident: IdentRef<'a>) -> Option<&FunctionSignature<'a>> {
+    pub fn lookup_function(&mut self, ident: IdentRef<'a>) -> Result<'a, &FunctionSignature<'a>> {
         for frame in self.scope_stack.iter().rev() {
             if let Some(sig) = frame.functions.get(&ident) {
-                return Some(sig);
+                return Ok(sig);
             }
         }
 
-        None
+        Err(TypeError::FunctionNotInScope(
+            ident.into(),
+            Backtrace::capture(),
+        ))
     }
 
     // TODO: need a way to repersent scopes where captures are not taken such as arguements to
@@ -246,7 +250,7 @@ impl<'a> TypeChecker<'a> {
         &mut self,
         var: VariableVersion,
         capture_kind: CaptureKind,
-    ) -> Result<(Type<'a>, VariableVersion)> {
+    ) -> Result<'a, (Type<'a>, VariableVersion)> {
         let frame_kind = self.frame_kind();
 
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
@@ -278,12 +282,18 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        Err(eyre!("Variable {var} is not in scope"))
+        Err(TypeError::VariableVersionNotInScope(
+            var,
+            Backtrace::capture(),
+        ))
     }
 
     // TODO: need a way to repersent scopes where captures are not taken such as arguements to
     // sizeof() expressions
-    pub fn lookup_variable(&mut self, var: IdentRef<'a>) -> Result<(Type<'a>, VariableVersion)> {
+    pub fn lookup_variable(
+        &mut self,
+        var: IdentRef<'a>,
+    ) -> Result<'a, (Type<'a>, VariableVersion)> {
         let capture_kind = self.capture_kind();
 
         for frame in self.scope_stack.iter().rev() {
@@ -292,22 +302,25 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        Err(eyre!("Variable {var} is not in scope"))
+        Err(TypeError::VariableNotInScope(
+            var.into(),
+            Backtrace::capture(),
+        ))
     }
 }
 
 pub trait TypeCheck<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>>;
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>>;
 }
 
 impl<'a> TypeCheck<'a> for Value<'a> {
-    fn check_and_resolve_types(&mut self, _ctx: &mut TypeChecker) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, _ctx: &mut TypeChecker) -> Result<'a, Type<'a>> {
         Ok(self.compute_type())
     }
 }
 
 impl<'a> TypeCheck<'a> for Expr<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         match self {
             Expr::SizeOfType(..) => Ok(Type::Int),
             Expr::SizeOfExpr(inner_expr, defered_type, _mode, _span) => {
@@ -323,13 +336,12 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
             }
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)
-                .wrap_err("Could not type check expr value")
-                .with_section(|| generate_span_error_section(*span)),
+                .wrap_span_desc(*span, "Could not type check expr value"),
             Expr::Variable(ident, defered_version, span) => {
-                let (var_type, version) = ctx
-                    .lookup_variable(ident)
-                    .wrap_err_with(|| format!("Could not find identifier: `{ident:?}`"))
-                    .with_section(|| generate_span_error_section(*span))?;
+                let (var_type, version) =
+                    ctx.lookup_variable(ident).wrap_span_desc_with(*span, || {
+                        format!("Could not find identifier: `{ident:?}`")
+                    })?;
 
                 *defered_version = DeferedVersion::ResolvedVersion(version);
 
@@ -355,16 +367,17 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 for (span, expr_type) in &types {
                     if let Some((first, inner_type)) = inner_type {
                         if !inner_type.compatible_with(expr_type, ctx)? {
-                            return Err(eyre!("All array elements must be of the same type")
-                                .with_section(|| {
-                                    generate_span_error_section_with_annotations(
-                                        *span,
-                                        &[
-                                            (first, &format!("has the type `{inner_type:?}`")),
-                                            (*span, &format!("has differing type `{expr_type:?}`")),
-                                        ],
-                                    )
-                                }));
+                            return Err(TypeError::ArrayElementsMismatch(Backtrace::capture()))
+                                .wrap_span_annotations(
+                                    *span,
+                                    vec![
+                                        (first, format!("has the type `{inner_type:?}`").into()),
+                                        (
+                                            *span,
+                                            format!("has differing type `{expr_type:?}`").into(),
+                                        ),
+                                    ],
+                                );
                         }
                     } else {
                         inner_type = Some((*span, expr_type));
@@ -377,10 +390,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     *defered_type = DeferedType::ResolvedType(arr_typ.clone());
                     Ok(arr_typ)
                 } else {
-                    return Err(eyre!(
-                        "Empty arrays are not supported due to type resolution limitations"
-                    )
-                    .with_section(|| generate_span_error_section(*span)));
+                    return Err(TypeError::ArrayEmpty(Backtrace::capture())).wrap_span(*span);
                 }
             }
             Expr::BinaryOp {
@@ -390,7 +400,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 span,
                 left_type,
                 right_type,
-                op_span: _,
+                op_span,
             } => {
                 assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
@@ -401,8 +411,23 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
 
                 if left_type_computed.width(ctx)? != 1 || right_type_computed.width(ctx)? != 1 {
-                    return Err(eyre!("Binary op {op} only support types that are 1 word")
-                        .with_section(|| generate_span_error_section(*span)));
+                    let lhs_width = left_type_computed.width(ctx)?;
+                    let rhs_width = right_type_computed.width(ctx)?;
+
+                    return Err(TypeError::BinaryOpWrongWidth {
+                        op: op.clone(),
+                        lhs_type: left_type_computed,
+                        rhs_type: right_type_computed,
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span_annotations(
+                        *span,
+                        vec![(
+                            *op_span,
+                            format!("lhs has width {}, rhs has width {}", lhs_width, rhs_width)
+                                .into(),
+                        )],
+                    );
                 }
 
                 let (valid_types, output_type) =
@@ -443,17 +468,21 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     };
 
                 if !valid_types {
-                    return Err(eyre!("Binary op {op} uses a disallowed type").with_section(|| {
-                        generate_span_error_section_with_annotations(
-                            *span,
-                            &[(
-                                *span,
-                                &format!(
-                                    "lhs has the type `{left_type_computed:?}` and rhs has the type `{right_type_computed:?}`, which is not permitted"
-                                ),
-                            )],
+                    let annotations = vec![(
+                        *op_span,
+                        format!(
+                            "lhs has the type `{left_type_computed:?}` and rhs has the type `{right_type_computed:?}`, which is not permitted"
                         )
-                    }));
+                        .into(),
+                    )];
+
+                    return Err(TypeError::BinaryOpBadArgs {
+                        op: op.clone(),
+                        lhs_type: left_type_computed,
+                        rhs_type: right_type_computed,
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span_annotations(*span, annotations);
                 }
 
                 Ok(output_type)
@@ -463,7 +492,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 operand,
                 span,
                 operand_type,
-                op_span: _,
+                op_span,
             } => {
                 let operand_type_computed = match op {
                     PrefixOp::Cast(_) => {
@@ -497,30 +526,31 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         if operand_type_computed.width(ctx)? == to.width(ctx)? {
                             (true, to.clone())
                         } else {
-                            return Err(eyre!("Can not cast between types of differing width")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                *span,
-                                &[
-                                    (*span, &format!("has the type `{operand_type_computed:?}`, but the cast target type {to:?} is a different width")),
-                                ],
-                            )
-                        }));
+                            let annotations = vec![
+                                (*op_span, format!("has the type `{operand_type_computed:?}`, but the cast target type {to:?} is a different width").into()),
+                            ];
+
+                            return Err(TypeError::CastWrongWidth {
+                                src_type: operand_type_computed,
+                                dst_type: to.clone(),
+                                backtrace: Backtrace::capture(),
+                            })
+                            .wrap_span_annotations(*span, annotations);
                         }
                     }
                     PrefixOp::Dereference => {
                         if let Type::Pointer(target) = operand_type_computed.clone() {
                             (true, *target)
                         } else {
-                            return Err(eyre!("Can not dereference a non pointer type")
-                                .with_section(|| {
-                                    generate_span_error_section_with_annotations(
-                                        *span,
-                                        &[
-                                            (*span, &format!("has the type `{operand_type_computed:?}`, which is not a pointer type")),
-                                        ],
-                                    )
-                                }));
+                            let annotations = vec![
+                                (*op_span, format!("has the type `{operand_type_computed:?}`, which is not a pointer type").into()),
+                            ];
+
+                            return Err(TypeError::DereferenceNonPointer {
+                                operand_type: operand_type_computed,
+                                backtrace: Backtrace::capture(),
+                            })
+                            .wrap_span_annotations(*span, annotations);
                         }
                     }
                     PrefixOp::AddressOf => {
@@ -529,15 +559,18 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 };
 
                 if !valid_types {
-                    return Err(eyre!("Prefix op uses a disallowed type")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                *span,
-                                &[
-                                    (*span, &format!("has the type `{operand_type_computed:?}`, which is not permitted")),
-                                ],
-                            )
-                        }));
+                    let annotations = vec![(
+                        *op_span,
+                        format!("has the type `{operand_type_computed:?}`, which is not permitted")
+                            .into(),
+                    )];
+
+                    return Err(TypeError::PrefixOpBadArgs {
+                        op: op.clone(),
+                        operand_type: operand_type_computed,
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span_annotations(*span, annotations);
                 }
 
                 Ok(return_type)
@@ -547,7 +580,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 operand,
                 span,
                 operand_type,
-                op_span: _,
+                op_span,
             } => {
                 let operand_type_computed = match op {
                     PostfixOp::Member(_) => {
@@ -603,12 +636,12 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         if let Some(val_type) = map.get(ident) {
                             (true, val_type.clone())
                         } else {
-                            return Err(eyre!("Attempting to access non-existant field {ident} on struct {operand_type_computed}")
-                                .with_section(|| {
-                                    generate_span_error_section(
-                                        *span,
-                                    )
-                                }));
+                            return Err(TypeError::UnknownStructMember {
+                                operand_type: operand_type_computed,
+                                member: ident,
+                                backtrace: Backtrace::capture(),
+                            })
+                            .wrap_span_annotations(*span, vec![(*op_span, "here".into())]);
                         }
                     }
                     (Type::Pointer(inner_type), PostfixOp::MemberDeref(ident)) => {
@@ -617,22 +650,15 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                                 if let Some(val_type) = map.get(ident) {
                                     (true, val_type.clone())
                                 } else {
-                                    return Err(eyre!("Attempting to access non-existant field {ident} on struct {operand_type_computed} with arrow operator")
-                                .with_section(|| {
-                                    generate_span_error_section(
-                                        *span,
-                                    )
-                                }));
+                                    return Err(TypeError::UnknownStructMember {
+                                        operand_type: operand_type_computed,
+                                        member: ident,
+                                        backtrace: Backtrace::capture(),
+                                    })
+                                    .wrap_span_annotations(*span, vec![(*op_span, "here".into())]);
                                 }
                             }
-                            _ => {
-                                return Err(eyre!("Attempting to use arrow on a pointer to a non-struct type {inner_type}")
-                                .with_section(|| {
-                                    generate_span_error_section(
-                                        *span,
-                                    )
-                                }));
-                            }
+                            _ => (false, Type::Void),
                         }
                     }
                     (
@@ -646,17 +672,14 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                             CaptureKind::Read,
                         );
 
-                        let idx_type = idx_result?.resolve_once(ctx)?;
-                        let Type::Int = idx_type else {
-                            return Err(eyre!("Attempting to index into an array or pointer with a expression of non Int type: {idx_type}")
-                                .with_section(|| {
-                                    generate_span_error_section_with_annotations(
-                                        *span,
-                                        &[
-                                            (expr.as_span(), "here")
-                                        ]
-                                    )
-                                }));
+                        let index_type = idx_result?.resolve_once(ctx)?;
+                        let Type::Int = index_type else {
+                            return Err(TypeError::BadArrayIndexType {
+                                op: op.clone(),
+                                index_type,
+                                backtrace: Backtrace::capture(),
+                            })
+                            .wrap_span_annotations(*span, vec![(*op_span, "here".into())]);
                         };
 
                         (true, (**inner_type).clone())
@@ -665,15 +688,18 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 };
 
                 if !valid_types {
-                    return Err(eyre!("Postfix op {op} a disallowed type {operand_type_computed}")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                *span,
-                                &[
-                                    (*span, &format!("has the type `{operand_type_computed:?}`, which is not permitted")),
-                                ],
-                            )
-                        }));
+                    let annotations = vec![(
+                        *op_span,
+                        format!("has the type `{operand_type_computed:?}`, which is not permitted")
+                            .into(),
+                    )];
+
+                    return Err(TypeError::PostfixOpBadArgs {
+                        op: op.clone(),
+                        operand_type: operand_type_computed,
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span_annotations(*span, annotations);
                 }
 
                 Ok(return_type)
@@ -703,25 +729,21 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 }
 
 impl<'a> TypeCheck<'a> for FunctionCall<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let sig = ctx
             .lookup_function(self.function)
-            .wrap_err_with(|| format!("Could not find function: {}", self.function))
-            .with_section(|| generate_span_error_section(self.span))?
+            .wrap_span(self.span)?
             .clone();
 
         if self.parameters.len() != sig.arguements.len() {
-            return Err(eyre!("Function called with the incorrect number of arguements")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                self.span,
-                                &[
-                                    (self.span, &format!("The function `{}` was called with {} parameters but it was defined to have {} arguements.\nThe function was defined with the signature: {sig:?}", self.function, self.parameters.len(), sig.arguements.len())),
-                                ],
-                            )
-                        }));
+            return Err(TypeError::FunctionCallArgCount {
+                function: self.clone(),
+                signature: sig,
+                backtrace: Backtrace::capture(),
+            })
+            .wrap_span(self.span);
         }
 
         for (parm_expr, (arg_type, arg_name, _)) in
@@ -730,15 +752,18 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             let parm_type = parm_expr.check_and_resolve_types(ctx)?;
             let arg_type = arg_type;
             if !parm_type.compatible_with(arg_type, ctx)? {
-                return Err(eyre!("Function called with a paramater of the incorrect type")
-                            .with_section(|| {
-                                generate_span_error_section_with_annotations(
-                                    self.span,
-                                    &[
-                                        (parm_expr.as_span(), &format!("has the type `{parm_type:?}`, but the arguemment `{arg_name}` to the function `{}` expected the type `{arg_type:?}`", self.function)),
-                                    ],
-                                )
-                            }));
+                let annotations = vec![(parm_expr.as_span(), "here".into())];
+
+                return Err(TypeError::FunctionCallArgBadType {
+                    arg_expr: parm_expr.clone(),
+                    function: self.clone(),
+                    signature: sig.clone(),
+                    parm_name: *arg_name,
+                    expected_type: arg_type.clone(),
+                    provided_type: parm_type,
+                    backtrace: Backtrace::capture(),
+                })
+                .wrap_span_annotations(self.span, annotations);
             }
         }
 
@@ -755,7 +780,7 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 }
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let (actual_return_type, _frame) =
@@ -766,34 +791,25 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
         let actual_return_type = actual_return_type?;
 
         if !actual_return_type.compatible_with(&self.signature.return_type, ctx)? {
-            return Err(eyre!("Function definition returns the incorrect type")
-                .with_section(|| {
-                    generate_span_error_section_with_annotations(
-                        self.span,
-                        &[(
-                            AnnotatedSpan {
-                                span: self
-                                    .contents
-                                    .statements
-                                    .last()
-                                    .map(|it| it.as_span())
-                                    .unwrap_or_else(|| self.contents.as_span())
-                                    .span
-                                    .lines_span()
-                                    .last()
-                                    .unwrap_or_else(|| self.contents.as_span().span),
-                                file_name: self.span.file_name,
-                            },
-                            &format!(
-                                "has the type `{actual_return_type:?}`, but a `{:?}` is required",
-                                self.signature.return_type
-                            ),
-                        )],
-                    )
-                })
-                .with_section(|| {
-                    format!("Last statement: {:#?}", self.contents.statements.last())
-                }));
+            let last_statement = self.contents.statements.last();
+            let last_statement_span = last_statement
+                .as_ref()
+                .map(|it| it.as_span())
+                .unwrap_or_else(|| self.contents.as_span());
+
+            let annotations = vec![(
+                last_statement_span,
+                format!("This returns {actual_return_type}").into(),
+            )];
+
+            return Err(TypeError::BlockReturnsWrongType {
+                block: self.contents.clone(),
+                expected_return_type: self.signature.return_type.clone(),
+                actual_return_type,
+                last_statement: self.contents.statements.last().cloned(),
+                backtrace: Backtrace::capture(),
+            })
+            .wrap_span_annotations(self.span, annotations);
         }
 
         // Computing captures got moved into ctx.define_function
@@ -804,7 +820,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
@@ -812,20 +828,21 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
         match &mut self.var_type {
             DeferedType::ResolvedType(expected_type) => {
                 if !actual_type.compatible_with(expected_type, ctx)? {
-                    return Err(
-                        eyre!("Const definition set to the incorrect type").with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                self.span,
-                                &[(
-                                    self.expr_span,
-                                    &format!(
-                                        "has the type `{actual_type:?}`, but a `{:?}` is required",
-                                        expected_type
-                                    ),
-                                )],
-                            )
-                        }),
-                    );
+                    let annotations = vec![(
+                        self.expr.as_span(),
+                        format!(
+                            "has the type `{actual_type}`, but a `{expected_type}` is required"
+                        )
+                        .into(),
+                    )];
+
+                    return Err(TypeError::ConstDefTypeMismatch {
+                        expected_type: expected_type.clone(),
+                        provided_type: actual_type.clone(),
+                        constant: self.clone(),
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span_annotations(self.span, annotations);
                 } else {
                     actual_type = expected_type.clone();
                 }
@@ -846,7 +863,7 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
@@ -854,20 +871,21 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
         match &mut self.var_type {
             DeferedType::ResolvedType(expected_type) => {
                 if !actual_type.compatible_with(expected_type, ctx)? {
-                    return Err(
-                        eyre!("Local definition set to the incorrect type").with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                self.span,
-                                &[(
-                                    self.expr.as_span(),
-                                    &format!(
-                                        "has the type `{actual_type:?}`, but a `{:?}` is required",
-                                        expected_type
-                                    ),
-                                )],
-                            )
-                        }),
-                    );
+                    let annotations = vec![(
+                        self.expr.as_span(),
+                        format!(
+                            "has the type `{actual_type}`, but a `{expected_type}` is required"
+                        )
+                        .into(),
+                    )];
+
+                    return Err(TypeError::LocalDefTypeMismatch {
+                        expected_type: expected_type.clone(),
+                        provided_type: actual_type,
+                        local: self.clone(),
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span_annotations(self.span, annotations);
                 } else {
                     actual_type = expected_type.clone();
                 }
@@ -888,7 +906,7 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Assignment<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         // Eval target call in read write
@@ -911,19 +929,23 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
         };
 
         if mismatched_type {
-            return Err(eyre!("Assignment mismatching types").with_section(|| {
-                generate_span_error_section_with_annotations(
-                    self.span,
-                    &[(
-                        self.expr.as_span(),
-                        &format!(
-                            "the type `{:?}`\n, can not be assigned to a place of type a `{:?}`",
-                            expr_type.resolve_once(ctx),
-                            target_type.resolve_once(ctx)
-                        ),
-                    )],
+            let annotations = vec![(
+                self.expr.as_span(),
+                format!(
+                    "the type `{}`\n, can not be assigned to a place of type a `{}`",
+                    expr_type.resolve_once(ctx)?,
+                    target_type.resolve_once(ctx)?
                 )
-            }));
+                .into(),
+            )];
+
+            return Err(TypeError::AssignmentTypeMismatch {
+                assignment: self.clone(),
+                target_type,
+                expr_type,
+                backtrace: Backtrace::capture(),
+            })
+            .wrap_span_annotations(self.span, annotations);
         }
 
         self.expr_type = DeferedType::ResolvedType(expr_type);
@@ -935,7 +957,7 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Loop<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let (frame, _outer_frame) = ctx.define_scope(
@@ -950,19 +972,21 @@ impl<'a> TypeCheck<'a> for Loop<'a> {
                             let case_type = cond.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
 
                             if !matches!(case_type, Type::Bool) {
-                                return Err(eyre!("Loop's condition evaluated to the incorrect type")
-                        .with_section(|| {
-                            generate_span_error_section_with_annotations(
-                                self.span,
-                                &[(
+                                let annotations = vec![(
                                     cond.as_span(),
-                                    &format!(
-                                        "has the type `{case_type:?}`, but a `{:?}` is required",
+                                    format!(
+                                        "has the type `{case_type}`, but a `{}` is required",
                                         Type::Bool
-                                    ),
-                                )],
-                            )
-                        }));
+                                    )
+                                    .into(),
+                                )];
+
+                                return Err(TypeError::ConditionIsntBool {
+                                    condition: cond.clone(),
+                                    expr_type: case_type,
+                                    backtrace: Backtrace::capture(),
+                                })
+                                .wrap_span_annotations(self.span, annotations);
                             }
                         }
 
@@ -992,7 +1016,7 @@ impl<'a> TypeCheck<'a> for Loop<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Typedef<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         ctx.define_type(self.name, self.type_alias.clone())?;
@@ -1003,7 +1027,7 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 }
 
 impl<'a> TypeCheck<'a> for IfCase<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let case_type = self
@@ -1011,22 +1035,21 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
             .check_and_resolve_types(ctx)?
             .resolve_once(ctx)?;
         if !matches!(case_type, Type::Bool) {
-            return Err(
-                eyre!("If statement's condition evaluated to the incorrect type").with_section(
-                    || {
-                        generate_span_error_section_with_annotations(
-                            self.span,
-                            &[(
-                                self.condition.as_span(),
-                                &format!(
-                                    "has the type `{case_type:?}`, but a `{:?}` is required",
-                                    Type::Bool
-                                ),
-                            )],
-                        )
-                    },
-                ),
-            );
+            let annotations = vec![(
+                self.condition.as_span(),
+                format!(
+                    "has the type `{case_type}`, but a `{}` is required",
+                    Type::Bool
+                )
+                .into(),
+            )];
+
+            return Err(TypeError::ConditionIsntBool {
+                condition: self.condition.clone(),
+                expr_type: case_type,
+                backtrace: Backtrace::capture(),
+            })
+            .wrap_span_annotations(self.span, annotations);
         }
 
         self.contents.check_and_resolve_types(ctx)
@@ -1034,7 +1057,7 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
 }
 
 impl<'a> TypeCheck<'a> for IfExpr<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let expected_type = self
@@ -1046,50 +1069,52 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
         let (rst, frame) = ctx.define_scope(
             |ctx| -> Result<_> {
                 for case in &mut self.cases {
-                    let case_return_type = case.check_and_resolve_types(ctx)?;
-                    if !case_return_type.compatible_with(&expected_type, ctx)? {
-                        return Err(
-                    eyre!("If case's block evaluated to the incorrect type").with_section(|| {
-                        generate_span_error_section_with_annotations(
-                            case.span,
-                            &[(
-                                case.contents
-                                    .statements
-                                    .last()
-                                    .map(|it| it.as_span())
-                                    .unwrap_or_else(|| case.contents.as_span()),
-                                &format!(
-                                    "has the type `{case_return_type:?}`, but a `{:?}` is required",
-                                    expected_type
-                                ),
-                            )],
-                        )
-                    }),
-                );
+                    let actual_return_type = case.check_and_resolve_types(ctx)?;
+                    if !actual_return_type.compatible_with(&expected_type, ctx)? {
+                        let last_statement = case.contents.statements.last();
+                        let last_statement_span = last_statement
+                            .as_ref()
+                            .map(|it| it.as_span())
+                            .unwrap_or_else(|| case.contents.as_span());
+
+                        let annotations = vec![(
+                            last_statement_span,
+                            format!("This returns {actual_return_type}").into(),
+                        )];
+
+                        return Err(TypeError::BlockReturnsWrongType {
+                            block: case.contents.clone(),
+                            actual_return_type,
+                            expected_return_type: expected_type.clone(),
+                            last_statement: case.contents.statements.last().cloned(),
+                            backtrace: Backtrace::capture(),
+                        })
+                        .wrap_span_annotations(self.span, annotations);
                     }
                 }
 
                 if let Some(otherwise) = &mut self.otherwise {
-                    let case_return_type = otherwise.check_and_resolve_types(ctx)?;
-                    if !case_return_type.compatible_with(&expected_type, ctx)? {
-                        return Err(
-                    eyre!("If case's block evaluated to the incorrect type").with_section(|| {
-                        generate_span_error_section_with_annotations(
-                            otherwise.as_span(),
-                            &[(
-                                otherwise
-                                    .statements
-                                    .last()
-                                    .map(|it| it.as_span())
-                                    .unwrap_or_else(|| otherwise.as_span()),
-                                &format!(
-                                    "has the type `{case_return_type:?}`, but a `{:?}` is required",
-                                    expected_type
-                                ),
-                            )],
-                        )
-                    }),
-                );
+                    let actual_return_type = otherwise.check_and_resolve_types(ctx)?;
+                    if !actual_return_type.compatible_with(&expected_type, ctx)? {
+                        let last_statement = otherwise.statements.last();
+                        let last_statement_span = last_statement
+                            .as_ref()
+                            .map(|it| it.as_span())
+                            .unwrap_or_else(|| otherwise.as_span());
+
+                        let annotations = vec![(
+                            last_statement_span,
+                            format!("This returns {actual_return_type}").into(),
+                        )];
+
+                        return Err(TypeError::BlockReturnsWrongType {
+                            block: otherwise.clone(),
+                            actual_return_type,
+                            expected_return_type: expected_type.clone(),
+                            last_statement: otherwise.statements.last().cloned(),
+                            backtrace: Backtrace::capture(),
+                        })
+                        .wrap_span_annotations(self.span, annotations);
                     }
                 }
 
@@ -1107,7 +1132,7 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Statement<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         match self {
@@ -1134,7 +1159,7 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Block<'a> {
-    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let mut actual_return_type = Type::Void;

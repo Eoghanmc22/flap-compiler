@@ -1,8 +1,4 @@
-use color_eyre::{
-    Section,
-    eyre::{Context, ContextCompat, Ok, Result, eyre},
-};
-use std::{collections::BTreeMap, fmt::Write, sync::Arc};
+use std::{backtrace::Backtrace, collections::BTreeMap, fmt::Write, sync::Arc};
 use tracing::trace;
 
 use crate::{
@@ -16,12 +12,15 @@ use crate::{
         clac::{ClacProgram, ClacToken, ClacValue},
         ir::{ClacOp, DataReference},
     },
+    error::{MiddlewareError, SpannedErrorExt},
 };
+
+type Result<'a, T, E = MiddlewareError<'a>> = std::result::Result<T, E>;
 
 pub fn walk_block<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     block: &Block<'a>,
-) -> Result<MaybeTailCall<'a>> {
+) -> Result<'a, MaybeTailCall<'a>> {
     let mut last_return_val: Option<ExpressionOutput> = None;
 
     let mut defered = Vec::new();
@@ -85,7 +84,7 @@ pub fn walk_block<'a, 'b>(
 fn walk_function_call<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     func_call: &FunctionCall<'a>,
-) -> Result<MaybeTailCall<'a>> {
+) -> Result<'a, MaybeTailCall<'a>> {
     let FunctionCall {
         function,
         parameters,
@@ -97,15 +96,15 @@ fn walk_function_call<'a, 'b>(
         .map(|it| walk_expr(ctx, it)?.into_data_ref(ctx))
         .collect::<Result<Vec<DataReference<'a>>>>()?;
 
-    ctx.call_function_like(function, parameters, *span)
-        .wrap_err_with(|| format!("Walk function call '{:?}' failed", function))
-        .with_section(|| generate_span_error_section(*span))
+    Ok(ctx
+        .call_function_like(function, parameters, *span)
+        .wrap_span(*span)?)
 }
 
 fn walk_function_def<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     func_def: &FunctionDef<'a>,
-) -> Result<()> {
+) -> Result<'a, ()> {
     let FunctionDef {
         attributes,
         function,
@@ -114,16 +113,23 @@ fn walk_function_def<'a, 'b>(
         signature,
     } = func_def;
 
-    ctx.define_function(function, signature.clone(), attributes, move |ctx| {
-        walk_block(ctx, contents)
-    })
-    .wrap_err_with(|| format!("Walk function def '{:?}' failed", function))
-    .with_section(|| generate_span_error_section(*span))?;
+    ctx.define_function(
+        function,
+        signature.clone(),
+        attributes,
+        move |ctx| -> Result<'a, _> { walk_block(ctx, contents) },
+    )
+    .wrap_span_desc_with(*span, || {
+        format!("Walk function def '{:?}' failed", function)
+    })?;
 
     Ok(())
 }
 
-fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>) -> Result<()> {
+fn walk_const_def<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    const_def: &ConstDef<'a>,
+) -> Result<'a, ()> {
     let ConstDef {
         var_type,
         expr,
@@ -136,17 +142,20 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
     let expr_value = match expr_data_ref {
         DataReference::Value(val, _) => val,
         _ => {
-            return Err(eyre!("Const could not be evaluated at compile time"))
-                .with_section(|| generate_span_error_section(const_def.as_span()));
+            return Err(MiddlewareError::DynamicConstant {
+                cosntant: const_def.clone(),
+                backtrace: Backtrace::capture(),
+            })
+            .wrap_span(const_def.as_span());
         }
     };
 
     let DeferedType::ResolvedType(var_type) = var_type else {
-        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
     };
 
     let DeferedVersion::ResolvedVersion(version) = version else {
-        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
     };
 
     assert!(var_type.compatible_with(&expr_value.compute_type(), ctx.type_checker)?);
@@ -156,7 +165,10 @@ fn walk_const_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, const_def: &ConstDef<'a>
     Ok(())
 }
 
-fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>) -> Result<()> {
+fn walk_local_def<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    local_def: &LocalDef<'a>,
+) -> Result<'a, ()> {
     let LocalDef {
         var_type,
         expr,
@@ -165,11 +177,11 @@ fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>
     } = local_def;
 
     let DeferedType::ResolvedType(var_type) = var_type.clone() else {
-        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
     };
 
     let DeferedVersion::ResolvedVersion(version) = version else {
-        return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
     };
 
     let data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
@@ -181,7 +193,7 @@ fn walk_local_def<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, local_def: &LocalDef<'a>
 fn walk_assignment<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     assignment: &Assignment<'a>,
-) -> Result<MaybeTailCall<'a>> {
+) -> Result<'a, MaybeTailCall<'a>> {
     let Assignment {
         target,
         expr,
@@ -191,10 +203,10 @@ fn walk_assignment<'a, 'b>(
         expr_type,
     } = assignment;
     let DeferedType::ResolvedType(target_type) = target_type.clone() else {
-        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
     };
     let DeferedType::ResolvedType(expr_type) = expr_type.clone() else {
-        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
     };
 
     let expr_data_ref = walk_expr(ctx, &expr)?.into_data_ref(ctx)?;
@@ -207,15 +219,14 @@ fn walk_assignment<'a, 'b>(
             if let Some(derived_from_local) = maybe_tail_call.into_data_ref(ctx)?.originator() {
                 let Some(old) = ctx.lookup_local(&derived_from_local.version) else {
                     if let Some(_) = ctx.lookup_const(&derived_from_local.version) {
-                        return Err(eyre!(
-                            "Can not assign to a place derived from a constant since constants are immutable",
-                        )
-                        .with_section(|| generate_span_error_section(*span)));
+                        return Err(MiddlewareError::MutateConstant {
+                            assignment: assignment.clone(),
+                            backtrace: Backtrace::capture(),
+                        })
+                        .wrap_span(*span);
                     } else {
-                        return Err(eyre!(
-                            "COMPILER BUG: Attempted to assign to non existant variable",
-                        )
-                        .with_section(|| generate_span_error_section(*span)));
+                        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()))
+                            .wrap_span(*span);
                     }
                 };
 
@@ -226,17 +237,16 @@ fn walk_assignment<'a, 'b>(
                 {
                     ctx.promote_to_local(&expr_data_ref, derived_from_local.version, target_type)?;
                 } else {
-                    return Err(eyre!(
-                        "UNIMPLEMENTED: Assignments can currently only mutate entire locals, not offsets into them, offset: {:?}, old type: {}, target_type: {}, expr_type: {}",
-                        derived_from_local.offset, old.data_type, target_type, expr_type
-                    )
-                    .with_section(|| generate_span_error_section(*span)));
+                    return Err(MiddlewareError::UnimplementedFeature {
+                        msg: format!("UNIMPLEMENTED: Assignments can currently only mutate entire locals, not offsets into them, offset: {:?}, old type: {}, target_type: {}, expr_type: {}", derived_from_local.offset, old.data_type, target_type, expr_type),
+                        backtrace: Backtrace::capture()
+                    }).wrap_span(*span);
                 }
             } else {
-                return Err(eyre!(
-                    "UNIMPLEMENTED: Assignments only support places that simplify to a pointer deref or are derived from locals",
-                )
-                .with_section(|| generate_span_error_section(*span)));
+                return Err(MiddlewareError::UnimplementedFeature {
+                    msg: "UNIMPLEMENTED: Assignments only support places that simplify to a pointer deref or are derived from locals".into(),
+                    backtrace: Backtrace::capture()
+                }).wrap_span(*span);
             }
         }
         ExpressionOutput::Dereference(target, target_pointer_type, _span) => {
@@ -270,11 +280,13 @@ fn walk_assignment<'a, 'b>(
                             ctx.reference_relative(Type::Char, &expr_data_ref, Offset(idx))?;
 
                         let target_char = if idx != 0 {
-                            ClacOp::Add {
+                            let op = ClacOp::Add {
                                 lhs: target_data_ref.clone(),
                                 rhs: DataReference::Value(Value::Int(idx as ClacValue), None),
-                            }
-                            .append_into(ctx)?
+                            };
+                            op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?
                         } else {
                             target_data_ref.clone()
                         };
@@ -288,7 +300,7 @@ fn walk_assignment<'a, 'b>(
                         let int = ctx.reference_relative(Type::Int, &expr_data_ref, Offset(idx))?;
 
                         let target_int = if idx != 0 {
-                            ClacOp::Add {
+                            let op = ClacOp::Add {
                                 lhs: target_data_ref.clone(),
                                 rhs: DataReference::Value(
                                     Value::Int(
@@ -296,8 +308,10 @@ fn walk_assignment<'a, 'b>(
                                     ),
                                     None,
                                 ),
-                            }
-                            .append_into(ctx)?
+                            };
+                            op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?
                         } else {
                             target_data_ref.clone()
                         };
@@ -313,7 +327,10 @@ fn walk_assignment<'a, 'b>(
     Ok(DataReference::Tempoary(ctx.allocate_tempoary(Type::Void)?, None).into())
 }
 
-fn walk_loop<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, inner: &Loop<'a>) -> Result<MaybeTailCall<'a>> {
+fn walk_loop<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    inner: &Loop<'a>,
+) -> Result<'a, MaybeTailCall<'a>> {
     if let Some(init) = &inner.init {
         walk_local_def(ctx, init)?;
     }
@@ -393,7 +410,7 @@ fn walk_loop<'a, 'b>(ctx: &mut CodegenCtx<'a, 'b>, inner: &Loop<'a>) -> Result<M
 fn walk_if_expr<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     if_expr: &IfExpr<'a>,
-) -> Result<MaybeTailCall<'a>> {
+) -> Result<'a, MaybeTailCall<'a>> {
     let IfExpr {
         cases,
         otherwise,
@@ -403,11 +420,10 @@ fn walk_if_expr<'a, 'b>(
     } = if_expr;
 
     if otherwise.is_none() && !return_type.compatible_with(&Type::Void, ctx.type_checker)? {
-        return Err(eyre!(
-            "Got non exhustive if statement with non void return type ({:?})",
-            return_type
-        )
-        .with_section(|| generate_span_error_section(*span)));
+        return Err(MiddlewareError::CompilerBug(Backtrace::capture())).wrap_span_desc(
+            *span,
+            format!("Got non exhustive if statement with non void return type ({return_type:?})"),
+        );
     }
 
     let sig = FunctionSignature {
@@ -426,11 +442,10 @@ fn walk_if_statement_inner<'a, 'b>(
     if_cases: &[IfCase<'a>],
     otherwise: Option<&Block<'a>>,
     mut signature: FunctionSignature<'a>,
-) -> Result<MaybeTailCall<'a>> {
+) -> Result<'a, MaybeTailCall<'a>> {
     if let Some((next_case, remaining)) = if_cases.split_first() {
         let condition = walk_expr(ctx, &next_case.condition)
-            .wrap_err("If cond should return something")
-            .with_section(|| generate_span_error_section(next_case.span))?
+            .wrap_span_desc(next_case.span, "If cond should return something")?
             .into_data_ref(ctx)?;
 
         let on_true =
@@ -455,20 +470,23 @@ fn walk_if_statement_inner<'a, 'b>(
         let mut parameters = Vec::new();
         for (arg_data_type, _arg_ident, version) in &signature.arguements {
             let DeferedVersion::ResolvedVersion(version) = version else {
-                return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
 
-            let AnnotatedDataRef {
+            let Some(AnnotatedDataRef {
                 reference,
                 data_type,
-            } = ctx.lookup_local(&version).wrap_err(
-                "Look up local for capture for if statement could not find corosponding local",
-            )?;
+            }) = ctx.lookup_local(&version)
+            else {
+                return Err(MiddlewareError::CompilerBug(Backtrace::capture())).wrap_span_desc(
+                    next_case.as_span(),
+                    "Look up local for capture for if statement could not find corresponding local",
+                );
+            };
 
             if !arg_data_type.compatible_with(&data_type, ctx.type_checker)? {
-                return Err(eyre!(
-                    "Look up local for capture for if statement failed due to type mismatch, arg_data_type: {arg_data_type}, data_type: {data_type}"
-                ));
+                return Err(MiddlewareError::CompilerBug(Backtrace::capture()))
+                    .wrap_span_desc(next_case.as_span(), format!("Look up local for capture for if statement failed due to type mismatch, arg_data_type: {arg_data_type}, data_type: {data_type}"));
             }
 
             parameters.push(reference);
@@ -513,16 +531,16 @@ impl<'a> From<MaybeTailCall<'a>> for ExpressionOutput<'a> {
 }
 
 impl<'a> ExpressionOutput<'a> {
-    fn into_data_ref(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<DataReference<'a>> {
-        self.into_tail_call(ctx)?.into_data_ref(ctx)
+    fn into_data_ref(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<'a, DataReference<'a>> {
+        Ok(self.into_tail_call(ctx)?.into_data_ref(ctx)?)
     }
 
     // FIXME: this impl is hella cooked
 
-    fn into_tail_call(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<MaybeTailCall<'a>> {
+    fn into_tail_call(self, ctx: &mut CodegenCtx<'a, '_>) -> Result<'a, MaybeTailCall<'a>> {
         match self {
             ExpressionOutput::TailCall(tail_call) => Ok(tail_call),
-            ExpressionOutput::Dereference(operand, operand_type, _span) => {
+            ExpressionOutput::Dereference(operand, operand_type, span) => {
                 let value = walk_expr(ctx, &operand)?;
 
                 // TODO: make this support the MaybeTailCall infra so that it wont get compiled
@@ -550,11 +568,14 @@ impl<'a> ExpressionOutput<'a> {
 
                         for idx in 0..width {
                             if idx != 0 {
-                                let data_ref = ClacOp::Add {
+                                let op = ClacOp::Add {
                                     lhs: target_data_ref.clone(),
                                     rhs: DataReference::Value(Value::Int(idx as ClacValue), None),
-                                }
-                                .append_into(ctx)?;
+                                };
+                                let data_ref =
+                                    op.append_into(ctx).wrap_span_desc_with(span, || {
+                                        format!("Append op code '{op:?}' failed")
+                                    })?;
 
                                 // If the add is performed at run time it will already be at the
                                 // top of the stack, but if it was done at compile time, we need to
@@ -577,7 +598,7 @@ impl<'a> ExpressionOutput<'a> {
 
                         for idx in 0..width {
                             if idx != 0 {
-                                let data_ref = ClacOp::Add {
+                                let op = ClacOp::Add {
                                     lhs: target_data_ref.clone(),
                                     rhs: DataReference::Value(
                                         Value::Int(
@@ -585,8 +606,11 @@ impl<'a> ExpressionOutput<'a> {
                                         ),
                                         None,
                                     ),
-                                }
-                                .append_into(ctx)?;
+                                };
+                                let data_ref =
+                                    op.append_into(ctx).wrap_span_desc_with(span, || {
+                                        format!("Append op code '{op:?}' failed")
+                                    })?;
 
                                 // If the add is performed at run time it will already be at the
                                 // top of the stack, but if it was done at compile time, we need to
@@ -617,7 +641,7 @@ impl<'a> ExpressionOutput<'a> {
 fn walk_expr<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     expr: &Expr<'a>,
-) -> Result<ExpressionOutput<'a>> {
+) -> Result<'a, ExpressionOutput<'a>> {
     match expr {
         Expr::SizeOfType(inner_type, mode, span) => {
             let scale = match mode {
@@ -629,9 +653,11 @@ fn walk_expr<'a, 'b>(
                         Stride::ZST => 0,
                     },
                     _ => {
-                        return Err(eyre!(
-                            "Call to sizeof_packed on a type that does not have a packed repersentation"
-                        ).with_section(|| generate_span_error_section(*span)));
+                        return Err(MiddlewareError::NoPackedRepr {
+                            the_type: inner_type.clone(),
+                            backtrace: Backtrace::capture(),
+                        })
+                        .wrap_span(*span);
                     }
                 },
             };
@@ -644,7 +670,7 @@ fn walk_expr<'a, 'b>(
         }
         Expr::SizeOfExpr(_inner_expr, defered_type, mode, span) => {
             let DeferedType::ResolvedType(inner_type) = defered_type else {
-                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
 
             let scale = match mode {
@@ -656,9 +682,11 @@ fn walk_expr<'a, 'b>(
                         Stride::ZST => 0,
                     },
                     _ => {
-                        return Err(eyre!(
-                            "Call to sizeof_packed on a type that does not have a packed repersentation"
-                        ).with_section(|| generate_span_error_section(*span)));
+                        return Err(MiddlewareError::NoPackedRepr {
+                            the_type: inner_type.clone(),
+                            backtrace: Backtrace::capture(),
+                        })
+                        .wrap_span(*span);
                     }
                 },
             };
@@ -672,19 +700,17 @@ fn walk_expr<'a, 'b>(
         Expr::Value(value, _span) => Ok(DataReference::Value(value.clone(), None).into()),
         Expr::Variable(ident, version, span) => {
             let DeferedVersion::ResolvedVersion(version) = version else {
-                return Err(eyre!("COMPILER BUG: defered version was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
-
-            Ok(ctx
-                .lookup_ident(version)
-                .map(|it| it.reference)
-                .wrap_err_with(|| format!("Could not find identifier: {ident:?}"))
-                .with_section(|| generate_span_error_section(*span))?
-                .into())
+            let Some(data_ref) = ctx.lookup_ident(version).map(|it| it.reference) else {
+                return Err(MiddlewareError::CompilerBug(Backtrace::capture()))
+                    .wrap_span_desc(*span, format!("Could not find identifier: {ident:?}"));
+            };
+            Ok(data_ref.into())
         }
         Expr::Struct(map, struct_type, _span) => {
             let DeferedType::ResolvedType(struct_type) = struct_type else {
-                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
 
             let data_refs = map
@@ -725,7 +751,7 @@ fn walk_expr<'a, 'b>(
             let DeferedType::ResolvedType(array_type @ Type::Array(inner_type, len)) = array_type
             else {
                 // TODO: I think empty arrays will hit this
-                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
 
             assert_eq!(exprs.len(), *len as usize);
@@ -766,10 +792,10 @@ fn walk_expr<'a, 'b>(
             op_span: _,
         } => {
             let DeferedType::ResolvedType(left_type) = left_type else {
-                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
             let DeferedType::ResolvedType(right_type) = right_type else {
-                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
 
             let lhs = walk_expr(ctx, left)?.into_data_ref(ctx)?;
@@ -789,35 +815,41 @@ fn walk_expr<'a, 'b>(
                         (0, _) | (_, Stride::ZST) => todo!(),
                         (1, Stride::Byte) => (lhs, rhs),
                         (1, Stride::Native) => {
-                            let rhs = ClacOp::Mul {
+                            let op = ClacOp::Mul {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8),
                                     None,
                                 ),
                                 rhs,
-                            }
-                            .append_into(ctx)?;
+                            };
+                            let rhs = op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?;
 
                             (lhs, rhs)
                         }
                         (width, Stride::Byte) => {
-                            let rhs = ClacOp::Mul {
+                            let op = ClacOp::Mul {
                                 lhs: DataReference::Value(Value::Int(width), None),
                                 rhs,
-                            }
-                            .append_into(ctx)?;
+                            };
+                            let rhs = op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?;
 
                             (lhs, rhs)
                         }
                         (width, Stride::Native) => {
-                            let rhs = ClacOp::Mul {
+                            let op = ClacOp::Mul {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8 * width),
                                     None,
                                 ),
                                 rhs,
-                            }
-                            .append_into(ctx)?;
+                            };
+                            let rhs = op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?;
 
                             (lhs, rhs)
                         }
@@ -848,8 +880,7 @@ fn walk_expr<'a, 'b>(
 
             let ret = clac_op
                 .append_into(ctx)
-                .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
-                .with_section(|| generate_span_error_section(*span))?;
+                .wrap_span_desc_with(*span, || format!("Append op code '{op:?}' failed"))?;
 
             // Scale ret to have correct semantics for pointer arithmetic
             let ret = match (
@@ -865,35 +896,41 @@ fn walk_expr<'a, 'b>(
                         (0, _) | (_, Stride::ZST) => todo!(),
                         (1, Stride::Byte) => ret,
                         (1, Stride::Native) => {
-                            let ret = ClacOp::Div {
+                            let op = ClacOp::Div {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8),
                                     None,
                                 ),
                                 rhs: ret,
-                            }
-                            .append_into(ctx)?;
+                            };
+                            let ret = op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?;
 
                             ret
                         }
                         (width, Stride::Byte) => {
-                            let ret = ClacOp::Div {
+                            let op = ClacOp::Div {
                                 lhs: DataReference::Value(Value::Int(width), None),
                                 rhs: ret,
-                            }
-                            .append_into(ctx)?;
+                            };
+                            let ret = op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?;
 
                             ret
                         }
                         (width, Stride::Native) => {
-                            let ret = ClacOp::Div {
+                            let op = ClacOp::Div {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8 * width),
                                     None,
                                 ),
                                 rhs: ret,
-                            }
-                            .append_into(ctx)?;
+                            };
+                            let ret = op.append_into(ctx).wrap_span_desc_with(*span, || {
+                                format!("Append op code '{op:?}' failed")
+                            })?;
 
                             ret
                         }
@@ -969,7 +1006,7 @@ fn walk_expr<'a, 'b>(
                 }
                 PrefixOp::Dereference => {
                     let DeferedType::ResolvedType(operand_type) = operand_type else {
-                        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
                     };
 
                     return Ok(ExpressionOutput::Dereference(
@@ -983,14 +1020,14 @@ fn walk_expr<'a, 'b>(
 
                     let ExpressionOutput::Dereference(target, target_pointer_type, _span) = place
                     else {
-                        return Err(eyre!(
-                            "UNIMPLEMENTED: AddressOf only support places that simplify to a pointer deref",
-                        )
-                        .with_section(|| generate_span_error_section(*span)));
+                        return Err(MiddlewareError::UnimplementedFeature {
+                            msg: "UNIMPLEMENTED: AddressOf only support places that simplify to a pointer deref".into(),
+                            backtrace: Backtrace::capture(),
+                        }).wrap_span(*span);
                     };
 
                     let DeferedType::ResolvedType(operand_type) = operand_type else {
-                        return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
                     };
                     assert!(
                         Type::Pointer(operand_type.clone().into())
@@ -1003,8 +1040,7 @@ fn walk_expr<'a, 'b>(
 
             let ret = clac_op
                 .append_into(ctx)
-                .wrap_err_with(|| format!("Append op code '{op:?}' failed"))
-                .with_section(|| generate_span_error_section(*span))?;
+                .wrap_span_desc_with(*span, || format!("Append op code '{op:?}' failed"))?;
             Ok(ret.into())
         }
         Expr::PostfixOp {
@@ -1015,7 +1051,7 @@ fn walk_expr<'a, 'b>(
             op_span,
         } => {
             let DeferedType::ResolvedType(operand_type) = operand_type else {
-                return Err(eyre!("COMPILER BUG: defered type was not resolved"));
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
 
             match (operand_type.resolve_once(ctx.type_checker)?, op) {
@@ -1121,20 +1157,23 @@ fn walk_expr<'a, 'b>(
                                 DataReference::Value(Value::Int(idx), _),
                             )) = idx
                             else {
-                                return Err(eyre!(
-                                    "UNIMPLEMENTED: Can not index into a stack array with a index that is not known at compile time"
-                                ));
+                                return Err(MiddlewareError::UnimplementedFeature {
+                                    msg: "UNIMPLEMENTED: Can not index into a stack array with a index that is not known at compile time".into(),
+                                    backtrace: Backtrace::capture(),
+                                }).wrap_span(*span);
                             };
 
                             assert!(len >= 0);
                             if idx < 0 || idx >= len {
-                                return Err(eyre!("Array Index out of bounds").with_section(|| {
-                                generate_span_error_section_with_annotations(
-                                    *span,
-                                    &[
-                                        (idx_expr.as_span(), &format!("This index is computed to be {idx}, but the length is only {len}"))
-                                    ])
-                                }));
+                                return Err(MiddlewareError::ArrayIndexOutOfBounds {
+                                    array_type: operand_type.clone(),
+                                    index_expr: (**idx_expr).clone(),
+                                    index: idx,
+                                    length: len,
+                                    backtrace: Backtrace::capture(),
+                                }).wrap_span_annotations(*span, vec![
+                                        (idx_expr.as_span(), format!("This index is computed to be {idx}, but the length is only {len}").into())
+                                ]);
                             }
 
                             Ok(ctx
@@ -1234,39 +1273,4 @@ fn walk_expr<'a, 'b>(
         Expr::FunctionCall(func_call) => Ok(walk_function_call(ctx, func_call)?.into()),
         Expr::If(if_expr) => Ok(walk_if_expr(ctx, if_expr)?.into()),
     }
-}
-
-pub fn generate_span_error_section(span: AnnotatedSpan) -> String {
-    generate_span_error_section_with_annotations(span, &[])
-}
-
-pub fn generate_span_error_section_with_annotations(
-    span: AnnotatedSpan,
-    annotations: &[(AnnotatedSpan, &str)],
-) -> String {
-    let mut string = String::new();
-    writeln!(&mut string, "{}", span.file_name).unwrap();
-    for line_span in span.span.lines_span() {
-        let (line, _col) = line_span.start_pos().line_col();
-        write!(&mut string, "{line:4} | {}", line_span.as_str()).unwrap();
-
-        for (anno_span, annotation) in annotations {
-            for anno_line_span in anno_span.span.lines_span() {
-                let (anno_line, anno_col_start) = anno_line_span.start_pos().line_col();
-                let width = anno_line_span.end_pos().pos() - anno_line_span.start_pos().pos();
-
-                if anno_line == line {
-                    let mut marker = String::new();
-
-                    marker.push_str(&" ".repeat(anno_col_start + 5));
-                    marker.push_str(&"^".repeat(width));
-
-                    for line in annotation.lines() {
-                        writeln!(&mut string, "{marker} - {line}").unwrap();
-                    }
-                }
-            }
-        }
-    }
-    string
 }

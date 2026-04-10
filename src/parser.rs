@@ -449,7 +449,6 @@ fn parse_const_var<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Con
     let name = parse_ident(inner.next().unwrap(), file_name)?;
 
     let expr_pair = inner.next().unwrap();
-    let expr_span = expr_pair.as_span();
     let expr = parse_expr(expr_pair.into_inner(), file_name)?;
 
     Ok(ConstDef {
@@ -457,10 +456,6 @@ fn parse_const_var<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Con
         var_type,
         expr,
         span: AnnotatedSpan { span, file_name },
-        expr_span: AnnotatedSpan {
-            span: expr_span,
-            file_name,
-        },
         version: DeferedVersion::UnresolvedVersion,
     })
 }
@@ -472,7 +467,6 @@ fn parse_local_var<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Loc
     let name = parse_ident(inner.next().unwrap(), file_name)?;
 
     let expr_pair = inner.next().unwrap();
-    let expr_span = expr_pair.as_span();
     let expr = parse_expr(expr_pair.into_inner(), file_name)?;
 
     Ok(LocalDef {
@@ -480,10 +474,6 @@ fn parse_local_var<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Loc
         var_type,
         expr,
         span: AnnotatedSpan { span, file_name },
-        expr_span: AnnotatedSpan {
-            span: expr_span,
-            file_name,
-        },
         version: DeferedVersion::UnresolvedVersion,
     })
 }

@@ -11,7 +11,6 @@ use std::{
 };
 
 use pest::Span;
-use thiserror::Error;
 use tracing::{debug, warn};
 
 use crate::{
@@ -24,48 +23,33 @@ use crate::{
             PostProcesser, SourceCodeCommentPostProcessor,
         },
     },
+    error::CompileError,
     middleware, parser,
     type_check::{TypeCheck, TypeChecker},
 };
 
-// TODO add path canonicalize error
-#[derive(Error, Debug)]
-pub enum CompileError {
-    #[error(transparent)]
-    Parsing(#[from] parser::ParsingError),
-
-    #[error(transparent)]
-    TypeCheck(color_eyre::Report),
-
-    #[error(transparent)]
-    Middleware(color_eyre::Report),
-
-    #[error("I/O Error")]
-    IoError(#[from] io::Error, Backtrace),
-
-    #[error("fmt Error")]
-    FmtError(#[from] fmt::Error, Backtrace),
-
-    #[error("Path Contained Invalid Characters")]
-    NonUtf8Path,
-}
-
-type Result<T, E = CompileError> = core::result::Result<T, E>;
+type Result<'a, T, E = CompileError<'a>> = core::result::Result<T, E>;
 
 pub struct CompileContext {
     sources: BTreeMap<PathBuf, SourceFile>,
     root: PathBuf,
+    config: CompileConfig,
 }
 
 pub type FileCache<'a> = HashMap<&'a Path, &'a str>;
 
 impl CompileContext {
-    pub fn new(root: impl AsRef<Path>, file_cache: &FileCache) -> Result<Self> {
+    pub fn new(
+        root: impl AsRef<Path>,
+        file_cache: &FileCache,
+        config: CompileConfig,
+    ) -> Result<'static, Self> {
         let root = fs::canonicalize(root.as_ref())?;
 
         let mut ctx = CompileContext {
             sources: Default::default(),
             root: root.clone(),
+            config,
         };
 
         ctx.collect_sources(&root, file_cache)?;
@@ -73,7 +57,11 @@ impl CompileContext {
         Ok(ctx)
     }
 
-    fn collect_sources(&mut self, file: impl AsRef<Path>, file_cache: &FileCache) -> Result<()> {
+    fn collect_sources(
+        &mut self,
+        file: impl AsRef<Path>,
+        file_cache: &FileCache,
+    ) -> Result<'static, ()> {
         let file = fs::canonicalize(file.as_ref())?;
 
         if fs::metadata(&file)?.is_dir() {
@@ -213,6 +201,10 @@ impl CompileContext {
     pub fn root(&self) -> &SourceFile {
         self.sources.get(&self.root).unwrap()
     }
+
+    pub fn config(&self) -> &CompileConfig {
+        &self.config
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
@@ -243,7 +235,7 @@ impl<'a> SegmentPath<'a> {
 
 pub struct Segment<'a> {
     pub path: Vec<&'a OwnedSpan>,
-    pub ast: Result<Program<'a>>,
+    pub ast: Result<'a, Program<'a>>,
 }
 
 #[derive(Debug, Clone)]
@@ -267,18 +259,13 @@ impl Default for CompileConfig {
     }
 }
 
-pub fn compile(
-    file: impl AsRef<Path> + Debug,
-    config: CompileConfig,
-    file_cache: &FileCache,
-) -> Result<ClacProgram> {
-    let file = file.as_ref();
+pub fn compile(ctx: &CompileContext) -> Result<ClacProgram> {
+    let config = ctx.config();
 
     if config.verbose_parsing_errors {
         pest::set_error_detail(true);
     }
 
-    let ctx = CompileContext::new(file, file_cache)?;
     let mut program = ctx.flatten_imports()?;
     debug!("Parsed AST: {program:#?}");
 
@@ -288,18 +275,11 @@ pub fn compile(
         .map_err(CompileError::TypeCheck)?;
 
     let mut codegen = CodegenCtx::new(&type_checker);
-    let mut program = try {
-        let tail_expr = middleware::walk_block(&mut codegen, &program).wrap_err("Ast to Clac")?;
-        let tail_data_ref = tail_expr
-            .into_data_ref(&mut codegen)
-            .wrap_err("Get tail data ref")?;
-        codegen
-            .bring_up_references(&[tail_data_ref], return_type.width(&type_checker)?)
-            .wrap_err("Bring up tail expr")?;
+    let tail_expr = middleware::walk_block(&mut codegen, &program)?;
+    let tail_data_ref = tail_expr.into_data_ref(&mut codegen)?;
+    codegen.bring_up_references(&[tail_data_ref], return_type.width(&type_checker)?)?;
 
-        codegen.into_tokens()
-    }
-    .map_err(CompileError::Middleware)?;
+    let mut program = codegen.into_tokens();
 
     {
         // Code gen emits clac code with nested definitions which is not valid clac code
@@ -330,10 +310,8 @@ pub fn compile(
     Ok(program)
 }
 
-pub fn compile_to_string(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<String> {
-    let file = file.as_ref();
-
-    let program = compile(file, config, &FileCache::default())?;
+pub fn compile_to_string(ctx: &CompileContext) -> Result<String> {
+    let program = compile(ctx)?;
 
     let mut s = String::new();
 
@@ -342,15 +320,14 @@ pub fn compile_to_string(file: impl AsRef<Path> + Debug, config: CompileConfig) 
     Ok(s)
 }
 
-pub fn compile_to_file(file: impl AsRef<Path> + Debug, config: CompileConfig) -> Result<()> {
-    let file = file.as_ref();
-
-    let program = compile(file, config, &FileCache::default())?;
+pub fn compile_to_file(ctx: &CompileContext) -> Result<()> {
+    let program = compile(ctx)?;
 
     let output_dir = PathBuf::from("out/");
     fs::create_dir_all(&output_dir)?;
     let out_file = output_dir.join(
-        file.with_extension("clac")
+        ctx.root
+            .with_extension("clac")
             .file_name()
             .unwrap_or(OsStr::new("out.clac")),
     );

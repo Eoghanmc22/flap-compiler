@@ -14,6 +14,7 @@
 // - Partial Mutation of stack structs and arrays
 
 use std::{
+    error::Error,
     fs,
     io::{self, Write},
     path::PathBuf,
@@ -23,13 +24,11 @@ use std::{
 
 use clac_lang::types::{ClacState, ExecError};
 use clap::Parser;
-use color_eyre::{
-    config::Theme,
-    eyre::{Context, Result},
-};
+use color_eyre::{config::Theme, eyre::Context};
 use flap_compiler::{
     codegen::clac::ClacToken,
-    compile::{self, CompileConfig, FileCache},
+    compile::{self, CompileConfig, CompileContext, FileCache},
+    error::SpannedErrorExt,
     lsp,
 };
 use tracing::{error, info, level_filters::LevelFilter};
@@ -94,6 +93,8 @@ impl From<CompileConfigArgs> for CompileConfig {
     }
 }
 
+type Result<T, E = Box<dyn Error + Send + Sync>> = std::result::Result<T, E>;
+
 fn main() -> Result<()> {
     let subscriber = tracing_subscriber::Registry::default()
         .with(ErrorLayer::default())
@@ -131,6 +132,7 @@ fn main() -> Result<()> {
             config,
         } => {
             info!("flap-compiler by Eoghanmc22");
+            let config: CompileConfig = config.into();
 
             if !no_parallel {
                 thread::scope(|spawner| -> Result<()> {
@@ -138,19 +140,23 @@ fn main() -> Result<()> {
 
                     for file in files {
                         let config = config.clone();
-                        let handle = spawner.spawn(move || -> Result<()> {
-                            info!("Compiling {file:?}");
-                            compile::compile_to_file(&file, config.into())?;
-                            info!("Finished {file:?}");
+                        let handle =
+                            spawner.spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                                info!("Compiling {file:?}");
+                                let ctx =
+                                    CompileContext::new(&file, &FileCache::default(), config)?;
+                                compile::compile_to_file(&ctx).flatten()?;
+                                info!("Finished {file:?}");
 
-                            Ok(())
-                        });
+                                Ok(())
+                            });
 
                         handles.push(handle);
                     }
 
                     for handle in handles {
-                        handle.join().unwrap()?;
+                        let it: Result<(), Box<dyn Error + Send + Sync>> = handle.join().unwrap();
+                        it?;
                     }
 
                     Ok(())
@@ -161,8 +167,8 @@ fn main() -> Result<()> {
                 for file in files {
                     info!("Compiling {file:?}");
 
-                    let config = config.clone();
-                    compile::compile(&file, config.into(), &FileCache::default())?;
+                    let ctx = CompileContext::new(&file, &FileCache::default(), config.clone())?;
+                    compile::compile(&ctx).flatten()?;
                 }
             }
         }
@@ -196,7 +202,8 @@ fn main() -> Result<()> {
                 info!("flap-compiler by Eoghanmc22");
                 info!("clac++ interpreter by stanleymw");
 
-                let program = compile::compile(&file, config.into(), &FileCache::default())?;
+                let ctx = CompileContext::new(&file, &FileCache::default(), config.into())?;
+                let program = compile::compile(&ctx).flatten()?;
                 let program = program
                     .0
                     .iter()

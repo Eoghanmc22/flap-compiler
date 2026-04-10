@@ -14,7 +14,7 @@ use std::process::Stdio;
 use color_eyre::Result;
 use color_eyre::eyre::{Context, ContextCompat};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
-use lsp_types::notification::Notification as _; // for METHOD consts
+use lsp_types::notification::{DidCloseTextDocument, Notification as _}; // for METHOD consts
 use lsp_types::request::{Request, WorkspaceDiagnosticRefresh};
 use lsp_types::{
     CompletionItem,
@@ -48,8 +48,9 @@ use lsp_types::{
     request::{Completion, Formatting, GotoDefinition, HoverRequest},
 };
 use lsp_types::{
-    CompletionItemLabelDetails, CompletionParams, DiagnosticRelatedInformation, Documentation,
-    HoverParams, Location, MarkupContent, MarkupKind, NumberOrString,
+    CompletionItemLabelDetails, CompletionParams, DiagnosticRelatedInformation,
+    DidCloseTextDocumentParams, Documentation, HoverParams, Location, MarkupContent, MarkupKind,
+    NumberOrString,
 };
 use pest::Span;
 use pest::error::LineColLocation;
@@ -57,7 +58,8 @@ use regex::Regex;
 use tracing::{error, info};
 
 use crate::ast::{self, AnnotatedSpan, Block, Program};
-use crate::compile::{self, CompileConfig, CompileContext, CompileError, FileCache};
+use crate::compile::{self, CompileConfig, CompileContext, FileCache};
+use crate::error::CompileError;
 use crate::lsp::ast_cache::{CachedParsedAst, CachedTypedAst};
 use crate::parser;
 use crate::type_check::{TypeCheck, TypeChecker, VariableKind};
@@ -167,12 +169,14 @@ pub fn start_lsp() -> Result<()> {
     let (connection, io_thread) = Connection::stdio();
 
     // advertised capabilities
+    // TODO: https://www.robertsiliciano.com/notes/lsp-syntax-highlighting/
     let caps = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         completion_provider: Some(CompletionOptions::default()),
         definition_provider: Some(OneOf::Left(true)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         document_formatting_provider: Some(OneOf::Left(false)),
+        semantic_tokens_provider: todo!(),
         ..Default::default()
     };
     let init_params = connection.initialize(serde_json::json!(caps))?;
@@ -268,6 +272,10 @@ fn handle_notification(
                 let file_cache = make_file_cache(docs);
                 build_asts_and_send_diagnostics(conn, &doc, &file_cache)?;
             }
+        }
+        DidCloseTextDocument::METHOD => {
+            let p: DidCloseTextDocumentParams = serde_json::from_value(note.params.clone())?;
+            docs.remove(&p.text_document.uri);
         }
         _ => {}
     }
@@ -467,9 +475,9 @@ fn build_asts_and_send_diagnostics(
         )?;
         *doc.parsed_ast.borrow_mut() = Some(parsed_ast);
 
-        let ctx = CompileContext::new(&*doc.file_name, file_cache);
+        let ctx = CompileContext::new(&*doc.file_name, file_cache, CompileConfig::default());
         let ctx = match ctx {
-            Ok(ctx) => Ok(ctx),
+            Ok(ctx) => Ok(Rc::new(ctx)),
             Err(err) => Err(vec![Diagnostic {
                 range: first_line(&doc.contents),
                 severity: Some(DiagnosticSeverity::ERROR),
@@ -485,14 +493,14 @@ fn build_asts_and_send_diagnostics(
             }]),
         }?;
 
-        let (typed_ast, diagnostics) = CachedTypedAst::new(Rc::new(ctx), |ctx| type_check(ctx));
+        let (typed_ast, diagnostics) = CachedTypedAst::new(ctx.clone(), |ctx| type_check(ctx));
         *doc.typed_ast.borrow_mut() = Some(typed_ast);
 
         if !diagnostics.is_empty() {
             Err(diagnostics)?;
         }
 
-        full_run(doc, file_cache)?;
+        full_run(&ctx)?;
     };
 
     match res {
@@ -654,14 +662,13 @@ fn type_check<'a>(ctx: &'a CompileContext) -> (TypeChecker<'a>, Block<'a>, Vec<D
     )
 }
 
-fn full_run(doc: &Document, file_cache: &FileCache) -> Result<(), Vec<Diagnostic>> {
-    let file = doc.uri.path().as_str();
-    let res = compile::compile(file, CompileConfig::default(), file_cache);
+fn full_run(ctx: &CompileContext) -> Result<(), Vec<Diagnostic>> {
+    let res = compile::compile(ctx);
 
     match res {
         Ok(_) => Ok(()),
         Err(err) => Err(vec![Diagnostic {
-            range: full_range(&doc.contents),
+            range: todo!(),
             severity: Some(DiagnosticSeverity::ERROR),
             code: Some(NumberOrString::String("Compile fail".to_string())),
             code_description: None,
