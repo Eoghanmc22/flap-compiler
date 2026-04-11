@@ -468,7 +468,7 @@ fn walk_if_statement_inner<'a, 'b>(
         clac_op.execute((&mut tokens, &mut *ctx))?;
 
         let mut parameters = Vec::new();
-        for (arg_data_type, _arg_ident, version) in &signature.arguements {
+        for (arg_data_type, _arg_ident, version, _span) in &signature.arguements {
             let DeferedVersion::ResolvedVersion(version) = version else {
                 return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
@@ -496,6 +496,7 @@ fn walk_if_statement_inner<'a, 'b>(
             Type::Bool,
             "condition",
             DeferedVersion::ResolvedVersion(ctx.type_checker.allocate_version()),
+            next_case.condition.as_span(),
         ));
         parameters.push(condition);
 

@@ -38,8 +38,9 @@ pub enum FrameKind {
 #[derive(Debug, Clone)]
 pub struct TypeCheckerFrame<'a> {
     pub variables: HashMap<IdentRef<'a>, VariableVersion>,
-    pub variables_versioned: HashMap<VariableVersion, (IdentRef<'a>, Type<'a>, VariableKind)>,
-    pub functions: HashMap<IdentRef<'a>, FunctionSignature<'a>>,
+    pub variables_versioned:
+        HashMap<VariableVersion, (IdentRef<'a>, Type<'a>, VariableKind, AnnotatedSpan<'a>)>,
+    pub functions: HashMap<IdentRef<'a>, (FunctionSignature<'a>, AnnotatedSpan<'a>)>,
 
     pub frame_kind: FrameKind,
     pub capture_kind: CaptureKind,
@@ -50,9 +51,9 @@ impl<'a> TypeCheckerFrame<'a> {
         Captures(
             self.variables_versioned
                 .iter()
-                .filter_map(|(version, (ident, data_type, kind))| match kind {
+                .filter_map(|(version, (ident, data_type, kind, span))| match kind {
                     VariableKind::Capture(capture_kind) => {
-                        Some((*version, (data_type.clone(), *ident, *capture_kind)))
+                        Some((*version, (data_type.clone(), *ident, *capture_kind, *span)))
                     }
                     _ => None,
                 })
@@ -64,7 +65,7 @@ impl<'a> TypeCheckerFrame<'a> {
 #[derive(Debug, Clone)]
 pub struct TypeChecker<'a> {
     pub scope_stack: Vec<TypeCheckerFrame<'a>>,
-    pub typedefs: HashMap<IdentRef<'a>, Type<'a>>,
+    pub typedefs: HashMap<IdentRef<'a>, (Type<'a>, AnnotatedSpan<'a>)>,
     version_counter: Arc<AtomicU64>,
     break_point: Option<usize>,
 }
@@ -75,7 +76,7 @@ impl Display for TypeChecker<'_> {
 
         let mut already_printed = HashSet::new();
         for frame in self.scope_stack.iter().rev() {
-            for (version, (ident, data_type, kind)) in &frame.variables_versioned {
+            for (version, (ident, data_type, kind, _span)) in &frame.variables_versioned {
                 if already_printed.insert(ident) {
                     write!(f, "{} {}{} ({:?}); ", data_type, ident, version, kind)?;
                 }
@@ -96,7 +97,7 @@ impl Default for TypeChecker<'_> {
         };
 
         for (ident, (_code, mut sig)) in clac_builtins() {
-            type_checker.define_function(ident, &mut sig, |_| {});
+            type_checker.define_function(ident, &mut sig, AnnotatedSpan::builtin(), |_| {});
         }
 
         type_checker.push_scope_frame(FrameKind::Regular, CaptureKind::Read);
@@ -147,16 +148,18 @@ impl<'a> TypeChecker<'a> {
         &mut self,
         ident: IdentRef<'a>,
         signature: &mut FunctionSignature<'a>,
+        span: AnnotatedSpan<'a>,
         mut scope: F,
     ) -> (T, TypeCheckerFrame<'a>) {
         self.top_scope_frame()
             .functions
-            .insert(ident, signature.clone());
+            .insert(ident, (signature.clone(), span));
 
         self.define_scope(
             |ctx| {
-                for (var_type, ident, defered_version) in &mut signature.arguements {
-                    let version = ctx.define_variable(ident, var_type.clone(), VariableKind::Local);
+                for (var_type, ident, defered_version, span) in &mut signature.arguements {
+                    let version =
+                        ctx.define_variable(ident, var_type.clone(), VariableKind::Local, *span);
                     *defered_version = DeferedVersion::ResolvedVersion(version);
                 }
 
@@ -171,7 +174,7 @@ impl<'a> TypeChecker<'a> {
                 let parent = ctx.scope_stack.len() - 2;
                 ctx.scope_stack[parent]
                     .functions
-                    .insert(ident, signature.clone());
+                    .insert(ident, (signature.clone(), span));
                 (scope)(ctx)
             },
             FrameKind::Regular,
@@ -201,6 +204,7 @@ impl<'a> TypeChecker<'a> {
         ident: IdentRef<'a>,
         var_type: Type<'a>,
         kind: VariableKind,
+        span: AnnotatedSpan<'a>,
     ) -> VariableVersion {
         let version = self.allocate_version();
 
@@ -208,13 +212,18 @@ impl<'a> TypeChecker<'a> {
         frame.variables.insert(ident, version);
         frame
             .variables_versioned
-            .insert(version, (ident, var_type, kind));
+            .insert(version, (ident, var_type, kind, span));
 
         version
     }
 
-    pub fn define_type(&mut self, ident: IdentRef<'a>, type_alias: Type<'a>) -> Result<'a, ()> {
-        let res = self.typedefs.insert(ident, type_alias);
+    pub fn define_type(
+        &mut self,
+        ident: IdentRef<'a>,
+        type_alias: Type<'a>,
+        span: AnnotatedSpan<'a>,
+    ) -> Result<'a, ()> {
+        let res = self.typedefs.insert(ident, (type_alias, span));
 
         match res {
             Some(_) => Err(TypeError::TypedefMultipleDefined(
@@ -233,10 +242,13 @@ impl<'a> TypeChecker<'a> {
         self.top_scope_frame().capture_kind
     }
 
-    pub fn lookup_function(&mut self, ident: IdentRef<'a>) -> Result<'a, &FunctionSignature<'a>> {
+    pub fn lookup_function(
+        &self,
+        ident: IdentRef<'a>,
+    ) -> Result<'a, (&FunctionSignature<'a>, AnnotatedSpan<'a>)> {
         for frame in self.scope_stack.iter().rev() {
-            if let Some(sig) = frame.functions.get(&ident) {
-                return Ok(sig);
+            if let Some((sig, span)) = frame.functions.get(&ident) {
+                return Ok((sig, *span));
             }
         }
 
@@ -252,25 +264,31 @@ impl<'a> TypeChecker<'a> {
         &mut self,
         var: VariableVersion,
         capture_kind: CaptureKind,
-    ) -> Result<'a, (Type<'a>, VariableVersion)> {
+    ) -> Result<'a, (Type<'a>, VariableVersion, AnnotatedSpan<'a>)> {
         let frame_kind = self.frame_kind();
 
         for (idx, frame) in self.scope_stack.iter().rev().enumerate() {
-            if let Some((ident, var_type, kind @ (VariableKind::Local | VariableKind::Constant))) =
-                frame.variables_versioned.get(&var)
+            if let Some((
+                ident,
+                var_type,
+                kind @ (VariableKind::Local | VariableKind::Constant),
+                span,
+            )) = frame.variables_versioned.get(&var)
             {
                 let ident = *ident;
                 let var_type = var_type.clone();
+                let span = *span;
 
                 if let FrameKind::Regular = frame_kind
                     && let VariableKind::Local = kind
                 {
                     for frame in self.scope_stack.iter_mut().rev().take(idx) {
-                        let (_, _, VariableKind::Capture(prev_mode)) =
+                        let (_, _, VariableKind::Capture(prev_mode), _span) =
                             frame.variables_versioned.entry(var).or_insert((
                                 ident,
                                 var_type.clone(),
                                 VariableKind::Capture(capture_kind),
+                                span,
                             ))
                         else {
                             unreachable!()
@@ -280,7 +298,7 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
 
-                return Ok((var_type, var));
+                return Ok((var_type, var, span));
             }
         }
 
@@ -295,7 +313,7 @@ impl<'a> TypeChecker<'a> {
     pub fn lookup_variable(
         &mut self,
         var: IdentRef<'a>,
-    ) -> Result<'a, (Type<'a>, VariableVersion)> {
+    ) -> Result<'a, (Type<'a>, VariableVersion, AnnotatedSpan<'a>)> {
         let capture_kind = self.capture_kind();
 
         for frame in self.scope_stack.iter().rev() {
@@ -358,7 +376,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 .check_and_resolve_types(ctx)
                 .wrap_span_desc(*span, "Could not type check expr value"),
             Expr::Variable(ident, defered_version, span) => {
-                let (var_type, version) =
+                let (var_type, version, _span) =
                     ctx.lookup_variable(ident).wrap_span_desc_with(*span, || {
                         format!("Could not find identifier: `{ident:?}`")
                     })?;
@@ -761,10 +779,8 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
-        let sig = ctx
-            .lookup_function(self.function)
-            .wrap_span(self.span)?
-            .clone();
+        let (sig, _span) = ctx.lookup_function(self.function).wrap_span(self.span)?;
+        let sig = sig.clone();
 
         if self.parameters.len() != sig.arguements.len() {
             return Err(TypeError::FunctionCallArgCount {
@@ -775,7 +791,7 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             .wrap_span(self.span);
         }
 
-        for (parm_expr, (arg_type, arg_name, _)) in
+        for (parm_expr, (arg_type, arg_name, _, _)) in
             self.parameters.iter_mut().zip(sig.arguements.iter())
         {
             let parm_type = parm_expr.check_and_resolve_types(ctx)?;
@@ -799,7 +815,7 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
         // On the first pass, captures will not be available
         // But on the second pass, they will be and need to be propagated
         if let DeferedCaptures::ResolvedCaptures(_) = sig.captures {
-            for (_, _, version, kind) in sig.captures_read()? {
+            for (_, _, version, kind, _) in sig.captures_read()? {
                 ctx.lookup_variable_versioned(version, kind)?;
             }
         }
@@ -815,7 +831,7 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let (actual_return_type, _frame) =
-            ctx.define_function(self.function, &mut self.signature, |ctx| {
+            ctx.define_function(self.function, &mut self.signature, self.span, |ctx| {
                 self.contents.check_and_resolve_types(ctx)
             });
 
@@ -887,7 +903,8 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        let version = ctx.define_variable(self.name, actual_type, VariableKind::Constant);
+        let version =
+            ctx.define_variable(self.name, actual_type, VariableKind::Constant, self.span);
         self.version = DeferedVersion::ResolvedVersion(version);
 
         // The const definition it self should not have a return type
@@ -932,7 +949,7 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 
         // Variable needs to be defined after we type check its expression so it cant be
         // recursively defined. (We arent trying to impl nix lol)
-        let version = ctx.define_variable(self.name, actual_type, VariableKind::Local);
+        let version = ctx.define_variable(self.name, actual_type, VariableKind::Local, self.span);
         self.version = DeferedVersion::ResolvedVersion(version);
 
         // The Local Definition it self should not have a return type
@@ -1060,7 +1077,7 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
-        ctx.define_type(self.name, self.type_alias.clone())?;
+        ctx.define_type(self.name, self.type_alias.clone(), self.span)?;
 
         // A typedef does not produce a value
         Ok(Type::Void)

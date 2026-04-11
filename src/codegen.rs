@@ -111,7 +111,7 @@ impl<'a> MaybeTailCall<'a> {
                     ctx.bring_up_references(
                         signature
                             .captures_read()?
-                            .map(|(_type, ident, version, _kind)| {
+                            .map(|(_type, ident, version, _kind, _span)| {
                                 DataReference::Local(version, ident)
                             })
                             .chain(parameters),
@@ -128,7 +128,7 @@ impl<'a> MaybeTailCall<'a> {
                     );
 
                     let mut offset = 0;
-                    for (var_type, _ident, version, _kind) in signature.captures_write()? {
+                    for (var_type, _ident, version, _kind, _span) in signature.captures_write()? {
                         let temp =
                             ctx.reference_relative(var_type.clone(), &full, Offset(offset))?;
 
@@ -377,7 +377,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             let id_counter = self.id_counter.clone();
             let mut offset = 0;
 
-            for (var_type, _ident, version) in signature.arguements_and_captures()? {
+            for (var_type, _ident, version, _span) in signature.arguements_and_captures()? {
                 let DeferedVersion::ResolvedVersion(version) = version else {
                     return Err(CodegenError::CompilerBug(Backtrace::force_capture()).into());
                 };
@@ -433,7 +433,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     self.bring_up_references(
                         tail_call_sig
                             .captures_read()?
-                            .map(|(_type, ident, version, _kind)| {
+                            .map(|(_type, ident, version, _kind, _span)| {
                                 DataReference::Local(version, ident)
                             })
                             .chain(parameters),
@@ -455,7 +455,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     self.bring_up_references(
                         signature
                             .captures_write()?
-                            .map(|(_type, ident, version, _kind)| {
+                            .map(|(_type, ident, version, _kind, _span)| {
                                 DataReference::Local(version, ident)
                             })
                             .chain(iter::once(data_ref)),

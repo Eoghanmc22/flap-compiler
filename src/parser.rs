@@ -406,8 +406,17 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                     ));
                 };
 
+                let span = AnnotatedSpan {
+                    span: pair.as_span(),
+                    file_name,
+                };
                 let ident = parse_ident(pair, file_name)?;
-                arguements.push((last_arg_type, ident, DeferedVersion::UnresolvedVersion));
+                arguements.push((
+                    last_arg_type,
+                    ident,
+                    DeferedVersion::UnresolvedVersion,
+                    span,
+                ));
             }
             Rule::block => {
                 return Ok(FunctionDef {

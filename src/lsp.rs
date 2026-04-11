@@ -40,14 +40,14 @@ use lsp_types::{
 };
 use lsp_types::{
     CompletionItemLabelDetails, CompletionParams, DiagnosticRelatedInformation,
-    DidCloseTextDocumentParams, Documentation, HoverParams, Location, MarkupContent, MarkupKind,
-    NumberOrString,
+    DidCloseTextDocumentParams, Documentation, GotoDefinitionResponse, HoverParams, Location,
+    MarkupContent, MarkupKind, NumberOrString,
 };
 use pest::Span;
 use regex::Regex;
 use tracing::{error, info};
 
-use crate::ast::{self, AnnotatedSpan, Block, Program};
+use crate::ast::{self, AnnotatedSpan, AstNode, Block, CaptureKind, Expr, NearestMode, Program};
 use crate::compile::{self, CompileConfig, CompileContext, FileCache};
 use crate::error::{IntoSpans, TypeError};
 use crate::lsp::ast_cache::{CachedParsedAst, CachedTypedAst};
@@ -56,6 +56,10 @@ use crate::type_check::{TypeCheck, TypeChecker, VariableKind};
 
 // TODO:
 // - Syntax highlighting with semantic tokens
+// - Better hover text
+// - Goto defn for types
+// - variable highlight on hover
+// - symbol rename?
 
 mod ast_cache {
     use std::{mem, rc::Rc};
@@ -283,10 +287,62 @@ fn handle_notification(
 fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap) -> Result<()> {
     match req.method.as_str() {
         GotoDefinition::METHOD => {
+            let p: CompletionParams = serde_json::from_value(req.params.clone())?;
+
+            let doc = docs
+                .get(&p.text_document_position.text_document.uri)
+                .ok_or("Completion Request in unknown document")?;
+
+            let Some(ast) = &*doc.typed_ast.borrow_mut() else {
+                send_err(
+                    conn,
+                    req.id.clone(),
+                    lsp_server::ErrorCode::RequestFailed,
+                    "AST not avaible due to syntax error",
+                )?;
+                return Ok(());
+            };
+
+            let (line, col) = lsp_position_to_pest_position(p.text_document_position.position);
+
+            let mut type_checker = {
+                let mut ast_copy = ast.block().clone();
+                let node =
+                    ast::nearest_node(&ast_copy, line, col, &doc.file_name, NearestMode::Closest);
+
+                let mut type_checker = TypeChecker::default();
+                type_checker.set_break_point(node);
+
+                let res = ast_copy.check_and_resolve_types(&mut type_checker);
+                match res {
+                    Err(TypeError::BreakPoint(type_checker)) => type_checker,
+                    _ => ast.type_checker().clone(),
+                }
+            };
+
+            // TODO: make types an ast node
+            let node =
+                ast::nearest_node(ast.block(), line, col, &doc.file_name, NearestMode::Closest);
+            let defn = match node.as_ast_node() {
+                AstNode::Expr(Expr::Variable(_ident, version, _span)) => type_checker
+                    .lookup_variable_versioned(version.unwrap(), CaptureKind::Read)
+                    .ok()
+                    .map(|(_, _, span)| span),
+                AstNode::FunctionCall(function_call) => type_checker
+                    .lookup_function(function_call.function)
+                    .ok()
+                    .map(|(_, span)| span),
+                AstNode::Directive(directive) => {
+                    // TODO:
+                    None
+                }
+                _ => None,
+            };
+
             send_ok(
                 conn,
                 req.id.clone(),
-                &lsp_types::GotoDefinitionResponse::Array(Vec::new()),
+                &GotoDefinitionResponse::Array(defn.map(span_to_location).into_iter().collect()),
             )?;
         }
         Completion::METHOD => {
@@ -311,7 +367,8 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
                 let mut ast_copy = ast.block().clone();
 
                 let (line, col) = lsp_position_to_pest_position(p.text_document_position.position);
-                let node = ast::nearest_node(&ast_copy, line, col, &doc.file_name);
+                let node =
+                    ast::nearest_node(&ast_copy, line, col, &doc.file_name, NearestMode::Next);
 
                 let mut type_checker = TypeChecker::default();
                 type_checker.set_break_point(node);
@@ -319,7 +376,6 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
                 let res = ast_copy.check_and_resolve_types(&mut type_checker);
                 match res {
                     Err(TypeError::BreakPoint(type_checker)) => {
-                        info!("scopes: {}", type_checker.scope_stack.len());
                         _type_checker = type_checker;
                         &_type_checker
                     }
@@ -330,7 +386,7 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
             let mut items = vec![];
 
             for scope in &type_checker.scope_stack {
-                for (function_name, signature) in &scope.functions {
+                for (function_name, (signature, _span)) in &scope.functions {
                     let hint_full = signature.lsp_render_full(*function_name);
                     let hint_short = signature.lsp_render_short(*function_name);
 
@@ -350,7 +406,8 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
                 }
 
                 for (var_name, var_version) in &scope.variables {
-                    let Some((_, var_type, kind)) = scope.variables_versioned.get(var_version)
+                    let Some((_, var_type, kind, _span)) =
+                        scope.variables_versioned.get(var_version)
                     else {
                         continue;
                     };
@@ -377,7 +434,7 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
                 }
             }
 
-            for (typedef_name, typedef_type) in &type_checker.typedefs {
+            for (typedef_name, (typedef_type, _span)) in &type_checker.typedefs {
                 let hint = format!("typedef {typedef_type} {typedef_name}");
 
                 items.push(CompletionItem {
@@ -417,7 +474,13 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
             let (line, col) =
                 lsp_position_to_pest_position(p.text_document_position_params.position);
 
-            let node = ast::nearest_node(ast.parsed(), line, col, &doc.file_name);
+            let node = ast::nearest_node(
+                ast.parsed(),
+                line,
+                col,
+                &doc.file_name,
+                NearestMode::Closest,
+            );
 
             let mut str = String::new();
             write!(&mut str, "{:#?}", node.as_ast_node())?;

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{Captures, DeferedCaptures, DeferedVersion, FunctionSignature, IdentRef, Type},
+    ast::{
+        AnnotatedSpan, Captures, DeferedCaptures, DeferedVersion, FunctionSignature, IdentRef, Type,
+    },
     codegen::clac::ClacToken,
 };
 
@@ -16,7 +18,10 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Pow,
             FunctionSignature {
-                arguements: vec![(Type::Int, "base", v), (Type::Int, "power", v)],
+                arguements: vec![
+                    (Type::Int, "base", v, AnnotatedSpan::builtin()),
+                    (Type::Int, "power", v, AnnotatedSpan::builtin()),
+                ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Int,
             },
@@ -28,7 +33,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Print,
             FunctionSignature {
-                arguements: vec![(Type::Int, "value", v)],
+                arguements: vec![(Type::Int, "value", v, AnnotatedSpan::builtin())],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
             },
@@ -40,7 +45,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Print,
             FunctionSignature {
-                arguements: vec![(Type::Bool, "value", v)],
+                arguements: vec![(Type::Bool, "value", v, AnnotatedSpan::builtin())],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
             },
@@ -65,13 +70,13 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::Syscall,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Int, "rax", v),
-                    (Type::Int, "v1", v),
-                    (Type::Int, "v2", v),
-                    (Type::Int, "v3", v),
-                    (Type::Int, "v5", v),
-                    (Type::Int, "v4", v),
-                    (Type::Int, "v6", v),
+                    (Type::Int, "rax", v, AnnotatedSpan::builtin()),
+                    (Type::Int, "v1", v, AnnotatedSpan::builtin()),
+                    (Type::Int, "v2", v, AnnotatedSpan::builtin()),
+                    (Type::Int, "v3", v, AnnotatedSpan::builtin()),
+                    (Type::Int, "v5", v, AnnotatedSpan::builtin()),
+                    (Type::Int, "v4", v, AnnotatedSpan::builtin()),
+                    (Type::Int, "v6", v, AnnotatedSpan::builtin()),
                 ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Int,
@@ -85,8 +90,13 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::Write8,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Pointer(Type::Char.into()), "addr", v),
-                    (Type::Char, "val", v),
+                    (
+                        Type::Pointer(Type::Char.into()),
+                        "addr",
+                        v,
+                        AnnotatedSpan::builtin(),
+                    ),
+                    (Type::Char, "val", v, AnnotatedSpan::builtin()),
                 ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
@@ -100,8 +110,13 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::WriteNative,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Pointer(Type::Int.into()), "addr", v),
-                    (Type::Int, "val", v),
+                    (
+                        Type::Pointer(Type::Int.into()),
+                        "addr",
+                        v,
+                        AnnotatedSpan::builtin(),
+                    ),
+                    (Type::Int, "val", v, AnnotatedSpan::builtin()),
                 ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
@@ -114,7 +129,12 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Read8,
             FunctionSignature {
-                arguements: vec![(Type::Pointer(Type::Char.into()), "addr", v)],
+                arguements: vec![(
+                    Type::Pointer(Type::Char.into()),
+                    "addr",
+                    v,
+                    AnnotatedSpan::builtin(),
+                )],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Char,
             },
@@ -126,7 +146,12 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::ReadNative,
             FunctionSignature {
-                arguements: vec![(Type::Pointer(Type::Int.into()), "addr", v)],
+                arguements: vec![(
+                    Type::Pointer(Type::Int.into()),
+                    "addr",
+                    v,
+                    AnnotatedSpan::builtin(),
+                )],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Int,
             },

@@ -57,6 +57,15 @@ pub struct AnnotatedSpan<'a> {
     pub file_name: &'a str,
 }
 
+impl AnnotatedSpan<'_> {
+    pub fn builtin() -> Self {
+        Self {
+            span: Span::new("", 0, 0).unwrap(),
+            file_name: "__language_intrinsic",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OwnedSpan {
     pub start: (usize, usize),
@@ -97,11 +106,18 @@ pub trait AstSpan<'a> {
     fn as_ast_node(&self) -> AstNode<'a, '_>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NearestMode {
+    Closest,
+    Next,
+}
+
 pub fn nearest_node<'a, 'b>(
     node: &'b dyn AstSpan<'a>,
     line: usize,
     column: usize,
     file_name: &str,
+    mode: NearestMode,
 ) -> &'b dyn AstSpan<'a> {
     let goal = (line, column);
 
@@ -112,8 +128,14 @@ pub fn nearest_node<'a, 'b>(
 
         let goal_within = start <= goal && goal < end;
         let past_goal = start >= goal;
-        if (goal_within || past_goal) && file_name == span.file_name {
-            return nearest_node(child, line, column, file_name);
+
+        let cond = match mode {
+            NearestMode::Closest => goal_within,
+            NearestMode::Next => goal_within || past_goal,
+        };
+
+        if cond && file_name == span.file_name {
+            return nearest_node(child, line, column, file_name, mode);
         }
     }
 
@@ -577,7 +599,7 @@ impl<'a> Type<'a> {
                 .typedefs
                 .get(ident)
                 .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|it| it.resolve_once(ctx)),
+                .and_then(|(it, _)| it.resolve_once(ctx)),
             _ => Ok(self.clone()),
         }
     }
@@ -588,7 +610,7 @@ impl<'a> Type<'a> {
                 .typedefs
                 .get(ident)
                 .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|it| it.dereference(ctx)),
+                .and_then(|(it, _)| it.dereference(ctx)),
             Type::Pointer(target) => Ok((**target).clone()),
             _ => Err(TypeError::DereferenceNonPointer {
                 operand_type: self.clone(),
@@ -607,7 +629,7 @@ impl<'a> Type<'a> {
                 .typedefs
                 .get(type_def_ident)
                 .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|it| it.member(ctx, ident)),
+                .and_then(|(it, _)| it.member(ctx, ident)),
             Type::Struct(map) => map
                 .get(ident)
                 .ok_or_else(|| TypeError::UnknownStructMember {
@@ -644,7 +666,7 @@ impl<'a> Type<'a> {
                 .typedefs
                 .get(type_def_ident)
                 .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|it| it.member_and_offset(ctx, ident)),
+                .and_then(|(it, _)| it.member_and_offset(ctx, ident)),
             Type::Struct(map) => {
                 let mut offset = 0;
 
@@ -693,7 +715,7 @@ impl<'a> Type<'a> {
                 .typedefs
                 .get(ident)
                 .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|it| it.width(ctx)),
+                .and_then(|(it, _)| it.width(ctx)),
             Type::Struct(map) => map
                 .values()
                 .map(|it| it.width(ctx))
@@ -718,7 +740,7 @@ impl<'a> Type<'a> {
                 .typedefs
                 .get(ident)
                 .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|it| it.stride(ctx)),
+                .and_then(|(it, _)| it.stride(ctx)),
             Type::Char => Ok(Stride::Byte),
             Type::Void => Ok(Stride::ZST),
             // Type::Array(inner_type, _len) => inner_type.stride(ctx),
@@ -804,10 +826,18 @@ pub enum CaptureKind {
     ReadWrite,
 }
 
-pub type Capture<'a> = (Type<'a>, IdentRef<'a>, VariableVersion, CaptureKind);
+pub type Capture<'a> = (
+    Type<'a>,
+    IdentRef<'a>,
+    VariableVersion,
+    CaptureKind,
+    AnnotatedSpan<'a>,
+);
 
 #[derive(Debug, Clone, Default)]
-pub struct Captures<'a>(pub BTreeMap<VariableVersion, (Type<'a>, IdentRef<'a>, CaptureKind)>);
+pub struct Captures<'a>(
+    pub BTreeMap<VariableVersion, (Type<'a>, IdentRef<'a>, CaptureKind, AnnotatedSpan<'a>)>,
+);
 
 #[derive(Debug, Clone, Default)]
 pub enum DeferedCaptures<'a> {
@@ -887,7 +917,7 @@ impl<'a> AstSpan<'a> for FunctionDef<'a> {
     }
 }
 
-pub type Arguement<'a> = (Type<'a>, IdentRef<'a>, DeferedVersion);
+pub type Arguement<'a> = (Type<'a>, IdentRef<'a>, DeferedVersion, AnnotatedSpan<'a>);
 pub type Arguements<'a> = Vec<Arguement<'a>>;
 
 #[derive(Debug, Clone, Default)]
@@ -906,7 +936,9 @@ impl<'a> FunctionSignature<'a> {
         Ok(captures
             .0
             .iter()
-            .map(|(version, (var_type, ident, kind))| (var_type.clone(), *ident, *version, *kind)))
+            .map(|(version, (var_type, ident, kind, span))| {
+                (var_type.clone(), *ident, *version, *kind, *span)
+            }))
     }
 
     pub fn captures_write(&self) -> Result<impl Iterator<Item = Capture<'a>>, TypeError<'a>> {
@@ -917,8 +949,10 @@ impl<'a> FunctionSignature<'a> {
         Ok(captures
             .0
             .iter()
-            .filter(|(_, (_, _, kind))| matches!(kind, CaptureKind::ReadWrite))
-            .map(|(version, (var_type, ident, kind))| (var_type.clone(), *ident, *version, *kind)))
+            .filter(|(_, (_, _, kind, _))| matches!(kind, CaptureKind::ReadWrite))
+            .map(|(version, (var_type, ident, kind, span))| {
+                (var_type.clone(), *ident, *version, *kind, *span)
+            }))
     }
 
     pub fn arguements_and_captures(
@@ -926,20 +960,27 @@ impl<'a> FunctionSignature<'a> {
     ) -> Result<impl Iterator<Item = Arguement<'a>>, TypeError<'a>> {
         Ok(self
             .captures_read()?
-            .map(|(var_type, ident, version, _kind)| {
-                (var_type, ident, DeferedVersion::ResolvedVersion(version))
+            .map(|(var_type, ident, version, _kind, span)| {
+                (
+                    var_type,
+                    ident,
+                    DeferedVersion::ResolvedVersion(version),
+                    span,
+                )
             })
             .chain(
                 self.arguements
                     .iter()
-                    .map(|(var_type, ident, version)| (var_type.clone(), *ident, *version)),
+                    .map(|(var_type, ident, version, span)| {
+                        (var_type.clone(), *ident, *version, *span)
+                    }),
             ))
     }
 
     pub fn full_return_type(&self) -> Result<Type<'a>, TypeError<'a>> {
         Ok(Type::Tuple(
             self.captures_write()?
-                .map(|(var_type, _, _, _)| var_type)
+                .map(|(var_type, _, _, _, _)| var_type)
                 .chain(iter::once(self.return_type.clone()))
                 .collect(),
         ))
@@ -947,7 +988,7 @@ impl<'a> FunctionSignature<'a> {
 
     pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue, TypeError<'a>> {
         self.arguements_and_captures()?
-            .map(|(var_type, _, _)| var_type.width(ctx))
+            .map(|(var_type, _, _, _)| var_type.width(ctx))
             .sum()
     }
 
@@ -973,7 +1014,7 @@ impl<'a> FunctionSignature<'a> {
             return Ok(false);
         }
 
-        for ((_, _, l_version, _), (_, _, r_version, _)) in
+        for ((_, _, l_version, _, _), (_, _, r_version, _, _)) in
             self.captures_read()?.zip(other.captures_read()?)
         {
             if l_version != r_version {
@@ -995,7 +1036,7 @@ impl<'a> FunctionSignature<'a> {
             return Ok(false);
         }
 
-        for ((_, _, l_version, _), (_, _, r_version, _)) in
+        for ((_, _, l_version, _, _), (_, _, r_version, _, _)) in
             self.captures_write()?.zip(other.captures_write()?)
         {
             if l_version != r_version {
@@ -1009,7 +1050,7 @@ impl<'a> FunctionSignature<'a> {
     pub fn lsp_render_short(&self, ident: IdentRef) -> String {
         let mut args = String::new();
 
-        for (arg_type, _arg_name, _) in &self.arguements {
+        for (arg_type, _arg_name, _, _) in &self.arguements {
             args.push_str(&format!("{arg_type}, "));
         }
 
@@ -1024,7 +1065,7 @@ impl<'a> FunctionSignature<'a> {
     pub fn lsp_render_full(&self, ident: IdentRef) -> String {
         let mut args = String::new();
 
-        for (arg_type, arg_name, _) in &self.arguements {
+        for (arg_type, arg_name, _, _) in &self.arguements {
             args.push_str(&format!("{arg_type} {arg_name}, "));
         }
 
