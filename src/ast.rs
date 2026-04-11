@@ -101,6 +101,7 @@ pub fn nearest_node<'a, 'b>(
     node: &'b dyn AstSpan<'a>,
     line: usize,
     column: usize,
+    file_name: &str,
 ) -> &'b dyn AstSpan<'a> {
     let goal = (line, column);
 
@@ -109,8 +110,10 @@ pub fn nearest_node<'a, 'b>(
         let start = span.span.start_pos().line_col();
         let end = span.span.end_pos().line_col();
 
-        if start <= goal && goal < end {
-            return nearest_node(child, line, column);
+        let goal_within = start <= goal && goal < end;
+        let past_goal = start >= goal;
+        if (goal_within || past_goal) && file_name == span.file_name {
+            return nearest_node(child, line, column, file_name);
         }
     }
 

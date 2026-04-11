@@ -66,6 +66,7 @@ pub struct TypeChecker<'a> {
     pub scope_stack: Vec<TypeCheckerFrame<'a>>,
     pub typedefs: HashMap<IdentRef<'a>, Type<'a>>,
     version_counter: Arc<AtomicU64>,
+    break_point: Option<usize>,
 }
 
 impl Display for TypeChecker<'_> {
@@ -91,6 +92,7 @@ impl Default for TypeChecker<'_> {
             scope_stack: Vec::default(),
             typedefs: HashMap::default(),
             version_counter: Arc::default(),
+            break_point: None,
         };
 
         for (ident, (_code, mut sig)) in clac_builtins() {
@@ -307,6 +309,20 @@ impl<'a> TypeChecker<'a> {
             Backtrace::capture(),
         ))
     }
+
+    pub fn set_break_point<T: ?Sized>(&mut self, break_point: *const T) {
+        self.break_point = Some(break_point as *const () as usize)
+    }
+
+    fn check_break_point<T>(&mut self, break_point: *const T) -> Result<'a, ()> {
+        if let Some(goal) = self.break_point {
+            if goal == break_point as usize {
+                return Err(TypeError::BreakPoint(self.clone()));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub trait TypeCheck<'a> {
@@ -314,13 +330,17 @@ pub trait TypeCheck<'a> {
 }
 
 impl<'a> TypeCheck<'a> for Value<'a> {
-    fn check_and_resolve_types(&mut self, _ctx: &mut TypeChecker) -> Result<'a, Type<'a>> {
+    fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         Ok(self.compute_type())
     }
 }
 
 impl<'a> TypeCheck<'a> for Expr<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         match self {
             Expr::SizeOfType(..) => Ok(Type::Int),
             Expr::SizeOfExpr(inner_expr, defered_type, _mode, _span) => {
@@ -737,6 +757,8 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionCall<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let sig = ctx
@@ -788,6 +810,8 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
 
 impl<'a> TypeCheck<'a> for FunctionDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let (actual_return_type, _frame) =
@@ -828,6 +852,8 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
 impl<'a> TypeCheck<'a> for ConstDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
@@ -871,6 +897,8 @@ impl<'a> TypeCheck<'a> for ConstDef<'a> {
 
 impl<'a> TypeCheck<'a> for LocalDef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let mut actual_type = self.expr.check_and_resolve_types(ctx)?;
@@ -914,6 +942,8 @@ impl<'a> TypeCheck<'a> for LocalDef<'a> {
 
 impl<'a> TypeCheck<'a> for Assignment<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         // Eval target call in read write
@@ -965,6 +995,8 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
 
 impl<'a> TypeCheck<'a> for Loop<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let (frame, _outer_frame) = ctx.define_scope(
@@ -1024,6 +1056,8 @@ impl<'a> TypeCheck<'a> for Loop<'a> {
 
 impl<'a> TypeCheck<'a> for Typedef<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         ctx.define_type(self.name, self.type_alias.clone())?;
@@ -1035,6 +1069,8 @@ impl<'a> TypeCheck<'a> for Typedef<'a> {
 
 impl<'a> TypeCheck<'a> for IfCase<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let case_type = self
@@ -1065,6 +1101,8 @@ impl<'a> TypeCheck<'a> for IfCase<'a> {
 
 impl<'a> TypeCheck<'a> for IfExpr<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let expected_type = self
@@ -1140,6 +1178,8 @@ impl<'a> TypeCheck<'a> for IfExpr<'a> {
 
 impl<'a> TypeCheck<'a> for Statement<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         match self {
@@ -1167,6 +1207,8 @@ impl<'a> TypeCheck<'a> for Statement<'a> {
 
 impl<'a> TypeCheck<'a> for Block<'a> {
     fn check_and_resolve_types(&mut self, ctx: &mut TypeChecker<'a>) -> Result<'a, Type<'a>> {
+        ctx.check_break_point(self)?;
+
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
         let mut actual_return_type = Type::Void;

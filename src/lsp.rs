@@ -49,10 +49,13 @@ use tracing::{error, info};
 
 use crate::ast::{self, AnnotatedSpan, Block, Program};
 use crate::compile::{self, CompileConfig, CompileContext, FileCache};
-use crate::error::IntoSpans;
+use crate::error::{IntoSpans, TypeError};
 use crate::lsp::ast_cache::{CachedParsedAst, CachedTypedAst};
 use crate::parser;
 use crate::type_check::{TypeCheck, TypeChecker, VariableKind};
+
+// TODO:
+// - Syntax highlighting with semantic tokens
 
 mod ast_cache {
     use std::{mem, rc::Rc};
@@ -303,10 +306,27 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
                 return Ok(());
             };
 
-            // let (line, col) = lsp_position_to_pest_position(p.text_document_position.position);
-            // let node = ast::nearest_node(ast.parsed(), line, col);
+            let _type_checker;
+            let type_checker = {
+                let mut ast_copy = ast.block().clone();
 
-            let type_checker = ast.type_checker();
+                let (line, col) = lsp_position_to_pest_position(p.text_document_position.position);
+                let node = ast::nearest_node(&ast_copy, line, col, &doc.file_name);
+
+                let mut type_checker = TypeChecker::default();
+                type_checker.set_break_point(node);
+
+                let res = ast_copy.check_and_resolve_types(&mut type_checker);
+                match res {
+                    Err(TypeError::BreakPoint(type_checker)) => {
+                        info!("scopes: {}", type_checker.scope_stack.len());
+                        _type_checker = type_checker;
+                        &_type_checker
+                    }
+                    _ => ast.type_checker(),
+                }
+            };
+
             let mut items = vec![];
 
             for scope in &type_checker.scope_stack {
@@ -397,7 +417,7 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
             let (line, col) =
                 lsp_position_to_pest_position(p.text_document_position_params.position);
 
-            let node = ast::nearest_node(ast.parsed(), line, col);
+            let node = ast::nearest_node(ast.parsed(), line, col, &doc.file_name);
 
             let mut str = String::new();
             write!(&mut str, "{:#?}", node.as_ast_node())?;

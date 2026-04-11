@@ -13,6 +13,7 @@ use pest::error::InputLocation;
 use thiserror::Error;
 
 use crate::ast::AstSpan;
+use crate::type_check::TypeChecker;
 use crate::{
     ast::{
         AnnotatedSpan, Assignment, BinaryOp, Block, ConstDef, Expr, FunctionCall,
@@ -356,6 +357,9 @@ pub enum TypeError<'a> {
         backtrace: Backtrace,
     },
 
+    #[error("LSP INTERNAL TYPECHECKING BREAKPOINT")]
+    BreakPoint(TypeChecker<'a>),
+
     #[error("COMPILER BUG at {0}")]
     CompilerBug(Backtrace),
     #[error("{}", render(.0, .1, .2, .3))]
@@ -650,6 +654,7 @@ impl<'a> IntoSpans for TypeError<'a> {
             TypeError::ConditionIsntBool { .. } => "Condition Isnt Bool",
             TypeError::CompilerBug(..) => "Compiler Bug",
             TypeError::WrapSpan(type_error, ..) => type_error.error_kind(),
+            TypeError::BreakPoint(..) => "LSP INTERNAL",
         }
     }
 
@@ -711,6 +716,7 @@ impl<'a> IntoSpans for TypeError<'a> {
                 }
                 TypeError::ConditionIsntBool { condition, .. } => yield (condition.as_span(), None),
                 TypeError::CompilerBug(..) => {}
+                TypeError::BreakPoint(..) => {}
             },
         ))
     }
