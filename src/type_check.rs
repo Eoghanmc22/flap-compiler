@@ -402,10 +402,19 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 right_type,
                 op_span,
             } => {
-                assert_eq!(ctx.capture_kind(), CaptureKind::Read);
-
-                let left_type_computed = left.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
-                let right_type_computed = right.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+                // eval args as read only
+                let (result, _frame) = ctx.define_scope(
+                    |ctx| {
+                        let left_type_computed =
+                            left.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+                        let right_type_computed =
+                            right.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+                        Ok((left_type_computed, right_type_computed))
+                    },
+                    FrameKind::Regular,
+                    CaptureKind::Read,
+                );
+                let (left_type_computed, right_type_computed) = result?;
 
                 *left_type = DeferedType::ResolvedType(left_type_computed.clone());
                 *right_type = DeferedType::ResolvedType(right_type_computed.clone());
@@ -499,7 +508,10 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         // Preserve
                         operand.check_and_resolve_types(ctx)?
                     }
-                    PrefixOp::Dereference => {
+                    PrefixOp::Dereference
+                    | PrefixOp::AddressOf
+                    | PrefixOp::Negate
+                    | PrefixOp::LNot => {
                         // Eval arg in read only
                         let (result, _frame) = ctx.define_scope(
                             |ctx| operand.check_and_resolve_types(ctx),
@@ -508,11 +520,6 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                         );
 
                         result?
-                    }
-                    PrefixOp::AddressOf | PrefixOp::Negate | PrefixOp::LNot => {
-                        // Should be read only
-                        assert_eq!(ctx.capture_kind(), CaptureKind::Read);
-                        operand.check_and_resolve_types(ctx)?
                     }
                 };
 
