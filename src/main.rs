@@ -18,7 +18,6 @@ use std::{
     fs,
     io::{self, Write},
     path::PathBuf,
-    process::Termination,
     thread,
     time::Instant,
 };

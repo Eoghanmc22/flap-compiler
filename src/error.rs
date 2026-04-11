@@ -1,4 +1,5 @@
 use core::fmt;
+use std::iter;
 use std::{
     backtrace::Backtrace,
     borrow::Cow,
@@ -7,8 +8,11 @@ use std::{
     io,
 };
 
+use pest::Span;
+use pest::error::InputLocation;
 use thiserror::Error;
 
+use crate::ast::AstSpan;
 use crate::{
     ast::{
         AnnotatedSpan, Assignment, BinaryOp, Block, ConstDef, Expr, FunctionCall,
@@ -19,7 +23,7 @@ use crate::{
     parser,
 };
 
-pub use parser::ParsingError;
+pub use parser::PestError;
 
 fn flatten_err(it: impl Display) -> Box<dyn Error + Send + Sync + 'static> {
     struct StringError(String);
@@ -46,7 +50,7 @@ fn flatten_err(it: impl Display) -> Box<dyn Error + Send + Sync + 'static> {
 #[derive(Error, Debug)]
 pub enum CompileError<'a> {
     #[error(transparent)]
-    Parsing(#[from] ParsingError),
+    Parsing(#[from] ParserError),
 
     #[error(transparent)]
     TypeCheck(TypeError<'a>),
@@ -94,6 +98,17 @@ impl<'a> From<MiddlewareError<'a>> for CompileError<'a> {
 }
 
 #[derive(Error, Debug)]
+pub enum ParserError {
+    #[error("{inner}")]
+    PestError {
+        #[source]
+        inner: PestError,
+        file_name: String,
+        file: String,
+    },
+}
+
+#[derive(Error, Debug)]
 pub enum MiddlewareError<'a> {
     #[error(transparent)]
     TypeCheck(TypeError<'a>),
@@ -111,7 +126,7 @@ pub enum MiddlewareError<'a> {
     },
     #[error("Const could not be evaluated at compile time")]
     DynamicConstant {
-        cosntant: ConstDef<'a>,
+        constant: ConstDef<'a>,
         backtrace: Backtrace,
     },
     #[error("Can not assign to a place derived from a constant since constants are immutable")]
@@ -421,303 +436,382 @@ fn render<'a>(
     string
 }
 
-impl<'a, T> SpannedErrorExt<'a> for Result<T, CompileError<'a>> {
-    type OkType = T;
+macro_rules! derive_spanned_error {
+    ($($type:ty),*) => {
+        $(
+            impl<'a, T> SpannedErrorExt<'a> for Result<T, $type> {
+                type OkType = T;
 
-    fn wrap_span(self, span: AnnotatedSpan<'a>) -> Self {
+                fn wrap_span(self, span: AnnotatedSpan<'a>) -> Self {
+                    match self {
+                        Ok(inner) => Ok(inner),
+                        Err(err) => Err(<$type>::WrapSpan(err.into(), span, None, vec![])),
+                    }
+                }
+
+                fn wrap_span_desc(
+                    self,
+                    span: AnnotatedSpan<'a>,
+                    desc: impl Into<Cow<'a, str>>,
+                ) -> Self {
+                    match self {
+                        Ok(inner) => Ok(inner),
+                        Err(err) => Err(<$type>::WrapSpan(
+                            err.into(),
+                            span,
+                            Some(desc.into()),
+                            vec![],
+                        )),
+                    }
+                }
+
+                fn wrap_span_desc_with<F, R>(self, span: AnnotatedSpan<'a>, desc: F) -> Self
+                where
+                    R: Into<Cow<'a, str>>,
+                    F: FnOnce() -> R,
+                {
+                    match self {
+                        Ok(inner) => Ok(inner),
+                        Err(err) => Err(<$type>::WrapSpan(
+                            err.into(),
+                            span,
+                            Some((desc)().into()),
+                            vec![],
+                        )),
+                    }
+                }
+
+                fn wrap_span_annotations(
+                    self,
+                    span: AnnotatedSpan<'a>,
+                    annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
+                ) -> Self {
+                    match self {
+                        Ok(inner) => Ok(inner),
+                        Err(err) => Err(<$type>::WrapSpan(err.into(), span, None, annotations)),
+                    }
+                }
+
+                fn wrap_span_desc_annotations(
+                    self,
+                    span: AnnotatedSpan<'a>,
+                    desc: impl Into<Cow<'a, str>>,
+                    annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
+                ) -> Self {
+                    match self {
+                        Ok(inner) => Ok(inner),
+                        Err(err) => Err(<$type>::WrapSpan(
+                            err.into(),
+                            span,
+                            Some(desc.into()),
+                            annotations,
+                        )),
+                    }
+                }
+
+                fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
+                    match self {
+                        Ok(ok) => Ok(ok),
+                        Err(err) => Err(flatten_err(err)),
+                    }
+                }
+            }
+        )*
+    };
+}
+
+derive_spanned_error! {
+    CompileError<'a>,
+    TypeError<'a>,
+    CodegenError<'a>,
+    MiddlewareError<'a>
+}
+
+pub trait IntoSpans: Display {
+    fn error_kind(&self) -> &'static str;
+    fn spans(&self) -> impl Iterator<Item = (AnnotatedSpan<'_>, Option<&Cow<'_, str>>)>;
+}
+
+impl<'a> IntoSpans for CompileError<'a> {
+    fn error_kind(&self) -> &'static str {
         match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CompileError::WrapSpan(err.into(), span, None, vec![])),
+            CompileError::Parsing(_) => "Parsing Error",
+            CompileError::TypeCheck(_) => "TypeCheck Error",
+            CompileError::Codegen(_) => "Codegen Error",
+            CompileError::Middleware(_) => "Middleware Error",
+            CompileError::IoError(..) => "I/O Error",
+            CompileError::FmtError(..) => "Fmt Error",
+            CompileError::NonUtf8Path => "Bad Path",
+            CompileError::WrapSpan(compile_error, ..) => compile_error.error_kind(),
         }
     }
 
-    fn wrap_span_desc(self, span: AnnotatedSpan<'a>, desc: impl Into<Cow<'a, str>>) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CompileError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                vec![],
-            )),
-        }
-    }
+    fn spans(&self) -> impl Iterator<Item = (AnnotatedSpan<'_>, Option<&Cow<'_, str>>)> {
+        iter::from_coroutine(Box::new(
+            #[coroutine]
+            || match self {
+                CompileError::WrapSpan(inner, span, desc, annotations) => {
+                    for (span, desc) in (**inner).spans() {
+                        yield (span, desc);
+                    }
 
-    fn wrap_span_desc_with<F, R>(self, span: AnnotatedSpan<'a>, desc: F) -> Self
-    where
-        R: Into<Cow<'a, str>>,
-        F: FnOnce() -> R,
-    {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CompileError::WrapSpan(
-                err.into(),
-                span,
-                Some((desc)().into()),
-                vec![],
-            )),
-        }
-    }
+                    yield (*span, desc.as_ref());
 
-    fn wrap_span_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CompileError::WrapSpan(err.into(), span, None, annotations)),
-        }
-    }
-
-    fn wrap_span_desc_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        desc: impl Into<Cow<'a, str>>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CompileError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                annotations,
-            )),
-        }
-    }
-
-    fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
-        match self {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(flatten_err(err)),
-        }
+                    for (span, desc) in annotations {
+                        yield (*span, Some(desc));
+                    }
+                }
+                CompileError::Parsing(parser_error) => {
+                    for (span, desc) in parser_error.spans() {
+                        yield (span, desc);
+                    }
+                }
+                CompileError::TypeCheck(type_error) => {
+                    for (span, desc) in type_error.spans() {
+                        yield (span, desc);
+                    }
+                }
+                CompileError::Codegen(codegen_error) => {
+                    for (span, desc) in codegen_error.spans() {
+                        yield (span, desc);
+                    }
+                }
+                CompileError::Middleware(middleware_error) => {
+                    for (span, desc) in middleware_error.spans() {
+                        yield (span, desc);
+                    }
+                }
+                CompileError::IoError(..) => {}
+                CompileError::FmtError(..) => {}
+                CompileError::NonUtf8Path => {}
+            },
+        ))
     }
 }
 
-impl<'a, T> SpannedErrorExt<'a> for Result<T, TypeError<'a>> {
-    type OkType = T;
-
-    fn wrap_span(self, span: AnnotatedSpan<'a>) -> Self {
+impl IntoSpans for ParserError {
+    fn error_kind(&self) -> &'static str {
         match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(TypeError::WrapSpan(err.into(), span, None, vec![])),
+            ParserError::PestError { .. } => "Pest Error",
         }
     }
 
-    fn wrap_span_desc(self, span: AnnotatedSpan<'a>, desc: impl Into<Cow<'a, str>>) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(TypeError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                vec![],
-            )),
-        }
-    }
+    fn spans(&self) -> impl Iterator<Item = (AnnotatedSpan<'_>, Option<&Cow<'_, str>>)> {
+        iter::from_coroutine(Box::new(
+            #[coroutine]
+            || match self {
+                ParserError::PestError {
+                    inner,
+                    file_name,
+                    file,
+                } => {
+                    let (start, end) = match inner.location {
+                        InputLocation::Pos(start) => (start, start + 1),
+                        InputLocation::Span((start, end)) => (start, end),
+                    };
 
-    fn wrap_span_desc_with<F, R>(self, span: AnnotatedSpan<'a>, desc: F) -> Self
-    where
-        R: Into<Cow<'a, str>>,
-        F: FnOnce() -> R,
-    {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(TypeError::WrapSpan(
-                err.into(),
-                span,
-                Some((desc)().into()),
-                vec![],
-            )),
-        }
-    }
-
-    fn wrap_span_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(TypeError::WrapSpan(err.into(), span, None, annotations)),
-        }
-    }
-
-    fn wrap_span_desc_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        desc: impl Into<Cow<'a, str>>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(TypeError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                annotations,
-            )),
-        }
-    }
-
-    fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
-        match self {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(flatten_err(err)),
-        }
+                    yield (
+                        AnnotatedSpan {
+                            span: Span::new(file, start, end).unwrap(),
+                            file_name: file_name,
+                        },
+                        None,
+                    )
+                }
+            },
+        ))
     }
 }
 
-impl<'a, T> SpannedErrorExt<'a> for Result<T, CodegenError<'a>> {
-    type OkType = T;
-
-    fn wrap_span(self, span: AnnotatedSpan<'a>) -> Self {
+impl<'a> IntoSpans for TypeError<'a> {
+    fn error_kind(&self) -> &'static str {
         match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CodegenError::WrapSpan(err.into(), span, None, vec![])),
+            TypeError::TypedefMultipleDefined(..) => "Typedef Multiple Defined",
+            TypeError::VariableVersionNotInScope(..) => "Variable Version Not In Scope",
+            TypeError::VariableNotInScope(..) => "Variable Not In Scope",
+            TypeError::FunctionNotInScope(..) => "Function Not In Scope",
+            TypeError::TypedefNotInScope(..) => "Typedef Not In Scope",
+            TypeError::ArrayElementsMismatch(..) => "Array Elements Mismatch",
+            TypeError::ArrayEmpty(..) => "Array Empty",
+            TypeError::BinaryOpBadArgs { .. } => "Binary Op Bad Args",
+            TypeError::PrefixOpBadArgs { .. } => "Prefix Op Bad Args",
+            TypeError::PostfixOpBadArgs { .. } => "Postfix Op Bad Args",
+            TypeError::BinaryOpWrongWidth { .. } => "Binary Op Wrong Width",
+            TypeError::CastWrongWidth { .. } => "Cast Wrong Width",
+            TypeError::DereferenceNonPointer { .. } => "Dereference Non Pointer",
+            TypeError::UnknownStructMember { .. } => "Unknown Struct Member",
+            TypeError::BadArrayIndexType { .. } => "Bad Array Index Type",
+            TypeError::FunctionCallArgCount { .. } => "Function Call Arg Count",
+            TypeError::FunctionCallArgBadType { .. } => "Function Call Arg Bad Type",
+            TypeError::BlockReturnsWrongType { .. } => "Block Returns Wrong Type",
+            TypeError::ConstDefTypeMismatch { .. } => "Const Def Type Mismatch",
+            TypeError::LocalDefTypeMismatch { .. } => "Local Def Type Mismatch",
+            TypeError::AssignmentTypeMismatch { .. } => "Assignmen Type Mismatch",
+            TypeError::ConditionIsntBool { .. } => "Condition Isnt Bool",
+            TypeError::CompilerBug(..) => "Compiler Bug",
+            TypeError::WrapSpan(type_error, ..) => type_error.error_kind(),
         }
     }
 
-    fn wrap_span_desc(self, span: AnnotatedSpan<'a>, desc: impl Into<Cow<'a, str>>) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CodegenError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                vec![],
-            )),
-        }
-    }
+    fn spans(&self) -> impl Iterator<Item = (AnnotatedSpan<'_>, Option<&Cow<'_, str>>)> {
+        iter::from_coroutine(Box::new(
+            #[coroutine]
+            || match self {
+                TypeError::WrapSpan(inner, span, desc, annotations) => {
+                    for (span, desc) in (**inner).spans() {
+                        yield (span, desc);
+                    }
 
-    fn wrap_span_desc_with<F, R>(self, span: AnnotatedSpan<'a>, desc: F) -> Self
-    where
-        R: Into<Cow<'a, str>>,
-        F: FnOnce() -> R,
-    {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CodegenError::WrapSpan(
-                err.into(),
-                span,
-                Some((desc)().into()),
-                vec![],
-            )),
-        }
-    }
+                    yield (*span, desc.as_ref());
 
-    fn wrap_span_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CodegenError::WrapSpan(err.into(), span, None, annotations)),
-        }
-    }
-
-    fn wrap_span_desc_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        desc: impl Into<Cow<'a, str>>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(CodegenError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                annotations,
-            )),
-        }
-    }
-
-    fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
-        match self {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(flatten_err(err)),
-        }
+                    for (span, desc) in annotations {
+                        yield (*span, Some(desc));
+                    }
+                }
+                TypeError::TypedefMultipleDefined(..) => {}
+                TypeError::VariableVersionNotInScope(..) => {}
+                TypeError::VariableNotInScope(..) => {}
+                TypeError::FunctionNotInScope(..) => {}
+                TypeError::TypedefNotInScope(..) => {}
+                TypeError::ArrayElementsMismatch(..) => {}
+                TypeError::ArrayEmpty(..) => {}
+                TypeError::BinaryOpBadArgs { .. } => {}
+                TypeError::PrefixOpBadArgs { .. } => {}
+                TypeError::PostfixOpBadArgs { .. } => {}
+                TypeError::BinaryOpWrongWidth { .. } => {}
+                TypeError::CastWrongWidth { .. } => {}
+                TypeError::DereferenceNonPointer { .. } => {}
+                TypeError::UnknownStructMember { .. } => {}
+                TypeError::BadArrayIndexType { .. } => {}
+                TypeError::FunctionCallArgCount { function, .. } => {
+                    yield (function.as_span(), None);
+                }
+                TypeError::FunctionCallArgBadType {
+                    function, arg_expr, ..
+                } => {
+                    yield (arg_expr.as_span(), None);
+                    yield (function.as_span(), None);
+                }
+                TypeError::BlockReturnsWrongType {
+                    block,
+                    last_statement,
+                    ..
+                } => {
+                    if let Some(last_statement) = last_statement {
+                        yield (last_statement.as_span(), None);
+                    }
+                    yield (block.as_span(), None);
+                }
+                TypeError::ConstDefTypeMismatch { constant, .. } => {
+                    yield (constant.as_span(), None)
+                }
+                TypeError::LocalDefTypeMismatch { local, .. } => yield (local.as_span(), None),
+                TypeError::AssignmentTypeMismatch { assignment, .. } => {
+                    yield (assignment.as_span(), None)
+                }
+                TypeError::ConditionIsntBool { condition, .. } => yield (condition.as_span(), None),
+                TypeError::CompilerBug(..) => {}
+            },
+        ))
     }
 }
 
-impl<'a, T> SpannedErrorExt<'a> for Result<T, MiddlewareError<'a>> {
-    type OkType = T;
-
-    fn wrap_span(self, span: AnnotatedSpan<'a>) -> Self {
+impl<'a> IntoSpans for CodegenError<'a> {
+    fn error_kind(&self) -> &'static str {
         match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(MiddlewareError::WrapSpan(err.into(), span, None, vec![])),
+            CodegenError::TypeCheck(..) => "Type Error",
+            CodegenError::UnknownTempoary(..) => "Unknown Tempoary",
+            CodegenError::UnknownLocal(..) => "Unknown Local",
+            CodegenError::UnknownConstant(..) => "Unknown Constant",
+            CodegenError::UnknownFunction(..) => "Unknown Function",
+            CodegenError::BadTailCall { .. } => "Bad Tail Call",
+            CodegenError::NegativeStackOffset { .. } => "Negative Stack Offset",
+            CodegenError::BadBringUp { .. } => "Bad Bring Up",
+            CodegenError::UnimplementedFeature { .. } => "Unimplemented Feature",
+            CodegenError::CompilerBug(..) => "Compiler Bug",
+            CodegenError::WrapSpan(codegen_error, ..) => codegen_error.error_kind(),
         }
     }
 
-    fn wrap_span_desc(self, span: AnnotatedSpan<'a>, desc: impl Into<Cow<'a, str>>) -> Self {
+    fn spans(&self) -> impl Iterator<Item = (AnnotatedSpan<'_>, Option<&Cow<'_, str>>)> {
+        iter::from_coroutine(Box::new(
+            #[coroutine]
+            || match self {
+                CodegenError::WrapSpan(inner, span, desc, annotations) => {
+                    for (span, desc) in (**inner).spans() {
+                        yield (span, desc);
+                    }
+
+                    yield (*span, desc.as_ref());
+
+                    for (span, desc) in annotations {
+                        yield (*span, Some(desc));
+                    }
+                }
+                CodegenError::TypeCheck(type_error) => {
+                    for (span, desc) in type_error.spans() {
+                        yield (span, desc);
+                    }
+                }
+                _ => {}
+            },
+        ))
+    }
+}
+
+impl<'a> IntoSpans for MiddlewareError<'a> {
+    fn error_kind(&self) -> &'static str {
         match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(MiddlewareError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                vec![],
-            )),
+            MiddlewareError::TypeCheck(..) => "Type Error",
+            MiddlewareError::Codegen(..) => "Codegen Error",
+            MiddlewareError::ArrayIndexOutOfBounds { .. } => "Array Index Out Of Bounds",
+            MiddlewareError::DynamicConstant { .. } => "Dynamic Constant",
+            MiddlewareError::MutateConstant { .. } => "Mutate Constant",
+            MiddlewareError::NoPackedRepr { .. } => "No Packed Repr",
+            MiddlewareError::UnimplementedFeature { .. } => "Unimplemented Feature",
+            MiddlewareError::CompilerBug(..) => "Compiler Bug",
+            MiddlewareError::WrapSpan(middleware_error, ..) => middleware_error.error_kind(),
         }
     }
 
-    fn wrap_span_desc_with<F, R>(self, span: AnnotatedSpan<'a>, desc: F) -> Self
-    where
-        R: Into<Cow<'a, str>>,
-        F: FnOnce() -> R,
-    {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(MiddlewareError::WrapSpan(
-                err.into(),
-                span,
-                Some((desc)().into()),
-                vec![],
-            )),
-        }
-    }
+    fn spans(&self) -> impl Iterator<Item = (AnnotatedSpan<'_>, Option<&Cow<'_, str>>)> {
+        iter::from_coroutine(Box::new(
+            #[coroutine]
+            || match self {
+                MiddlewareError::WrapSpan(inner, span, desc, annotations) => {
+                    for (span, desc) in (**inner).spans() {
+                        yield (span, desc);
+                    }
 
-    fn wrap_span_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(MiddlewareError::WrapSpan(
-                err.into(),
-                span,
-                None,
-                annotations,
-            )),
-        }
-    }
+                    yield (*span, desc.as_ref());
 
-    fn wrap_span_desc_annotations(
-        self,
-        span: AnnotatedSpan<'a>,
-        desc: impl Into<Cow<'a, str>>,
-        annotations: Vec<(AnnotatedSpan<'a>, Cow<'a, str>)>,
-    ) -> Self {
-        match self {
-            Ok(inner) => Ok(inner),
-            Err(err) => Err(MiddlewareError::WrapSpan(
-                err.into(),
-                span,
-                Some(desc.into()),
-                annotations,
-            )),
-        }
-    }
-
-    fn flatten(self) -> Result<Self::OkType, Box<dyn Error + Send + Sync + 'static>> {
-        match self {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(flatten_err(err)),
-        }
+                    for (span, desc) in annotations {
+                        yield (*span, Some(desc));
+                    }
+                }
+                MiddlewareError::TypeCheck(type_error) => {
+                    for (span, desc) in type_error.spans() {
+                        yield (span, desc);
+                    }
+                }
+                MiddlewareError::Codegen(codegen_error) => {
+                    for (span, desc) in codegen_error.spans() {
+                        yield (span, desc);
+                    }
+                }
+                MiddlewareError::ArrayIndexOutOfBounds { index_expr, .. } => {
+                    yield (index_expr.as_span(), None);
+                }
+                MiddlewareError::DynamicConstant { constant, .. } => {
+                    yield (constant.as_span(), None);
+                }
+                MiddlewareError::MutateConstant { assignment, .. } => {
+                    yield (assignment.as_span(), None);
+                }
+                MiddlewareError::NoPackedRepr { .. } => {}
+                MiddlewareError::UnimplementedFeature { .. } => {}
+                MiddlewareError::CompilerBug(..) => {}
+            },
+        ))
     }
 }

@@ -94,7 +94,11 @@ impl CompileContext {
             .map(|it| Ok(it.to_string()))
             .unwrap_or_else(|| fs::read_to_string(&file))?;
 
-        let file_name = file.as_os_str().to_str().ok_or(CompileError::NonUtf8Path)?;
+        let file_name = file
+            .as_os_str()
+            .to_str()
+            .ok_or(CompileError::NonUtf8Path)?
+            .to_string();
         let directives = parser::parse_directives(&contents, &file_name)
             .map_err(|err| parser::map_parser_error(err, &file_name, &contents))?;
 
@@ -111,6 +115,7 @@ impl CompileContext {
         }
 
         self.sources.entry(file).or_insert(SourceFile {
+            file_name,
             contents,
             includes: includes.clone(),
         });
@@ -207,6 +212,7 @@ impl CompileContext {
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct SourceFile {
+    pub file_name: String,
     pub contents: String,
     pub includes: BTreeMap<PathBuf, OwnedSpan>,
 }

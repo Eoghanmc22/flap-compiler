@@ -143,7 +143,7 @@ fn walk_const_def<'a, 'b>(
         DataReference::Value(val, _) => val,
         _ => {
             return Err(MiddlewareError::DynamicConstant {
-                cosntant: const_def.clone(),
+                constant: const_def.clone(),
                 backtrace: Backtrace::capture(),
             })
             .wrap_span(const_def.as_span());

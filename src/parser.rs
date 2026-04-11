@@ -22,6 +22,7 @@ use crate::{
         Punctuation, SizeOfMode, Statement, Type, Typedef, Value,
     },
     codegen::clac::ClacValue,
+    error::ParserError,
 };
 
 lazy_static::lazy_static! {
@@ -65,8 +66,8 @@ pub fn merge_spans<'i>(a: &AnnotatedSpan<'i>, b: &AnnotatedSpan<'i>) -> Option<A
 #[grammar = "../grammars/flap.pest"]
 struct FlapParser;
 
-pub type ParsingError = pest::error::Error<Rule>;
-type Result<T, E = ParsingError> = core::result::Result<T, E>;
+pub type PestError = pest::error::Error<Rule>;
+type Result<T, E = PestError> = core::result::Result<T, E>;
 
 fn rule_renamer(rule: &Rule) -> String {
     match rule {
@@ -169,7 +170,7 @@ fn rule_renamer(rule: &Rule) -> String {
     .to_string()
 }
 
-pub fn map_parser_error(err: ParsingError, file_name: &str, file_contents: &str) -> ParsingError {
+pub fn map_parser_error(err: PestError, file_name: &str, file_contents: &str) -> ParserError {
     let err = err.renamed_rules(rule_renamer);
 
     let renamer: pest::error::RuleToMessageFn<Rule> =
@@ -181,11 +182,13 @@ pub fn map_parser_error(err: ParsingError, file_name: &str, file_contents: &str)
 
     let err = if let Some(extra) = extra { extra } else { err };
 
-    // if let Some(file) = file_name.as_ref() {
-    err.with_path(file_name)
-    // } else {
-    // err
-    // }
+    let err = err.with_path(file_name);
+
+    ParserError::PestError {
+        inner: err,
+        file_name: file_name.into(),
+        file: file_contents.into(),
+    }
 }
 
 pub fn parse_program<'a>(input: &'a str, file_name: &'a str) -> Result<Program<'a>> {
@@ -212,7 +215,7 @@ pub fn parse_program<'a>(input: &'a str, file_name: &'a str) -> Result<Program<'
                 });
             }
             rule => {
-                return Err(ParsingError::new_from_span(
+                return Err(PestError::new_from_span(
                     ErrorVariant::ParsingError {
                         positives: vec![Rule::directive, Rule::program_inner],
                         negatives: vec![rule],
@@ -240,7 +243,7 @@ pub fn parse_directives<'a>(input: &'a str, file_name: &'a str) -> Result<Vec<Di
             }
             Rule::EOI => continue,
             rule => {
-                return Err(ParsingError::new_from_span(
+                return Err(PestError::new_from_span(
                     ErrorVariant::ParsingError {
                         positives: vec![Rule::directive, Rule::EOI],
                         negatives: vec![rule],
@@ -272,7 +275,7 @@ fn parse_directive<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Direc
             AnnotatedSpan { span, file_name },
         )),
         rule => {
-            return Err(ParsingError::new_from_span(
+            return Err(PestError::new_from_span(
                 ErrorVariant::ParsingError {
                     positives: vec![Rule::include],
                     negatives: vec![rule],
@@ -323,7 +326,7 @@ fn parse_block_like<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Bloc
             Rule::semicolon => continue,
             Rule::EOI => continue,
             rule => {
-                return Err(ParsingError::new_from_span(
+                return Err(PestError::new_from_span(
                     ErrorVariant::ParsingError {
                         positives: vec![
                             Rule::expression,
@@ -370,7 +373,7 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                     attributes.insert(FunctionAttribute::NoMangle);
                 }
                 rule => {
-                    return Err(ParsingError::new_from_span(
+                    return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
                             positives: vec![Rule::no_mangle],
                             negatives: vec![rule],
@@ -395,7 +398,7 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
             }
             Rule::ident => {
                 let Some(last_arg_type) = last_arg_type.take() else {
-                    return Err(ParsingError::new_from_span(
+                    return Err(PestError::new_from_span(
                         ErrorVariant::CustomError {
                             message: format!("Got var name before var type: {:?}", pair.as_rule()),
                         },
@@ -420,7 +423,7 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                 });
             }
             _ => {
-                return Err(ParsingError::new_from_span(
+                return Err(PestError::new_from_span(
                     ErrorVariant::CustomError {
                         message: format!(
                             "Unsupported function paramaters token: {:?}",
@@ -433,7 +436,7 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
         }
     }
 
-    Err(ParsingError::new_from_span(
+    Err(PestError::new_from_span(
         ErrorVariant::ParsingError {
             positives: vec![Rule::block],
             negatives: vec![],
@@ -544,7 +547,7 @@ fn parse_loop<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Loop<'a>
                 });
             }
             rule => {
-                return Err(ParsingError::new_from_span(
+                return Err(PestError::new_from_span(
                     ErrorVariant::ParsingError {
                         positives: vec![
                             Rule::local_var,
@@ -560,7 +563,7 @@ fn parse_loop<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<Loop<'a>
         }
     }
 
-    Err(ParsingError::new_from_span(
+    Err(PestError::new_from_span(
         ErrorVariant::ParsingError {
             positives: vec![Rule::block],
             negatives: vec![],
@@ -587,7 +590,7 @@ fn parse_if_expr<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<IfExpr<
                 )?);
             }
             rule => {
-                return Err(ParsingError::new_from_span(
+                return Err(PestError::new_from_span(
                     ErrorVariant::ParsingError {
                         positives: vec![Rule::if_block, Rule::else_block],
                         negatives: vec![rule],
@@ -630,7 +633,7 @@ fn parse_inferable_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<
             type_token, file_name,
         )?)),
         rule => {
-            return Err(ParsingError::new_from_span(
+            return Err(PestError::new_from_span(
                 ErrorVariant::ParsingError {
                     positives: vec![Rule::auto_type, Rule::var_type],
                     negatives: vec![rule],
@@ -655,7 +658,7 @@ fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> 
                 Rule::bool_type => Type::Bool,
                 Rule::void_type => Type::Void,
                 rule => {
-                    return Err(ParsingError::new_from_span(
+                    return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
                             positives: vec![
                                 Rule::char_type,
@@ -688,7 +691,7 @@ fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> 
         }
         Rule::named_type => Type::Typedef(type_token.as_str()),
         rule => {
-            return Err(ParsingError::new_from_span(
+            return Err(PestError::new_from_span(
                 ErrorVariant::ParsingError {
                     positives: vec![
                         Rule::char_type,
@@ -712,7 +715,7 @@ fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> 
             parse_number(next.into_inner().next().unwrap())?,
         )),
         rule => {
-            return Err(ParsingError::new_from_span(
+            return Err(PestError::new_from_span(
                 ErrorVariant::ParsingError {
                     positives: vec![Rule::pointer_type_mod, Rule::array_type_mod],
                     negatives: vec![rule],
@@ -725,7 +728,7 @@ fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> 
 
 fn parse_ident<'a>(pair: Pair<'a, Rule>, _file_name: &'a str) -> Result<IdentRef<'a>> {
     if !matches!(pair.as_rule(), Rule::ident) {
-        return Err(ParsingError::new_from_span(
+        return Err(PestError::new_from_span(
             ErrorVariant::ParsingError {
                 positives: vec![Rule::ident],
                 negatives: vec![pair.as_rule()],
@@ -773,7 +776,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                             span,
                         )),
                         rule => {
-                            return Err(ParsingError::new_from_span(
+                            return Err(PestError::new_from_span(
                                 ErrorVariant::ParsingError {
                                     positives: vec![Rule::var_type, Rule::expression],
                                     negatives: vec![rule],
@@ -798,7 +801,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                             span,
                         )),
                         rule => {
-                            return Err(ParsingError::new_from_span(
+                            return Err(PestError::new_from_span(
                                 ErrorVariant::ParsingError {
                                     positives: vec![Rule::var_type, Rule::expression],
                                     negatives: vec![rule],
@@ -843,7 +846,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                     Ok(Expr::Array(exprs, DeferedType::UnresolvedType, span))
                 }
                 rule => {
-                    return Err(ParsingError::new_from_span(
+                    return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
                             positives: vec![
                                 Rule::value,
@@ -883,7 +886,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 Rule::shl => BinaryOp::BShl,
                 Rule::bit_and => BinaryOp::BAnd,
                 rule => {
-                    return Err(ParsingError::new_from_span(
+                    return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
                             positives: vec![
                                 Rule::add,
@@ -941,7 +944,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 Rule::negate => PrefixOp::Negate,
                 Rule::logical_not => PrefixOp::LNot,
                 rule => {
-                    return Err(ParsingError::new_from_span(
+                    return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
                             positives: vec![
                                 Rule::cast,
@@ -986,7 +989,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                     PostfixOp::ArrayIndex(parse_expr(op.clone().into_inner(), file_name)?.into())
                 }
                 rule => {
-                    return Err(ParsingError::new_from_span(
+                    return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
                             positives: vec![Rule::member, Rule::member_deref, Rule::array_idx],
                             negatives: vec![rule],
@@ -1034,7 +1037,7 @@ fn parse_number<'a>(pair: Pair<'a, Rule>) -> Result<ClacValue> {
 
     match res {
         Ok(val) => Ok(val),
-        Err(err) => Err(ParsingError::new_from_span(
+        Err(err) => Err(PestError::new_from_span(
             ErrorVariant::CustomError {
                 message: format!("Failed to parse number `{}`, due to {err}", pair.as_str()),
             },
@@ -1048,7 +1051,7 @@ fn parse_bool<'a>(pair: Pair<'a, Rule>) -> Result<bool> {
 
     match res {
         Ok(val) => Ok(val),
-        Err(err) => Err(ParsingError::new_from_span(
+        Err(err) => Err(PestError::new_from_span(
             ErrorVariant::CustomError {
                 message: format!("Failed to parse bool `{}`, due to {err}", pair.as_str()),
             },
@@ -1075,14 +1078,14 @@ fn parse_char<'a>(pair: Pair<'a, Rule>) -> Result<ClacValue> {
     let str = handle_escapes(pair.into_inner().next().unwrap().as_str());
 
     match str.as_bytes() {
-        &[] => Err(ParsingError::new_from_span(
+        &[] => Err(PestError::new_from_span(
             ErrorVariant::CustomError {
                 message: format!("Empty char literal `{}`", literal),
             },
             span,
         )),
         &[char] => Ok(char.into()),
-        &[..] => Err(ParsingError::new_from_span(
+        &[..] => Err(PestError::new_from_span(
             ErrorVariant::CustomError {
                 message: format!("Over sized char literal `{}`", literal),
             },
@@ -1100,7 +1103,7 @@ fn parse_value<'a>(pair: Pair<'a, Rule>) -> Result<Value<'a>> {
         Rule::char => Ok(Value::Char(parse_char(target)?)),
         Rule::string => Ok(Value::String(parse_string(target)?)),
         rule => {
-            return Err(ParsingError::new_from_span(
+            return Err(PestError::new_from_span(
                 ErrorVariant::ParsingError {
                     positives: vec![Rule::number, Rule::boolean, Rule::char, Rule::string],
                     negatives: vec![rule],

@@ -44,13 +44,12 @@ use lsp_types::{
     NumberOrString,
 };
 use pest::Span;
-use pest::error::LineColLocation;
 use regex::Regex;
 use tracing::{error, info};
 
 use crate::ast::{self, AnnotatedSpan, Block, Program};
 use crate::compile::{self, CompileConfig, CompileContext, FileCache};
-use crate::error::CompileError;
+use crate::error::IntoSpans;
 use crate::lsp::ast_cache::{CachedParsedAst, CachedTypedAst};
 use crate::parser;
 use crate::type_check::{TypeCheck, TypeChecker, VariableKind};
@@ -522,30 +521,7 @@ fn parse_ast<'a>(file_name: &'a str, contents: &'a str) -> Result<Program<'a>, V
 
     match res {
         Ok(prog) => Ok(prog),
-        Err(err) => {
-            let range = match err.line_col {
-                LineColLocation::Pos(start) => Range::new(
-                    pest_position_to_lsp_position(start),
-                    pest_position_to_lsp_position(start),
-                ),
-                LineColLocation::Span(start, end) => Range::new(
-                    pest_position_to_lsp_position(start),
-                    pest_position_to_lsp_position(end),
-                ),
-            };
-
-            Err(vec![Diagnostic {
-                range,
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: Some(NumberOrString::String("Syntax Error".to_string())),
-                code_description: None,
-                source: Some("flap-ls".to_string()),
-                message: format!("{err}"),
-                related_information: None,
-                tags: None,
-                data: None,
-            }])
-        }
+        Err(err) => Err(vec![diagnostic_for_error(&err, file_name)]),
     }
 }
 
@@ -556,14 +532,6 @@ fn type_check<'a>(ctx: &'a CompileContext) -> (TypeChecker<'a>, Block<'a>, Vec<D
     let mut diagnostics = Vec::new();
 
     for segment in &mut segments {
-        let range = match segment.path.last() {
-            Some(import) => Range::new(
-                pest_position_to_lsp_position(import.start),
-                pest_position_to_lsp_position(import.end),
-            ),
-            None => full_range(&ctx.root().contents),
-        };
-
         match &mut segment.ast {
             Ok(program) => {
                 for statement in &mut program.code.statements {
@@ -571,72 +539,15 @@ fn type_check<'a>(ctx: &'a CompileContext) -> (TypeChecker<'a>, Block<'a>, Vec<D
 
                     match res {
                         Ok(_type) => {}
-                        Err(err) => diagnostics.push(Diagnostic {
-                            range,
-                            severity: Some(DiagnosticSeverity::ERROR),
-                            code: Some(NumberOrString::String("Type Check Failed".to_string())),
-                            code_description: None,
-                            source: Some("flap-ls".to_string()),
-                            message: format!("{err}"),
-                            related_information: None,
-                            tags: None,
-                            data: None,
-                        }),
+                        Err(err) => {
+                            diagnostics.push(diagnostic_for_error(&err, &ctx.root().file_name))
+                        }
                     }
                 }
 
                 statements.extend(program.code.statements.drain(..));
             }
-            Err(err) => match err {
-                CompileError::Parsing(err) => {
-                    let mut related_information = vec![];
-                    if let Some(path) = err.path() {
-                        let range = match err.line_col {
-                            LineColLocation::Pos(start) => Range::new(
-                                pest_position_to_lsp_position(start),
-                                pest_position_to_lsp_position(start),
-                            ),
-                            LineColLocation::Span(start, end) => Range::new(
-                                pest_position_to_lsp_position(start),
-                                pest_position_to_lsp_position(end),
-                            ),
-                        };
-
-                        related_information.push(DiagnosticRelatedInformation {
-                            location: Location {
-                                uri: format!("file://{}", path).parse().expect("Build uri"),
-                                range,
-                            },
-                            message: format!("{err}"),
-                        });
-                    }
-
-                    diagnostics.push(Diagnostic {
-                        range,
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        code: Some(NumberOrString::String(
-                            "Syntax Error in imported file".to_string(),
-                        )),
-                        code_description: None,
-                        source: Some("flap-ls".to_string()),
-                        message: format!("{err}"),
-                        related_information: Some(related_information),
-                        tags: None,
-                        data: None,
-                    });
-                }
-                err => diagnostics.push(Diagnostic {
-                    range,
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    code: Some(NumberOrString::String("Unknown Error".to_string())),
-                    code_description: None,
-                    source: Some("flap-ls".to_string()),
-                    message: format!("{err}"),
-                    related_information: None,
-                    tags: None,
-                    data: None,
-                }),
-            },
+            Err(err) => diagnostics.push(diagnostic_for_error(err, &ctx.root().file_name)),
         }
     }
 
@@ -659,18 +570,51 @@ fn full_run(ctx: &CompileContext) -> Result<(), Vec<Diagnostic>> {
 
     match res {
         Ok(_) => Ok(()),
-        Err(err) => Err(vec![Diagnostic {
-            // range: todo!(),
-            range: full_range(&ctx.root().contents),
-            severity: Some(DiagnosticSeverity::ERROR),
-            code: Some(NumberOrString::String("Compile fail".to_string())),
-            code_description: None,
-            source: Some("flap-ls".to_string()),
-            message: format!("{err}"),
-            related_information: None,
-            tags: None,
-            data: None,
-        }]),
+        Err(err) => Err(vec![diagnostic_for_error(&err, &ctx.root().file_name)]),
+    }
+}
+
+fn diagnostic_for_error(error: &impl IntoSpans, main_path: &str) -> Diagnostic {
+    let error_kind = error.error_kind();
+    let mut spans = error
+        .spans()
+        .map(|(span, desc)| (span_to_location(span), desc));
+
+    let (main, desc) = spans.next().unwrap_or_else(|| {
+        (
+            Location {
+                range: first_char(),
+                uri: make_uri_for_path(main_path),
+            },
+            None,
+        )
+    });
+
+    let message = match desc {
+        Some(desc) => format!("{desc}\n{error}"),
+        None => format!("{error}"),
+    };
+
+    let mut related_info = Vec::new();
+    for (location, desc) in spans {
+        let message = match desc {
+            Some(desc) => desc.to_string(),
+            None => message.clone(),
+        };
+
+        related_info.push(DiagnosticRelatedInformation { location, message });
+    }
+
+    Diagnostic {
+        range: main.range,
+        severity: Some(DiagnosticSeverity::ERROR),
+        code: Some(NumberOrString::String(error_kind.to_string())),
+        code_description: None,
+        source: Some("flap-ls".to_string()),
+        message,
+        related_information: Some(related_info),
+        tags: None,
+        data: None,
     }
 }
 
@@ -684,6 +628,10 @@ fn first_line(text: &str) -> Range {
     let last_col = text.lines().next().map_or(1, |l| l.chars().count()) as u32;
 
     Range::new(Position::new(0, 0), Position::new(0, last_col))
+}
+
+fn first_char() -> Range {
+    Range::new(Position::new(0, 0), Position::new(0, 1))
 }
 
 fn send_ok<T: serde::Serialize>(conn: &Connection, id: RequestId, result: &T) -> Result<()> {
@@ -713,6 +661,21 @@ fn send_err(
     };
     conn.sender.send(Message::Response(resp))?;
     Ok(())
+}
+
+fn make_uri_for_path(path: &str) -> Uri {
+    format!("file://{path}").parse().unwrap()
+}
+
+fn span_to_location(span: AnnotatedSpan) -> lsp_types::Location {
+    let (start, end) = span.span.split();
+    let start = pest_position_to_lsp_position(start.line_col());
+    let end = pest_position_to_lsp_position(end.line_col());
+
+    Location {
+        range: Range::new(start, end),
+        uri: make_uri_for_path(span.file_name),
+    }
 }
 
 fn pest_position_to_lsp_position(pos: (usize, usize)) -> lsp_types::Position {
