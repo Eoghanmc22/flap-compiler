@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{
-        AnnotatedSpan, Captures, DeferedCaptures, DeferedVersion, FunctionSignature, IdentRef, Type,
+        AnnotatedSpan, Arguement, Captures, DeferedCaptures, DeferedVersion, FunctionSignature,
+        IdentRef, Type,
     },
     codegen::clac::ClacToken,
 };
@@ -19,11 +20,22 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::Pow,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Int, "base", v, AnnotatedSpan::builtin()),
-                    (Type::Int, "power", v, AnnotatedSpan::builtin()),
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "base",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "power",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
                 ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Int,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -33,9 +45,15 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Print,
             FunctionSignature {
-                arguements: vec![(Type::Int, "value", v, AnnotatedSpan::builtin())],
+                arguements: vec![Arguement {
+                    arg_type: Type::Int,
+                    arg_name: "value",
+                    version: v,
+                    span: AnnotatedSpan::builtin(),
+                }],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -45,9 +63,15 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Print,
             FunctionSignature {
-                arguements: vec![(Type::Bool, "value", v, AnnotatedSpan::builtin())],
+                arguements: vec![Arguement {
+                    arg_type: Type::Bool,
+                    arg_name: "value",
+                    version: v,
+                    span: AnnotatedSpan::builtin(),
+                }],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -60,6 +84,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
                 arguements: vec![],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -70,16 +95,52 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::Syscall,
             FunctionSignature {
                 arguements: vec![
-                    (Type::Int, "rax", v, AnnotatedSpan::builtin()),
-                    (Type::Int, "v1", v, AnnotatedSpan::builtin()),
-                    (Type::Int, "v2", v, AnnotatedSpan::builtin()),
-                    (Type::Int, "v3", v, AnnotatedSpan::builtin()),
-                    (Type::Int, "v5", v, AnnotatedSpan::builtin()),
-                    (Type::Int, "v4", v, AnnotatedSpan::builtin()),
-                    (Type::Int, "v6", v, AnnotatedSpan::builtin()),
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "rax",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "v1",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "v2",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "v3",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "v5",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "v4",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "v6",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
                 ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Int,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -90,16 +151,22 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::Write8,
             FunctionSignature {
                 arguements: vec![
-                    (
-                        Type::Pointer(Type::Char.into()),
-                        "addr",
-                        v,
-                        AnnotatedSpan::builtin(),
-                    ),
-                    (Type::Char, "val", v, AnnotatedSpan::builtin()),
+                    Arguement {
+                        arg_type: Type::Pointer(Type::Char.into()),
+                        arg_name: "addr",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Char,
+                        arg_name: "val",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
                 ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -110,16 +177,22 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
             ClacToken::WriteNative,
             FunctionSignature {
                 arguements: vec![
-                    (
-                        Type::Pointer(Type::Int.into()),
-                        "addr",
-                        v,
-                        AnnotatedSpan::builtin(),
-                    ),
-                    (Type::Int, "val", v, AnnotatedSpan::builtin()),
+                    Arguement {
+                        arg_type: Type::Pointer(Type::Int.into()),
+                        arg_name: "addr",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
+                    Arguement {
+                        arg_type: Type::Int,
+                        arg_name: "val",
+                        version: v,
+                        span: AnnotatedSpan::builtin(),
+                    },
                 ],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Void,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -129,14 +202,15 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::Read8,
             FunctionSignature {
-                arguements: vec![(
-                    Type::Pointer(Type::Char.into()),
-                    "addr",
-                    v,
-                    AnnotatedSpan::builtin(),
-                )],
+                arguements: vec![Arguement {
+                    arg_type: Type::Pointer(Type::Char.into()),
+                    arg_name: "addr",
+                    version: v,
+                    span: AnnotatedSpan::builtin(),
+                }],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Char,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -146,14 +220,15 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
         (
             ClacToken::ReadNative,
             FunctionSignature {
-                arguements: vec![(
-                    Type::Pointer(Type::Int.into()),
-                    "addr",
-                    v,
-                    AnnotatedSpan::builtin(),
-                )],
+                arguements: vec![Arguement {
+                    arg_type: Type::Pointer(Type::Int.into()),
+                    arg_name: "addr",
+                    version: v,
+                    span: AnnotatedSpan::builtin(),
+                }],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Int,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );
@@ -166,6 +241,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
                 arguements: vec![],
                 captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
                 return_type: Type::Int,
+                span: AnnotatedSpan::builtin(),
             },
         ),
     );

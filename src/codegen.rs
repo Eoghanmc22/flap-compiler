@@ -21,8 +21,8 @@ use std::{
 
 use crate::{
     ast::{
-        AnnotatedSpan, DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef, Type, Value,
-        VariableVersion,
+        AnnotatedSpan, Arguement, DeferedVersion, FunctionAttribute, FunctionSignature, IdentRef,
+        Type, Value, VariableVersion,
     },
     codegen::{
         builtins::clac_builtins,
@@ -377,19 +377,26 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
             let id_counter = self.id_counter.clone();
             let mut offset = 0;
 
-            for (var_type, _ident, version, _span) in signature.arguements_and_captures()? {
+            for arguement in signature.arguements_and_captures()? {
+                let Arguement {
+                    arg_type,
+                    arg_name: _ident,
+                    version,
+                    span: _span,
+                } = arguement;
+
                 let DeferedVersion::ResolvedVersion(version) = version else {
                     return Err(CodegenError::CompilerBug(Backtrace::force_capture()).into());
                 };
 
                 let cur_offset = Offset(frame.frame_start + offset);
-                offset += var_type.width(self.type_checker)?;
+                offset += arg_type.width(self.type_checker)?;
 
                 // Name arg as a temporary
                 let tempoary = TempoaryIdent(id_counter.fetch_add(1, Ordering::Relaxed));
                 frame
                     .temporaries
-                    .insert(tempoary, (var_type.clone(), cur_offset));
+                    .insert(tempoary, (arg_type.clone(), cur_offset));
                 assert!(
                     frame
                         .locals
@@ -397,7 +404,7 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                             version,
                             AnnotatedDataRef {
                                 reference: DataReference::Tempoary(tempoary, None),
-                                data_type: var_type.clone(),
+                                data_type: arg_type.clone(),
                             },
                         )
                         .is_none(),

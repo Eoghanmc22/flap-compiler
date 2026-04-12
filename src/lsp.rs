@@ -320,10 +320,13 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
                 }
             };
 
-            // TODO: make types an ast node
             let node =
                 ast::nearest_node(ast.block(), line, col, &doc.file_name, NearestMode::Closest);
             let defn = match node.as_ast_node() {
+                AstNode::Type(inner_type) => inner_type
+                    .as_type_def()
+                    .and_then(|name| type_checker.typedefs.get(name))
+                    .map(|(_, span)| *span),
                 AstNode::Expr(Expr::Variable(_ident, version, _span)) => type_checker
                     .lookup_variable_versioned(version.unwrap(), CaptureKind::Read)
                     .ok()

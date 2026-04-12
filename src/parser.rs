@@ -1,3 +1,4 @@
+use core::cmp;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashSet},
@@ -16,7 +17,7 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        AnnotatedSpan, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedCaptures,
+        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedCaptures,
         DeferedType, DeferedVersion, Directive, Expr, FunctionAttribute, FunctionCall, FunctionDef,
         FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Program,
         Punctuation, SizeOfMode, Statement, Type, Typedef, Value,
@@ -53,13 +54,17 @@ pub fn merge_spans<'i>(a: &AnnotatedSpan<'i>, b: &AnnotatedSpan<'i>) -> Option<A
     }
 
     Some(AnnotatedSpan {
-        span: Span::new(
-            a.span.get_input(),
-            core::cmp::min(a.span.start(), b.span.start()),
-            core::cmp::max(a.span.end(), b.span.end()),
-        )?,
+        span: merge_pest_spans(a.span, b.span)?,
         file_name: a.file_name,
     })
+}
+
+pub fn merge_pest_spans<'i>(a: Span<'i>, b: Span<'i>) -> Option<Span<'i>> {
+    Span::new(
+        a.get_input(),
+        cmp::min(a.start(), b.start()),
+        cmp::max(a.end(), b.end()),
+    )
 }
 
 #[derive(Parser)]
@@ -385,19 +390,29 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
         }
     }
 
-    let return_type = parse_type(inner.next().unwrap(), file_name)?;
-    let function = parse_ident(inner.next().unwrap(), file_name)?;
+    let return_token = inner.next().unwrap();
+    let return_span = return_token.as_span();
+    let return_type = parse_type(return_token, file_name)?;
+
+    let function_token = inner.next().unwrap();
+    let function_span = function_token.as_span();
+    let function = parse_ident(function_token, file_name)?;
 
     let mut last_arg_type = None;
     let mut arguements = Vec::new();
+    let mut arguements_span = merge_pest_spans(return_span, function_span).unwrap();
 
     for pair in inner {
+        let pair_span = pair.as_span();
+
+        let next_arguements_span = merge_pest_spans(arguements_span, pair_span).unwrap();
+
         match pair.as_rule() {
             Rule::var_type => {
-                last_arg_type = Some(parse_type(pair, file_name)?);
+                last_arg_type = Some((parse_type(pair, file_name)?, pair_span));
             }
             Rule::ident => {
-                let Some(last_arg_type) = last_arg_type.take() else {
+                let Some((last_arg_type, type_span)) = last_arg_type.take() else {
                     return Err(PestError::new_from_span(
                         ErrorVariant::CustomError {
                             message: format!("Got var name before var type: {:?}", pair.as_rule()),
@@ -407,16 +422,16 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                 };
 
                 let span = AnnotatedSpan {
-                    span: pair.as_span(),
+                    span: merge_pest_spans(type_span, pair.as_span()).unwrap(),
                     file_name,
                 };
                 let ident = parse_ident(pair, file_name)?;
-                arguements.push((
-                    last_arg_type,
-                    ident,
-                    DeferedVersion::UnresolvedVersion,
+                arguements.push(Arguement {
+                    arg_type: last_arg_type,
+                    arg_name: ident,
+                    version: DeferedVersion::UnresolvedVersion,
                     span,
-                ));
+                });
             }
             Rule::block => {
                 return Ok(FunctionDef {
@@ -427,6 +442,10 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                         arguements,
                         return_type,
                         captures: DeferedCaptures::UnresolvedCaptures,
+                        span: AnnotatedSpan {
+                            span: arguements_span,
+                            file_name,
+                        },
                     },
                     span: AnnotatedSpan { span, file_name },
                 });
@@ -443,6 +462,8 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                 ));
             }
         }
+
+        arguements_span = next_arguements_span;
     }
 
     Err(PestError::new_from_span(
@@ -656,6 +677,7 @@ fn parse_inferable_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<
 fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> {
     let mut tokens = pair.into_inner();
     let type_token = tokens.next().unwrap();
+    let span = type_token.as_span();
 
     let parsed_type = match type_token.as_rule() {
         Rule::primitive_type => {
@@ -717,21 +739,36 @@ fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> 
         }
     };
 
-    tokens.fold(Ok(parsed_type), |acc, next| match next.as_rule() {
-        Rule::pointer_type_mod => Ok(Type::Pointer(acc?.into())),
-        Rule::array_type_mod => Ok(Type::Array(
-            acc?.into(),
-            parse_number(next.into_inner().next().unwrap())?,
-        )),
-        rule => {
-            return Err(PestError::new_from_span(
-                ErrorVariant::ParsingError {
-                    positives: vec![Rule::pointer_type_mod, Rule::array_type_mod],
-                    negatives: vec![rule],
-                },
-                next.as_span(),
-            ));
-        }
+    let wrapper = |it, next_span| {
+        Type::SpannedType(
+            Box::new(it),
+            AnnotatedSpan {
+                span: merge_pest_spans(span, next_span).unwrap(),
+                file_name,
+            },
+        )
+    };
+
+    tokens.fold(Ok((wrapper)(parsed_type, span)), |acc, next| {
+        let next_span = next.as_span();
+        let next_type = match next.as_rule() {
+            Rule::pointer_type_mod => Type::Pointer(acc?.into()),
+            Rule::array_type_mod => Type::Array(
+                acc?.into(),
+                parse_number(next.into_inner().next().unwrap())?,
+            ),
+            rule => {
+                return Err(PestError::new_from_span(
+                    ErrorVariant::ParsingError {
+                        positives: vec![Rule::pointer_type_mod, Rule::array_type_mod],
+                        negatives: vec![rule],
+                    },
+                    next.as_span(),
+                ));
+            }
+        };
+
+        Ok((wrapper)(next_type, next_span))
     })
 }
 

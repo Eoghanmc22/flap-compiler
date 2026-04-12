@@ -10,8 +10,8 @@ use std::{
 
 use crate::{
     ast::{
-        AnnotatedSpan, Assignment, AstSpan, BinaryOp, Block, CaptureKind, Captures, ConstDef,
-        DeferedCaptures, DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef,
+        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, CaptureKind, Captures,
+        ConstDef, DeferedCaptures, DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef,
         FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp,
         Punctuation, Statement, Type, Typedef, Value, VariableVersion,
     },
@@ -157,10 +157,17 @@ impl<'a> TypeChecker<'a> {
 
         self.define_scope(
             |ctx| {
-                for (var_type, ident, defered_version, span) in &mut signature.arguements {
-                    let version =
-                        ctx.define_variable(ident, var_type.clone(), VariableKind::Local, *span);
-                    *defered_version = DeferedVersion::ResolvedVersion(version);
+                for arguement in &mut signature.arguements {
+                    let Arguement {
+                        arg_type,
+                        arg_name,
+                        version,
+                        span,
+                    } = arguement;
+
+                    let actual_version =
+                        ctx.define_variable(arg_name, arg_type.clone(), VariableKind::Local, *span);
+                    *version = DeferedVersion::ResolvedVersion(actual_version);
                 }
 
                 // Pass 1, Goal: compute what this captures
@@ -791,9 +798,14 @@ impl<'a> TypeCheck<'a> for FunctionCall<'a> {
             .wrap_span(self.span);
         }
 
-        for (parm_expr, (arg_type, arg_name, _, _)) in
-            self.parameters.iter_mut().zip(sig.arguements.iter())
-        {
+        for (parm_expr, arguement) in self.parameters.iter_mut().zip(sig.arguements.iter()) {
+            let Arguement {
+                arg_type,
+                arg_name,
+                version: _,
+                span: _,
+            } = arguement;
+
             let parm_type = parm_expr.check_and_resolve_types(ctx)?;
             let arg_type = arg_type;
             if !parm_type.compatible_with(arg_type, ctx)? {

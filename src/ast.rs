@@ -144,9 +144,12 @@ pub fn nearest_node<'a, 'b>(
 
 #[derive(Debug, Clone)]
 pub enum AstNode<'a, 'b> {
+    Type(&'b Type<'a>),
     Expr(&'b Expr<'a>),
     FunctionCall(&'b FunctionCall<'a>),
     FunctionDef(&'b FunctionDef<'a>),
+    FunctionSignature(&'b FunctionSignature<'a>),
+    Arguement(&'b Arguement<'a>),
     ConstDef(&'b ConstDef<'a>),
     IfCase(&'b IfCase<'a>),
     LocalDef(&'b LocalDef<'a>),
@@ -344,7 +347,12 @@ impl<'a> AstSpan<'a> for Expr<'a> {
                     yield &**left;
                     yield &**right;
                 }
-                Expr::PrefixOp { operand, .. } => {
+                Expr::PrefixOp { op, operand, .. } => {
+                    match op {
+                        PrefixOp::Cast(the_type) => yield the_type,
+                        _ => {}
+                    }
+
                     yield &**operand;
                 }
                 Expr::PostfixOp { operand, op, .. } => {
@@ -358,7 +366,9 @@ impl<'a> AstSpan<'a> for Expr<'a> {
                 Expr::FunctionCall(function_call) => {
                     yield function_call;
                 }
-                Expr::SizeOfType(..) => {}
+                Expr::SizeOfType(the_type, ..) => {
+                    yield the_type;
+                }
                 Expr::SizeOfExpr(expr, ..) => {
                     yield &**expr;
                 }
@@ -473,6 +483,7 @@ pub enum Stride {
 
 #[derive(Debug, Clone, Default)]
 pub enum Type<'a> {
+    SpannedType(Box<Type<'a>>, AnnotatedSpan<'a>),
     Typedef(IdentRef<'a>),
     Struct(BTreeMap<IdentRef<'a>, Type<'a>>),
     NamedTuple(Vec<(IdentRef<'a>, Type<'a>)>),
@@ -484,6 +495,32 @@ pub enum Type<'a> {
     Bool,
     #[default]
     Void,
+}
+
+impl<'a> AstSpan<'a> for Type<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
+        match self {
+            Type::SpannedType(_, span) => *span,
+            _ => AnnotatedSpan::builtin(),
+        }
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        match self {
+            Type::SpannedType(inner, _) => inner.children(),
+            Type::Typedef(_) => Box::new(iter::empty()),
+            Type::Struct(map) => Box::new(map.values().map(|it| it as &dyn AstSpan<'a>)),
+            Type::NamedTuple(items) => Box::new(items.iter().map(|(_, it)| it as &dyn AstSpan<'a>)),
+            Type::Tuple(items) => Box::new(items.iter().map(|it| it as &dyn AstSpan<'a>)),
+            Type::Pointer(inner) => Box::new(iter::once(&**inner as &dyn AstSpan<'a>)),
+            Type::Array(inner, _) => Box::new(iter::once(&**inner as &dyn AstSpan<'a>)),
+            Type::Int | Type::Char | Type::Bool | Type::Void => Box::new(iter::empty()),
+        }
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Type(self)
+    }
 }
 
 impl Display for Type<'_> {
@@ -499,6 +536,7 @@ impl Display for Type<'_> {
             Type::Bool => write!(f, "bool"),
             Type::Void => write!(f, "void"),
             Type::Array(inner_type, len) => write!(f, "{inner_type}[{len}]"),
+            Type::SpannedType(inner, _) => <Type as Display>::fmt(inner, f),
         }
     }
 }
@@ -509,8 +547,8 @@ impl<'a> Type<'a> {
         other: &Type<'a>,
         ctx: &TypeChecker<'a>,
     ) -> Result<bool, TypeError<'a>> {
-        let lhs = self;
-        let rhs = other;
+        let lhs = self.resolve_once_typedef();
+        let rhs = other.resolve_once_typedef();
 
         if let (Type::Typedef(lhs), Type::Typedef(rhs)) = (lhs, rhs) {
             if lhs == rhs {
@@ -522,6 +560,9 @@ impl<'a> Type<'a> {
         let rhs = other.resolve_once(ctx)?;
 
         match (lhs, rhs) {
+            (Type::SpannedType(..) | Type::Typedef(_), _)
+            | (_, Type::SpannedType(..) | Type::Typedef(_)) => unreachable!(),
+
             (Type::Struct(lhs_map), Type::Struct(rhs_map)) => {
                 for (lhs_key, lhs_value) in &lhs_map {
                     let Some(rhs_value) = rhs_map.get(lhs_key) else {
@@ -576,11 +617,14 @@ impl<'a> Type<'a> {
                 Ok(true)
             }
             (Type::Pointer(lhs_inner), Type::Pointer(rhs_inner)) => {
-                if matches!(&*lhs_inner, Type::Void) || matches!(&*rhs_inner, Type::Void) {
+                let lhs_inner = lhs_inner.resolve_once_typedef();
+                let rhs_inner = rhs_inner.resolve_once_typedef();
+
+                if matches!(lhs_inner, Type::Void) || matches!(rhs_inner, Type::Void) {
                     return Ok(true);
                 }
 
-                Ok(lhs_inner.compatible_with(&*rhs_inner, ctx)?)
+                Ok(lhs_inner.compatible_with(rhs_inner, ctx)?)
             }
             (Type::Array(lhs_inner, lhs_len), Type::Array(rhs_inner, rhs_len)) => {
                 Ok(lhs_inner.compatible_with(&rhs_inner, ctx)? && lhs_len == rhs_len)
@@ -600,18 +644,31 @@ impl<'a> Type<'a> {
                 .get(ident)
                 .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
                 .and_then(|(it, _)| it.resolve_once(ctx)),
+            Type::SpannedType(inner, _) => inner.resolve_once(ctx),
             _ => Ok(self.clone()),
         }
     }
 
-    pub fn dereference(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>, TypeError<'a>> {
+    pub fn resolve_once_typedef(&self) -> &Type<'a> {
         match self {
-            Type::Typedef(ident) => ctx
-                .typedefs
-                .get(ident)
-                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|(it, _)| it.dereference(ctx)),
-            Type::Pointer(target) => Ok((**target).clone()),
+            Type::SpannedType(inner, _) => inner.resolve_once_typedef(),
+            _ => self,
+        }
+    }
+
+    pub fn as_type_def(&self) -> Option<IdentRef<'a>> {
+        match self {
+            Type::SpannedType(inner, _) => inner.as_type_def(),
+            Type::Typedef(typedef) => Some(*typedef),
+            _ => None,
+        }
+    }
+
+    pub fn dereference(&self, ctx: &TypeChecker<'a>) -> Result<Type<'a>, TypeError<'a>> {
+        match self.resolve_once(ctx)? {
+            Type::SpannedType(..) | Type::Typedef(_) => unreachable!(),
+
+            Type::Pointer(target) => Ok(*target),
             _ => Err(TypeError::DereferenceNonPointer {
                 operand_type: self.clone(),
                 backtrace: Backtrace::capture(),
@@ -624,12 +681,9 @@ impl<'a> Type<'a> {
         ctx: &TypeChecker<'a>,
         ident: IdentRef<'a>,
     ) -> Result<Type<'a>, TypeError<'a>> {
-        match self {
-            Type::Typedef(type_def_ident) => ctx
-                .typedefs
-                .get(type_def_ident)
-                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|(it, _)| it.member(ctx, ident)),
+        match self.resolve_once(ctx)? {
+            Type::SpannedType(..) | Type::Typedef(_) => unreachable!(),
+
             Type::Struct(map) => map
                 .get(ident)
                 .ok_or_else(|| TypeError::UnknownStructMember {
@@ -661,17 +715,14 @@ impl<'a> Type<'a> {
         ctx: &TypeChecker<'a>,
         ident: IdentRef<'a>,
     ) -> Result<(Type<'a>, Offset), TypeError<'a>> {
-        match self {
-            Type::Typedef(type_def_ident) => ctx
-                .typedefs
-                .get(type_def_ident)
-                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|(it, _)| it.member_and_offset(ctx, ident)),
+        match self.resolve_once(ctx)? {
+            Type::SpannedType(..) | Type::Typedef(_) => unreachable!(),
+
             Type::Struct(map) => {
                 let mut offset = 0;
 
                 for (field_name, field_type) in map {
-                    if *field_name == ident {
+                    if field_name == ident {
                         return Ok((field_type.clone(), Offset(offset)));
                     }
 
@@ -688,7 +739,7 @@ impl<'a> Type<'a> {
                 let mut offset = 0;
 
                 for (field_name, field_type) in items {
-                    if *field_name == ident {
+                    if field_name == ident {
                         return Ok((field_type.clone(), Offset(offset)));
                     }
 
@@ -710,12 +761,9 @@ impl<'a> Type<'a> {
     }
 
     pub fn width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue, TypeError<'a>> {
-        match self {
-            Type::Typedef(ident) => ctx
-                .typedefs
-                .get(ident)
-                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|(it, _)| it.width(ctx)),
+        match self.resolve_once(ctx)? {
+            Type::SpannedType(..) | Type::Typedef(_) => unreachable!(),
+
             Type::Struct(map) => map
                 .values()
                 .map(|it| it.width(ctx))
@@ -730,17 +778,14 @@ impl<'a> Type<'a> {
                 .sum::<Result<ClacValue, _>>(),
             Type::Pointer(_) | Type::Int | Type::Char | Type::Bool => Ok(1),
             Type::Void => Ok(0),
-            Type::Array(inner_type, len) => Ok(inner_type.width(ctx)? * *len),
+            Type::Array(inner_type, len) => Ok(inner_type.width(ctx)? * len),
         }
     }
 
     pub fn stride(&self, ctx: &TypeChecker<'a>) -> Result<Stride, TypeError<'a>> {
-        match self {
-            Type::Typedef(ident) => ctx
-                .typedefs
-                .get(ident)
-                .ok_or_else(|| TypeError::TypedefNotInScope(ident, Backtrace::capture()))
-                .and_then(|(it, _)| it.stride(ctx)),
+        match self.resolve_once(ctx)? {
+            Type::SpannedType(..) | Type::Typedef(_) => unreachable!(),
+
             Type::Char => Ok(Stride::Byte),
             Type::Void => Ok(Stride::ZST),
             // Type::Array(inner_type, _len) => inner_type.stride(ctx),
@@ -909,7 +954,13 @@ impl<'a> AstSpan<'a> for FunctionDef<'a> {
     }
 
     fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
-        Box::new(iter::once(&self.contents as &dyn AstSpan<'a>))
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                yield &self.signature as &dyn AstSpan<'a>;
+                yield &self.contents;
+            },
+        ))
     }
 
     fn as_ast_node(&self) -> AstNode<'a, '_> {
@@ -917,14 +968,64 @@ impl<'a> AstSpan<'a> for FunctionDef<'a> {
     }
 }
 
-pub type Arguement<'a> = (Type<'a>, IdentRef<'a>, DeferedVersion, AnnotatedSpan<'a>);
+#[derive(Debug, Clone)]
+pub struct Arguement<'a> {
+    pub arg_type: Type<'a>,
+    pub arg_name: IdentRef<'a>,
+    pub version: DeferedVersion,
+    pub span: AnnotatedSpan<'a>,
+}
+
+impl<'a> AstSpan<'a> for Arguement<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
+        self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                yield &self.arg_type as &dyn AstSpan<'a>;
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::Arguement(self)
+    }
+}
+
 pub type Arguements<'a> = Vec<Arguement<'a>>;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct FunctionSignature<'a> {
     pub arguements: Arguements<'a>,
     pub captures: DeferedCaptures<'a>,
     pub return_type: Type<'a>,
+    pub span: AnnotatedSpan<'a>,
+}
+
+impl<'a> AstSpan<'a> for FunctionSignature<'a> {
+    fn as_span(&self) -> AnnotatedSpan<'a> {
+        self.span
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
+        Box::new(iter::from_coroutine(
+            #[coroutine]
+            || {
+                yield &self.return_type as &dyn AstSpan<'a>;
+
+                for arg in &self.arguements {
+                    yield arg;
+                }
+            },
+        ))
+    }
+
+    fn as_ast_node(&self) -> AstNode<'a, '_> {
+        AstNode::FunctionSignature(self)
+    }
 }
 
 impl<'a> FunctionSignature<'a> {
@@ -960,21 +1061,27 @@ impl<'a> FunctionSignature<'a> {
     ) -> Result<impl Iterator<Item = Arguement<'a>>, TypeError<'a>> {
         Ok(self
             .captures_read()?
-            .map(|(var_type, ident, version, _kind, span)| {
-                (
-                    var_type,
-                    ident,
-                    DeferedVersion::ResolvedVersion(version),
-                    span,
-                )
+            .map(|(var_type, ident, version, _kind, span)| Arguement {
+                arg_type: var_type,
+                arg_name: ident,
+                version: DeferedVersion::ResolvedVersion(version),
+                span,
             })
-            .chain(
-                self.arguements
-                    .iter()
-                    .map(|(var_type, ident, version, span)| {
-                        (var_type.clone(), *ident, *version, *span)
-                    }),
-            ))
+            .chain(self.arguements.iter().map(
+                |Arguement {
+                     arg_type: var_type,
+                     arg_name: ident,
+                     version,
+                     span,
+                 }| {
+                    Arguement {
+                        arg_type: var_type.clone(),
+                        arg_name: *ident,
+                        version: *version,
+                        span: *span,
+                    }
+                },
+            )))
     }
 
     pub fn full_return_type(&self) -> Result<Type<'a>, TypeError<'a>> {
@@ -988,7 +1095,14 @@ impl<'a> FunctionSignature<'a> {
 
     pub fn paramater_width(&self, ctx: &TypeChecker<'a>) -> Result<ClacValue, TypeError<'a>> {
         self.arguements_and_captures()?
-            .map(|(var_type, _, _, _)| var_type.width(ctx))
+            .map(
+                |Arguement {
+                     arg_type: var_type,
+                     arg_name: _,
+                     version: _,
+                     span: _,
+                 }| var_type.width(ctx),
+            )
             .sum()
     }
 
@@ -1050,7 +1164,13 @@ impl<'a> FunctionSignature<'a> {
     pub fn lsp_render_short(&self, ident: IdentRef) -> String {
         let mut args = String::new();
 
-        for (arg_type, _arg_name, _, _) in &self.arguements {
+        for Arguement {
+            arg_type,
+            arg_name: _arg_name,
+            version: _,
+            span: _,
+        } in &self.arguements
+        {
             args.push_str(&format!("{arg_type}, "));
         }
 
@@ -1065,7 +1185,13 @@ impl<'a> FunctionSignature<'a> {
     pub fn lsp_render_full(&self, ident: IdentRef) -> String {
         let mut args = String::new();
 
-        for (arg_type, arg_name, _, _) in &self.arguements {
+        for Arguement {
+            arg_type,
+            arg_name,
+            version: _,
+            span: _,
+        } in &self.arguements
+        {
             args.push_str(&format!("{arg_type} {arg_name}, "));
         }
 
@@ -1096,7 +1222,10 @@ impl<'a> AstSpan<'a> for ConstDef<'a> {
         Box::new(iter::from_coroutine(
             #[coroutine]
             || {
-                yield &self.expr as &dyn AstSpan<'a>;
+                if let DeferedType::ResolvedType(var_type) = &self.var_type {
+                    yield var_type as &dyn AstSpan<'a>;
+                }
+                yield &self.expr;
             },
         ))
     }
@@ -1151,6 +1280,9 @@ impl<'a> AstSpan<'a> for LocalDef<'a> {
         Box::new(iter::from_coroutine(
             #[coroutine]
             || {
+                if let DeferedType::ResolvedType(var_type) = &self.var_type {
+                    yield var_type as &dyn AstSpan<'a>;
+                }
                 yield &self.expr as &dyn AstSpan<'a>;
             },
         ))
@@ -1204,7 +1336,7 @@ impl<'a> AstSpan<'a> for Typedef<'a> {
     }
 
     fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_> {
-        Box::new(iter::empty())
+        Box::new(iter::once(&self.type_alias as &dyn AstSpan<'a>))
     }
 
     fn as_ast_node(&self) -> AstNode<'a, '_> {

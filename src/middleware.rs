@@ -3,9 +3,10 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        AnnotatedSpan, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedType, DeferedVersion,
-        Expr, FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr, LocalDef, Loop,
-        PostfixOp, PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type, Value,
+        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedType,
+        DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr,
+        LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type,
+        Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -394,6 +395,7 @@ fn walk_loop<'a, 'b>(
                 arguements: Vec::default(),
                 captures: inner.captures.clone(),
                 return_type: Type::Void,
+                span: inner.span,
             },
         },
     )?;
@@ -430,6 +432,7 @@ fn walk_if_expr<'a, 'b>(
         arguements: Vec::default(),
         captures: captures.clone(),
         return_type: return_type.clone().unwrap(),
+        span: *span,
     };
 
     trace!("if signature: {sig:?}");
@@ -468,7 +471,14 @@ fn walk_if_statement_inner<'a, 'b>(
         clac_op.execute((&mut tokens, &mut *ctx))?;
 
         let mut parameters = Vec::new();
-        for (arg_data_type, _arg_ident, version, _span) in &signature.arguements {
+        for arguements in &signature.arguements {
+            let Arguement {
+                arg_type: arg_data_type,
+                arg_name: _arg_ident,
+                version,
+                span: _span,
+            } = arguements;
+
             let DeferedVersion::ResolvedVersion(version) = version else {
                 return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
@@ -492,12 +502,12 @@ fn walk_if_statement_inner<'a, 'b>(
             parameters.push(reference);
         }
 
-        signature.arguements.push((
-            Type::Bool,
-            "condition",
-            DeferedVersion::ResolvedVersion(ctx.type_checker.allocate_version()),
-            next_case.condition.as_span(),
-        ));
+        signature.arguements.push(Arguement {
+            arg_type: Type::Bool,
+            arg_name: "condition",
+            version: DeferedVersion::ResolvedVersion(ctx.type_checker.allocate_version()),
+            span: next_case.condition.as_span(),
+        });
         parameters.push(condition);
 
         Ok(MaybeTailCall::TailCall {
