@@ -2,6 +2,7 @@ use core::fmt;
 use std::{fmt::Display, iter, sync::Arc};
 
 use clac_lang::types::FunctionRef;
+use regex::Regex;
 
 use crate::ast::Ident;
 
@@ -148,7 +149,13 @@ impl Display for ClacToken {
             } => write!(f, "{}", ident.0),
             ClacToken::NewLine => writeln!(f),
             ClacToken::Comment(text) => {
-                writeln!(f, ": comment {} ;", text.trim())
+                let regex = Regex::new(r"(\s);(\s)").unwrap();
+
+                writeln!(
+                    f,
+                    "{}",
+                    regex.replace_all(&format!(": comment {} ;", text.trim()), r"$1\;$2")
+                )
             }
             ClacToken::Silent(clac_token) => <ClacToken as Display>::fmt(clac_token, f),
             ClacToken::Syscall => write!(f, "syscall"),
