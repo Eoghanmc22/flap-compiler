@@ -451,71 +451,86 @@ fn walk_if_statement_inner<'a, 'b>(
             .wrap_span_desc(next_case.span, "If cond should return something")?
             .into_data_ref(ctx)?;
 
-        let on_true =
-            ctx.define_function("on_true!", signature.clone(), &Default::default(), |ctx| {
-                walk_block(ctx, &next_case.contents)
-            })?;
+        match ctx.dereference_data_ref(&condition)? {
+            DataReference::Value(value, _) => match value.as_repr().as_slice() {
+                [0] => walk_if_statement_inner(ctx, remaining, otherwise, signature.clone()),
+                [_] => walk_block(ctx, &next_case.contents),
 
-        let on_false =
-            ctx.define_function("on_false!", signature.clone(), &Default::default(), |ctx| {
-                walk_if_statement_inner(ctx, remaining, otherwise, signature.clone())
-            })?;
+                _ => return Err(MiddlewareError::CompilerBug(Backtrace::force_capture())),
+            },
+            DataReference::Tempoary(..) => {
+                let on_true = ctx.define_function(
+                    "on_true!",
+                    signature.clone(),
+                    &Default::default(),
+                    |ctx| walk_block(ctx, &next_case.contents),
+                )?;
 
-        let clac_op = ClacOp::If {
-            condition: condition.clone(),
-            on_true,
-            on_false,
-        };
+                let on_false = ctx.define_function(
+                    "on_false!",
+                    signature.clone(),
+                    &Default::default(),
+                    |ctx| walk_if_statement_inner(ctx, remaining, otherwise, signature.clone()),
+                )?;
 
-        let mut tokens = ClacProgram::default();
-        clac_op.execute((&mut tokens, &mut *ctx))?;
+                let clac_op = ClacOp::If {
+                    condition: condition.clone(),
+                    on_true,
+                    on_false,
+                };
 
-        let mut parameters = Vec::new();
-        for arguements in &signature.arguements {
-            let Arguement {
-                arg_type: arg_data_type,
-                arg_name: _arg_ident,
-                version,
-                span: _span,
-            } = arguements;
+                let mut tokens = ClacProgram::default();
+                clac_op.execute((&mut tokens, &mut *ctx))?;
 
-            let DeferedVersion::ResolvedVersion(version) = version else {
-                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
-            };
+                let mut parameters = Vec::new();
+                for arguements in &signature.arguements {
+                    let Arguement {
+                        arg_type: arg_data_type,
+                        arg_name: _arg_ident,
+                        version,
+                        span: _span,
+                    } = arguements;
 
-            let Some(AnnotatedDataRef {
-                reference,
-                data_type,
-            }) = ctx.lookup_local(&version)
-            else {
-                return Err(MiddlewareError::CompilerBug(Backtrace::capture())).wrap_span_desc(
+                    let DeferedVersion::ResolvedVersion(version) = version else {
+                        return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
+                    };
+
+                    let Some(AnnotatedDataRef {
+                        reference,
+                        data_type,
+                    }) = ctx.lookup_local(&version)
+                    else {
+                        return Err(MiddlewareError::CompilerBug(Backtrace::capture())).wrap_span_desc(
                     next_case.as_span(),
                     "Look up local for capture for if statement could not find corresponding local",
                 );
-            };
+                    };
 
-            if !arg_data_type.compatible_with(&data_type, ctx.type_checker)? {
-                return Err(MiddlewareError::CompilerBug(Backtrace::capture()))
+                    if !arg_data_type.compatible_with(&data_type, ctx.type_checker)? {
+                        return Err(MiddlewareError::CompilerBug(Backtrace::capture()))
                     .wrap_span_desc(next_case.as_span(), format!("Look up local for capture for if statement failed due to type mismatch, arg_data_type: {arg_data_type}, data_type: {data_type}"));
+                    }
+
+                    parameters.push(reference);
+                }
+
+                signature.arguements.push(Arguement {
+                    arg_type: Type::Bool,
+                    arg_name: "condition",
+                    version: DeferedVersion::ResolvedVersion(ctx.type_checker.allocate_version()),
+                    span: next_case.condition.as_span(),
+                });
+                parameters.push(condition);
+
+                Ok(MaybeTailCall::TailCall {
+                    signature: signature,
+                    call_span: next_case.span,
+                    parameters,
+                    tokens: tokens.0,
+                })
             }
-
-            parameters.push(reference);
+            _ => unreachable!(),
         }
-
-        signature.arguements.push(Arguement {
-            arg_type: Type::Bool,
-            arg_name: "condition",
-            version: DeferedVersion::ResolvedVersion(ctx.type_checker.allocate_version()),
-            span: next_case.condition.as_span(),
-        });
-        parameters.push(condition);
-
-        Ok(MaybeTailCall::TailCall {
-            signature: signature,
-            call_span: next_case.span,
-            parameters,
-            tokens: tokens.0,
-        })
     } else if let Some(otherwise) = otherwise {
         walk_block(ctx, otherwise)
     } else {
