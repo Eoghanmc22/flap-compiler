@@ -1008,7 +1008,7 @@ void render_frame(char *frame_buffer, state_t *state) {
   int height = state->h;
   char *buf = state->game.buf1;
 
-  int vstride = width * color_channels / 8;
+  int vstride = width * color_channels / sizeof<int>;
   int off00 = 0;
   int off01 = 1;
   int off10 = 1 * vstride + 0;
