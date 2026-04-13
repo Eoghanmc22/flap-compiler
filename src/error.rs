@@ -614,13 +614,15 @@ impl IntoSpans for ParserError {
                         InputLocation::Span((start, end)) => (start, end),
                     };
 
-                    yield (
-                        AnnotatedSpan {
-                            span: Span::new(file, start, end).unwrap(),
-                            file_name: file_name,
-                        },
-                        None,
-                    )
+                    if let Some(span) = Span::new(file, start, end) {
+                        yield (
+                            AnnotatedSpan {
+                                span,
+                                file_name: file_name,
+                            },
+                            None,
+                        )
+                    }
                 }
             },
         ))
