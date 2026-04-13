@@ -142,6 +142,12 @@ const int STATE_SURFACE_ACKED_CONFIGURE = 1;
 const int STATE_SURFACE_ATTACHED = 2;
 
 typedef struct {
+  int[10] history;
+  int len;
+  int next;
+} fps;
+
+typedef struct {
   int wl_registry;
   int wl_shm;
   int wl_shm_pool;
@@ -159,13 +165,44 @@ typedef struct {
   int h;
   int shm_pool_size;
   int shm_fd;
+  int time;
   char *shm_pool_data;
   char *scratch;
   int scratch_len;
   gol_t game;
+  fps frame_rate;
 
   state_state_t state;
 } state_t;
+
+fps fps_new() {
+  struct {
+    history = [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    len = 0;
+    next = 0;
+  }
+}
+
+int compute_frame_rate_per_10_s(fps *frame_rate) {
+  int len = frame_rate->len;
+  int total = 0;
+
+  for (int i = 0; i < len; i = i + 1) {
+    total = total + frame_rate->history[i];
+  }
+
+  10_000 * len / total
+}
+
+int observe_frame_time(fps *frame_rate, int frame_time_ms) {
+  if (frame_rate->len < 10) {
+    frame_rate->len = frame_rate->len + 1;
+  }
+
+  frame_rate->history[frame_rate->next] = frame_time_ms;
+  frame_rate->next = (frame_rate->next + 1) % frame_rate->len;
+  compute_frame_rate_per_10_s(frame_rate)
+}
 
 int next_wayland_id() {
   int next = *wayland_current_id_ptr + 1;
@@ -783,26 +820,26 @@ int wayland_wl_surface_frame(int fd, state_t *state) {
 
   /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
   /*        state->wl_buffer); */
-  char *print_buffer = malloc(128);
-
-  auto s1 = "-> wl_surface@";
-  *print_buffer = s1;
-  write_all(STDOUT, print_buffer, sizeof_packed(s1));
-
-  char *num1 = convert_int_to_string(state->wl_surface);
-  write_all(STDOUT, num1, strlen(num1));
-  free(num1);
-
-  auto s2 = ".frame wl_buffer=";
-  *print_buffer = s2;
-  write_all(STDOUT, print_buffer, sizeof_packed(s2));
-
-  char *num2 = convert_int_to_string(state->wl_buffer);
-  write_all(STDOUT, num2, strlen(num2));
-  free(num2);
-
-  print_new_line();
-  free(print_buffer);
+  /* char *print_buffer = malloc(128); */
+  /**/
+  /* auto s1 = "-> wl_surface@"; */
+  /* *print_buffer = s1; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s1)); */
+  /**/
+  /* char *num1 = convert_int_to_string(state->wl_surface); */
+  /* write_all(STDOUT, num1, strlen(num1)); */
+  /* free(num1); */
+  /**/
+  /* auto s2 = ".frame wl_buffer="; */
+  /* *print_buffer = s2; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s2)); */
+  /**/
+  /* char *num2 = convert_int_to_string(state->wl_buffer); */
+  /* write_all(STDOUT, num2, strlen(num2)); */
+  /* free(num2); */
+  /**/
+  /* print_new_line(); */
+  /* free(print_buffer); */
 
   buf_free(buffer);
 
@@ -838,26 +875,26 @@ void wayland_wl_surface_attach(int fd, state_t *state) {
 
   /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
   /*        state->wl_buffer); */
-  char *print_buffer = malloc(128);
-
-  auto s1 = "-> wl_surface@";
-  *print_buffer = s1;
-  write_all(STDOUT, print_buffer, sizeof_packed(s1));
-
-  char *num1 = convert_int_to_string(state->wl_surface);
-  write_all(STDOUT, num1, strlen(num1));
-  free(num1);
-
-  auto s2 = ".attach wl_buffer=";
-  *print_buffer = s2;
-  write_all(STDOUT, print_buffer, sizeof_packed(s2));
-
-  char *num2 = convert_int_to_string(state->wl_buffer);
-  write_all(STDOUT, num2, strlen(num2));
-  free(num2);
-
-  print_new_line();
-  free(print_buffer);
+  /* char *print_buffer = malloc(128); */
+  /**/
+  /* auto s1 = "-> wl_surface@"; */
+  /* *print_buffer = s1; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s1)); */
+  /**/
+  /* char *num1 = convert_int_to_string(state->wl_surface); */
+  /* write_all(STDOUT, num1, strlen(num1)); */
+  /* free(num1); */
+  /**/
+  /* auto s2 = ".attach wl_buffer="; */
+  /* *print_buffer = s2; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s2)); */
+  /**/
+  /* char *num2 = convert_int_to_string(state->wl_buffer); */
+  /* write_all(STDOUT, num2, strlen(num2)); */
+  /* free(num2); */
+  /**/
+  /* print_new_line(); */
+  /* free(print_buffer); */
 
   buf_free(buffer);
 }
@@ -891,26 +928,26 @@ void wayland_wl_surface_damage(int fd, state_t *state) {
 
   /* printf("-> wl_surface@%u.attach: wl_buffer=%u\n", state->wl_surface, */
   /*        state->wl_buffer); */
-  char *print_buffer = malloc(128);
-
-  auto s1 = "-> wl_surface@";
-  *print_buffer = s1;
-  write_all(STDOUT, print_buffer, sizeof_packed(s1));
-
-  char *num1 = convert_int_to_string(state->wl_surface);
-  write_all(STDOUT, num1, strlen(num1));
-  free(num1);
-
-  auto s2 = ".damage wl_buffer=";
-  *print_buffer = s2;
-  write_all(STDOUT, print_buffer, sizeof_packed(s2));
-
-  char *num2 = convert_int_to_string(state->wl_buffer);
-  write_all(STDOUT, num2, strlen(num2));
-  free(num2);
-
-  print_new_line();
-  free(print_buffer);
+  /* char *print_buffer = malloc(128); */
+  /**/
+  /* auto s1 = "-> wl_surface@"; */
+  /* *print_buffer = s1; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s1)); */
+  /**/
+  /* char *num1 = convert_int_to_string(state->wl_surface); */
+  /* write_all(STDOUT, num1, strlen(num1)); */
+  /* free(num1); */
+  /**/
+  /* auto s2 = ".damage wl_buffer="; */
+  /* *print_buffer = s2; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s2)); */
+  /**/
+  /* char *num2 = convert_int_to_string(state->wl_buffer); */
+  /* write_all(STDOUT, num2, strlen(num2)); */
+  /* free(num2); */
+  /**/
+  /* print_new_line(); */
+  /* free(print_buffer); */
 
   buf_free(buffer);
 }
@@ -981,22 +1018,22 @@ void wayland_wl_surface_commit(int fd, state_t *state) {
   }
 
   /* printf("-> wl_surface@%u.commit: \n", state->wl_surface); */
-  char *print_buffer = malloc(128);
-
-  auto s1 = "-> wl_surface@";
-  *print_buffer = s1;
-  write_all(STDOUT, print_buffer, sizeof_packed(s1));
-
-  char *num1 = convert_int_to_string(state->wl_surface);
-  write_all(STDOUT, num1, strlen(num1));
-  free(num1);
-
-  auto s2 = ".commit: ";
-  *print_buffer = s2;
-  write_all(STDOUT, print_buffer, sizeof_packed(s2));
-
-  print_new_line();
-  free(print_buffer);
+  /* char *print_buffer = malloc(128); */
+  /**/
+  /* auto s1 = "-> wl_surface@"; */
+  /* *print_buffer = s1; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s1)); */
+  /**/
+  /* char *num1 = convert_int_to_string(state->wl_surface); */
+  /* write_all(STDOUT, num1, strlen(num1)); */
+  /* free(num1); */
+  /**/
+  /* auto s2 = ".commit: "; */
+  /* *print_buffer = s2; */
+  /* write_all(STDOUT, print_buffer, sizeof_packed(s2)); */
+  /**/
+  /* print_new_line(); */
+  /* free(print_buffer); */
 
   buf_free(buffer);
 }
@@ -1004,7 +1041,8 @@ void wayland_wl_surface_commit(int fd, state_t *state) {
 void render_frame(char *frame_buffer, state_t *state) {
   assert(SCALE == 4, __LINE__);
 
-  int width = state->w;
+  /* int width = state->w; */
+  int width = DIMENSION * SCALE;
   int height = state->h;
   char *buf = state->game.buf1;
 
@@ -1033,8 +1071,6 @@ void render_frame(char *frame_buffer, state_t *state) {
       pixel[off31] = new_value_double;
     }
   }
-
-  state->game = compute_next(state->game);
 }
 
 void update_frame(int fd, state_t *state) {
@@ -1060,6 +1096,8 @@ void update_frame(int fd, state_t *state) {
   wayland_wl_surface_damage(fd, state);
   state->frame_callback = wayland_wl_surface_frame(fd, state);
   wayland_wl_surface_commit(fd, state);
+
+  state->game = compute_next(state->game);
 }
 
 void wayland_handle_message(int fd, state_t *state, buf *buffer) {
@@ -1205,18 +1243,38 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     quit();
   } else if (object_id == state->frame_callback &&
              opcode == wayland_wl_callback_done_opcode) {
-
+    int last_time = state->time;
     int callback_data = buf_read_u32(buffer);
+    state->time = callback_data;
+
+    int frame_time = callback_data - last_time;
+    int fps_times_10 = observe_frame_time(&state->frame_rate, frame_time);
 
     update_frame(fd, state);
 
     char *print_buffer = malloc(128);
 
-    auto s1 = "<- FRAME_CALLBACK: format=";
+    auto s1 = "<- FRAME_CALLBACK: time=";
     *print_buffer = s1;
     write_all(STDOUT, print_buffer, sizeof_packed(s1));
 
-    char *num1 = convert_int_to_string(callback_data); // Hex conversion
+    char *num1 = convert_int_to_string(callback_data);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s1 = " fps=";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(fps_times_10 / 10);
+    write_all(STDOUT, num1, strlen(num1));
+    free(num1);
+
+    auto s1 = ".";
+    *print_buffer = s1;
+    write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+    char *num1 = convert_int_to_string(fps_times_10 % 10);
     write_all(STDOUT, num1, strlen(num1));
     free(num1);
 
@@ -1299,22 +1357,22 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     // No-op, for now.
 
     /* printf("<- xdg_wl_buffer@%u.release\n", state->wl_buffer); */
-    char *print_buffer = malloc(128);
-
-    auto s1 = "<- xdg_wl_buffer@";
-    *print_buffer = s1;
-    write_all(STDOUT, print_buffer, sizeof_packed(s1));
-
-    char *num1 = convert_int_to_string(state->wl_buffer);
-    write_all(STDOUT, num1, strlen(num1));
-    free(num1);
-
-    auto s2 = ".release";
-    *print_buffer = s2;
-    write_all(STDOUT, print_buffer, sizeof_packed(s2));
-
-    print_new_line();
-    free(print_buffer);
+    /* char *print_buffer = malloc(128); */
+    /**/
+    /* auto s1 = "<- xdg_wl_buffer@"; */
+    /* *print_buffer = s1; */
+    /* write_all(STDOUT, print_buffer, sizeof_packed(s1)); */
+    /**/
+    /* char *num1 = convert_int_to_string(state->wl_buffer); */
+    /* write_all(STDOUT, num1, strlen(num1)); */
+    /* free(num1); */
+    /**/
+    /* auto s2 = ".release"; */
+    /* *print_buffer = s2; */
+    /* write_all(STDOUT, print_buffer, sizeof_packed(s2)); */
+    /**/
+    /* print_new_line(); */
+    /* free(print_buffer); */
   } else if (object_id == state->xdg_wm_base &&
              opcode == wayland_xdg_wm_base_event_ping) {
     int ping = buf_read_u32(buffer);
@@ -1544,6 +1602,8 @@ state_t *state = malloc(sizeof<state_t>);
   scratch = malloc(scratch_len);
   scratch_len = scratch_len;
   game = gol_new();
+  time = 0;
+  frame_rate = fps_new();
 };
 
 // Single buffering.
