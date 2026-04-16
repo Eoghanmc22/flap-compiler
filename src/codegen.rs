@@ -423,7 +423,9 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
                     signature: tail_call_sig,
                     tokens,
                     call_span,
-                } if tail_call_sig.compatible_captures_write(&signature)? => {
+                } if tail_call_sig.compatible_captures_write(&signature)?
+                    && tail_call_sig.paramater_width(self.type_checker)? <= 2 =>
+                {
                     if signature.return_type.width(self.type_checker)?
                         != tail_call_sig.return_type.width(self.type_checker)?
                     {
@@ -479,21 +481,29 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
 
                 assert!(needs_dropping >= 0);
 
-                if retain_width == 0 && needs_dropping <= 3 {
+                if retain_width == 0
+                /*&& needs_dropping <= 3*/
+                {
                     for _ in 0..needs_dropping {
                         self.push_token(ClacToken::Drop)?;
                     }
-                } else if retain_width == 1 && needs_dropping <= 1 {
+                } else if retain_width == 1
+                /*&& needs_dropping <= 1*/
+                {
                     for _ in 0..needs_dropping {
                         self.push_token(ClacToken::Swap)?;
                         self.push_token(ClacToken::Drop)?;
                     }
-                } else if retain_width == 2 && needs_dropping <= 1 {
+                } else if retain_width == 2
+                /*&& needs_dropping <= 1*/
+                {
                     for _ in 0..needs_dropping {
                         self.push_token(ClacToken::Rot)?;
                         self.push_token(ClacToken::Drop)?;
                     }
                 } else if needs_dropping > 0 {
+                    println!("{retain_width}, {signature:#?}");
+                    panic!();
                     self.push_token(ClacToken::Number(needs_dropping + retain_width))?;
                     self.push_token(ClacToken::Number(needs_dropping))?;
                     self.push_token(ClacToken::DropRange {
