@@ -664,6 +664,7 @@ fn diagnostic_for_error(error: &impl IntoSpans, main_path: &str) -> Diagnostic {
     let error_kind = error.error_kind();
     let mut spans = error
         .spans()
+        .fuse()
         .map(|(span, desc)| (span_to_location(span), desc));
 
     let (main, desc) = spans.next().unwrap_or_else(|| {
