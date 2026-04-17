@@ -1,5 +1,45 @@
 #include "constants.flap"
 
+
+typedef struct {
+  bool success;
+  int result;
+} atoi_result;
+
+atoi_result atoi(char *str) {
+  atoi_result inner(int n, char *st) {
+    int d = (int)*st;
+    if (d == 0) {
+      struct {
+        result = n;
+        success = true;
+      }
+    } else {
+      int x = d - (int)'0';
+
+      if (x >= 0 && (x < 10)) {
+        inner(n * 10 + x, st + 1)
+      } else {
+        struct {
+          success = false;
+          result = 0;
+        }
+      }
+    }
+  }
+
+  if (*str == '-') {
+    atoi_result res = inner(0, str + 1);
+    struct {
+      success = res.success;
+      result = -res.result;
+    }
+  } else {
+    inner(0, str)
+  }
+}
+
+
 int strlen(char *str) {
   int i = 0;
 

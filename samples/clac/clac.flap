@@ -1,0 +1,130 @@
+#include "../../std/"
+
+typedef struct {
+  int len;
+  char *dat;
+} str;
+
+const int INT_WIDTH = 8; // native width in bytes (ASSUMED TO BE 8)
+
+bool find_newline(char *start, int len) {
+  if (len == 0) {
+    false
+  } else if ((int)(*start) == (int)'\n') {
+    true
+  } else {
+    find_newline(start + 1, len - 1)
+  }
+}
+
+int readline(str inp_buf) {
+  if (inp_buf.len > 0) {
+    int res = read(STDIN, inp_buf.dat, inp_buf.len);
+
+    if (res != 0) {
+      if (!find_newline(inp_buf.dat, res)) {
+        res + readline(struct {
+          dat = inp_buf.dat + res;
+          len = inp_buf.len - res;
+        })
+      } else {
+        res
+      }
+    } else {
+      0
+    }
+  } else {
+    0
+  }
+}
+
+int distance_to_space_or_newline(char *buf, int acc) {
+  if (((*buf) == ' ') || ((*buf) == '\n')) {
+    acc
+  } else {
+    distance_to_space_or_newline(buf + 1, acc + 1)
+  }
+}
+
+typedef struct {
+  // str prompt;
+  // str quit;
+  str inp_buf;
+} repl_strings;
+
+const void *MEM = (void *)0x6767000;
+const int MEM_SIZE = 0x8000;
+
+const auto PROMPT_DAT = "clac-clac>> ";
+const auto WELCOME_DAT = "Welcome to clac.clac\n";
+const auto QUIT_DAT = "quit";
+
+const char *PROMPT = (char *)MEM;
+const char *WELCOME = (char *)((int)PROMPT + sizeof(PROMPT_DAT) / 8);
+const char *QUIT = (char *)((int)WELCOME + sizeof(WELCOME_DAT) / 8);
+
+void setup_mem() {
+  void *res = mmap(MEM, MEM_SIZE, PROT_READ + PROT_WRITE,
+                   MAP_PRIVATE + MAP_ANONYMOUS + MAP_FIXED, -1, 0);
+
+  assert(res != (void *)-1, __LINE__);
+
+  *PROMPT = PROMPT_DAT;
+  *WELCOME = WELCOME_DAT;
+  *QUIT = QUIT_DAT;
+}
+
+void repl(str inp) {
+  write_all(STDOUT, PROMPT, sizeof(PROMPT_DAT) / 8);
+
+  int read_amt = readline(inp);
+  // write_all(STDOUT, inp.dat, read_amt);
+
+  int dtt = distance_to_space_or_newline(inp.dat, 0);
+  // print(dtt);
+
+  inp.dat[dtt] = '\0';
+
+  atoi_result res = atoi(inp.dat);
+  print((int)res.success);
+  print(res.result);
+
+  if (strcmp(
+          struct {
+            dat = inp.dat;
+            len = dtt;
+          },
+          struct {
+            dat = QUIT;
+            len = sizeof(QUIT_DAT) / 8;
+          }) == 0) {
+    quit();
+  }
+
+  // uba_print(ub);
+
+  repl(inp);
+}
+
+str str_from(char *cs) {
+  struct {
+    dat = cs;
+    len = strlen(cs);
+  }
+}
+
+void main() {
+  setup_mem();
+
+  write_all(STDOUT, WELCOME, sizeof(WELCOME_DAT) / 8);
+
+  int inplen = 0x2000;
+  str inpbuf = struct {
+    len = inplen;
+    dat = (char *)malloc(inplen);
+  };
+
+  repl(inpbuf);
+}
+
+main()
