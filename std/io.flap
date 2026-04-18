@@ -71,7 +71,7 @@ int copy(char *buf, int buf_len, int src_fd, int dst_fd) {
 
   while (in > 0) {
     write_all(dst_fd, buf, in);
-    in = read_all(src_fd, buf, buf_len);
+    in = read(src_fd, buf, buf_len);
     read = read + in;
   }
 

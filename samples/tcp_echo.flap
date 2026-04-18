@@ -34,26 +34,20 @@ setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, int_width());
 bind(server_fd, (sockaddr *)scratch, 16);
 listen(server_fd, 3);
 
-void client_loop(int client_fd, char *buf) {
-  if (copy(buf, BUFFER_SIZE, client_fd, client_fd) != 0) {
-    client_loop(client_fd, buf);
-  }
-}
-
-void loop(int server_fd, char *buf) {
+loop {
   int client_fd = accept(server_fd, (sockaddr *)NULL, (int *)NULL);
 
   if (fork() == 0) {
     close(server_fd);
-    client_loop(client_fd, buf);
+    
+    while (copy(buf, BUFFER_SIZE, client_fd, client_fd) != 0) {
+    }
+
     close(client_fd);
 
     quit();
   }
 
   close(client_fd);
-
-  loop(server_fd, buf);
 }
 
-loop(server_fd, buf);
