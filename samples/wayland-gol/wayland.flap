@@ -12,9 +12,9 @@
 
 // Conways Game of Life
 
-const int DIMENSION = 100;
+const int DIMENSION = 150;
 const int SCALE = 4;
-const bool DO_TEARING = true;
+const bool DO_TEARING = false;
 
 typedef struct {
   char *buf1;
