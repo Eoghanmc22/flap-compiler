@@ -46,8 +46,22 @@ pub fn walk_block<'a, 'b>(
             }
             Statement::Expr(expr, Punctuation::Unpunctuated) => Some(walk_expr(ctx, expr)?),
             Statement::Expr(expr, Punctuation::Punctuated) => {
-                walk_expr(ctx, expr)?.into_data_ref(ctx)?;
-                None
+                let res = walk_expr(ctx, expr)?;
+
+                if let ExpressionOutput::TailCall(MaybeTailCall::TailCall {
+                    signature:
+                        FunctionSignature {
+                            ref return_type, ..
+                        },
+                    ..
+                }) = res
+                    && return_type.compatible_with(&Type::Void, ctx.type_checker)?
+                {
+                    Some(res)
+                } else {
+                    res.into_data_ref(ctx)?;
+                    None
+                }
             }
             Statement::Assignment(assignment) => {
                 walk_assignment(ctx, assignment)?.into_data_ref(ctx)?;
