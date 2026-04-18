@@ -1194,17 +1194,6 @@ void render_frame(char *frame_buffer, state_t *state) {
 
 void update_frame(int fd, state_t *state) {
   // Render a frame.
-  assert(state->wl_surface != 0, __LINE__);
-  assert(state->xdg_surface != 0, __LINE__);
-  assert(state->xdg_toplevel != 0, __LINE__);
-
-  if (state->wl_shm_pool == 0) {
-    state->wl_shm_pool = wayland_wl_shm_create_pool(fd, state);
-  }
-  if (state->wl_buffer == 0) {
-    state->wl_buffer = wayland_wl_shm_pool_create_buffer(fd, state);
-  }
-
   assert(state->shm_pool_data != NULL, __LINE__);
   assert(state->shm_pool_size != 0, __LINE__);
 
@@ -1701,6 +1690,8 @@ void main_loop(int fd, buf *read_buf, state_t *state) {
       state->xdg_surface = wayland_xdg_wm_base_get_xdg_surface(fd, state);
       state->xdg_toplevel = wayland_xdg_surface_get_toplevel(fd, state);
       state->wl_pointer = wayland_wl_seat_get_pointer(fd, state);
+      state->wl_shm_pool = wayland_wl_shm_create_pool(fd, state);
+      state->wl_buffer = wayland_wl_shm_pool_create_buffer(fd, state);
 
       if (DO_TEARING) {
         state->wp_tearing_control_v1 = wayland_get_tearing_control(fd, state);
@@ -1713,8 +1704,11 @@ void main_loop(int fd, buf *read_buf, state_t *state) {
     if (state->state == STATE_SURFACE_ACKED_CONFIGURE) {
       state->state = STATE_SURFACE_ATTACHED;
 
-      update_frame(fd, state);
-      fix_tearing_child(fd, state);
+      if (!DO_TEARING) {
+        update_frame(fd, state);
+      } else if (state->child == 0) {
+        fix_tearing_child(fd, state);
+      }
     }
 
     buf_reset(read_buf);
