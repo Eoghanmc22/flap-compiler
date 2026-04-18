@@ -1,0 +1,13 @@
+#include "../std/"
+
+#[no_mangle]
+void main() {
+	char* test = malloc(32);
+	*test = "Hello World!\n\0";
+
+	int len = strlen(test);
+
+	print(len)
+}
+
+main()
