@@ -1,7 +1,6 @@
 use core::fmt;
 use std::{fmt::Display, iter, sync::Arc};
 
-use clac_lang::types::FunctionRef;
 use regex::Regex;
 
 use crate::ast::Ident;
@@ -204,7 +203,7 @@ impl ClacToken {
         use clac_lang::types::Token;
 
         fn call(s: &str) -> Token {
-            Token::FunctionCall(FunctionRef::Unresolved(s.to_string()))
+            Token::Identifier(s.to_string())
         }
 
         if let ClacToken::Silent(inner) = self {

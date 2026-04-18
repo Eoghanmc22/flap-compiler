@@ -13,14 +13,7 @@
 // - Indexing into a stack array with a variable that is not comptime known
 // - Partial Mutation of stack structs and arrays
 
-use std::{
-    error::Error,
-    fs,
-    io::{self, Write},
-    path::PathBuf,
-    thread,
-    time::Instant,
-};
+use std::{error::Error, fs, io, path::PathBuf, thread, time::Instant};
 
 use clac_lang::types::{ClacState, ExecError};
 use clap::Parser;
@@ -157,30 +150,11 @@ fn main() -> Result<()> {
             }
         }
         Commands::Repl => {
-            let mut state = ClacState::default();
-
-            info!("clac++ repl by stanleymw");
-
-            loop {
-                print!("clac++> ");
-                io::stdout().flush().unwrap();
-
-                let mut buf = String::new();
-                io::stdin().read_line(&mut buf).unwrap();
-
-                match state.execute_str(&buf) {
-                    Err(ExecError::Quit) => break,
-                    Err(err) => {
-                        error!("Error: {err:?}");
-                    }
-                    Ok(()) => {}
-                };
-
-                println!("{:?}", state.stack)
-            }
+            let mut state = ClacState::new(1_000_000_000)?;
+            clac_lang::repl(&mut state, false)?;
         }
         Commands::Run { file, config, .. } => {
-            let mut state = ClacState::default();
+            let mut state = ClacState::new(1_000_000_000)?;
 
             let res = if file.extension() == Some("flap".as_ref()) {
                 info!("flap-compiler by Eoghanmc22");
