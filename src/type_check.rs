@@ -402,6 +402,16 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 Ok(Type::Struct(map))
             }
+            Expr::NamedTuple(map, defered_type, _span) => {
+                let map = map
+                    .into_iter()
+                    .map(|(key, expr)| Ok((*key, expr.check_and_resolve_types(ctx)?)))
+                    .collect::<Result<Vec<_>>>()?;
+
+                *defered_type = DeferedType::ResolvedType(Type::NamedTuple(map.clone()));
+
+                Ok(Type::NamedTuple(map))
+            }
             Expr::Array(exprs, defered_type, span) => {
                 let types = exprs
                     .into_iter()
@@ -684,31 +694,24 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (valid_types, return_type) = match (&operand_type_computed, &mut *op) {
-                    (Type::Struct(map), PostfixOp::Member(ident)) => {
-                        if let Some(val_type) = map.get(ident) {
-                            (true, val_type.clone())
-                        } else {
-                            return Err(TypeError::UnknownStructMember {
-                                operand_type: operand_type_computed,
-                                member: ident,
-                                backtrace: Backtrace::capture(),
-                            })
-                            .wrap_span_annotations(*span, vec![(*op_span, "here".into())]);
-                        }
+                    (
+                        struct_type @ (Type::Struct(_) | Type::NamedTuple(_)),
+                        PostfixOp::Member(ident),
+                    ) => {
+                        let member_type = struct_type
+                            .member(ctx, ident)
+                            .wrap_span_annotations(*span, vec![(*op_span, "here".into())])?;
+                        (true, member_type)
                     }
                     (Type::Pointer(inner_type), PostfixOp::MemberDeref(ident)) => {
                         match inner_type.resolve_once(ctx)? {
-                            Type::Struct(map) => {
-                                if let Some(val_type) = map.get(ident) {
-                                    (true, val_type.clone())
-                                } else {
-                                    return Err(TypeError::UnknownStructMember {
-                                        operand_type: operand_type_computed,
-                                        member: ident,
-                                        backtrace: Backtrace::capture(),
-                                    })
-                                    .wrap_span_annotations(*span, vec![(*op_span, "here".into())]);
-                                }
+                            struct_type @ (Type::Struct(_) | Type::NamedTuple(_)) => {
+                                let member_type =
+                                    struct_type.member(ctx, ident).wrap_span_annotations(
+                                        *span,
+                                        vec![(*op_span, "here".into())],
+                                    )?;
+                                (true, member_type)
                             }
                             _ => (false, Type::Void),
                         }

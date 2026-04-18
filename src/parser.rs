@@ -1,10 +1,5 @@
 use core::cmp;
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashSet},
-    path::Path,
-    ptr,
-};
+use std::{borrow::Cow, collections::HashSet, path::Path, ptr};
 
 use pest::{
     Parser, Span,
@@ -171,6 +166,8 @@ fn rule_renamer(rule: &Rule) -> String {
         Rule::program_inner => "program",
         Rule::program => "program",
         Rule::program_directives => "directives",
+        Rule::struct_kind_inorder => "inorder",
+        Rule::struct_kind => "struct kind",
     }
     .to_string()
 }
@@ -705,8 +702,36 @@ fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> 
             }
         }
         Rule::struct_type => {
-            let struct_type_fields = type_token.into_inner();
-            let mut map = BTreeMap::new();
+            let mut struct_type_fields = type_token.into_inner();
+            let mut fields = Vec::new();
+
+            let constructor: &dyn Fn(_) -> _ = if struct_type_fields
+                .peek()
+                .map(|it| it.as_rule() == Rule::struct_kind)
+                .unwrap_or(false)
+            {
+                let kind = struct_type_fields
+                    .next()
+                    .unwrap()
+                    .into_inner()
+                    .next()
+                    .unwrap();
+
+                match kind.as_rule() {
+                    Rule::struct_kind_inorder => &|fields| Type::NamedTuple(fields),
+                    rule => {
+                        return Err(PestError::new_from_span(
+                            ErrorVariant::ParsingError {
+                                positives: vec![Rule::struct_kind_inorder],
+                                negatives: vec![rule],
+                            },
+                            kind.as_span(),
+                        ));
+                    }
+                }
+            } else {
+                &|fields| Type::Struct(fields.into_iter().collect())
+            };
 
             for struct_type_field in struct_type_fields {
                 let mut field_tokens = struct_type_field.into_inner();
@@ -715,10 +740,10 @@ fn parse_type<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<Type<'a>> 
                 let field_name = parse_ident(field_tokens.next().unwrap(), file_name)?;
                 assert!(field_tokens.next().is_none());
 
-                map.insert(field_name, field_type);
+                fields.push((field_name, field_type));
             }
 
-            Type::Struct(map)
+            constructor(fields)
         }
         Rule::named_type => Type::Typedef(type_token.as_str()),
         rule => {
@@ -863,8 +888,44 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 )),
                 Rule::if_statement => Ok(Expr::If(parse_if_expr(primary, file_name)?)),
                 Rule::struct_expr => {
-                    let struct_expr_fields = primary.into_inner();
-                    let mut map = BTreeMap::new();
+                    let mut struct_expr_fields = primary.into_inner();
+                    let mut fields = Vec::new();
+
+                    let constructor: &dyn Fn(_) -> _ = if struct_expr_fields
+                        .peek()
+                        .map(|it| it.as_rule() == Rule::struct_kind)
+                        .unwrap_or(false)
+                    {
+                        let kind = struct_expr_fields
+                            .next()
+                            .unwrap()
+                            .into_inner()
+                            .next()
+                            .unwrap();
+
+                        match kind.as_rule() {
+                            Rule::struct_kind_inorder => &|fields| {
+                                Expr::NamedTuple(fields, DeferedType::UnresolvedType, span)
+                            },
+                            rule => {
+                                return Err(PestError::new_from_span(
+                                    ErrorVariant::ParsingError {
+                                        positives: vec![Rule::struct_kind_inorder],
+                                        negatives: vec![rule],
+                                    },
+                                    kind.as_span(),
+                                ));
+                            }
+                        }
+                    } else {
+                        &|fields| {
+                            Expr::Struct(
+                                fields.into_iter().collect(),
+                                DeferedType::UnresolvedType,
+                                span,
+                            )
+                        }
+                    };
 
                     for struct_value_field in struct_expr_fields {
                         let mut field_tokens = struct_value_field.into_inner();
@@ -874,16 +935,16 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                             parse_expr(field_tokens.next().unwrap().into_inner(), file_name)?;
                         assert!(field_tokens.next().is_none());
 
-                        map.insert(field_name, field_expr);
+                        fields.push((field_name, field_expr));
                     }
 
-                    Ok(Expr::Struct(map, DeferedType::UnresolvedType, span))
+                    Ok(constructor(fields))
                 }
                 Rule::array_expr => {
-                    let array_value_fields = primary.into_inner();
+                    let array_exprs = primary.into_inner();
                     let mut exprs = Vec::new();
 
-                    for array_value_field in array_value_fields {
+                    for array_value_field in array_exprs {
                         let expr = parse_expr(array_value_field.into_inner(), file_name)?;
 
                         exprs.push(expr);

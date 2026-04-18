@@ -21,10 +21,12 @@ ident_start_chars =  { ASCII_ALPHA | "_" }
 ident_chars       =  { ASCII_ALPHANUMERIC | "_" }
 ident             = @{ ident_start_chars+ ~ ident_chars* }
 
+struct_kind_inorder = { "inorder" }
+struct_kind = { struct_kind_inorder }
 struct_type_field = { var_type ~ ident ~ ";" }
-struct_type       = { "struct" ~ "{" ~ struct_type_field* ~ "}" }
+struct_type       = { "struct" ~ struct_kind? ~ "{" ~ struct_type_field* ~ "}" }
 struct_expr_field = { ident ~ "=" ~ expression ~ ";" }
-struct_expr       = { "struct" ~ "{" ~ struct_expr_field* ~ "}" }
+struct_expr       = { "struct" ~ struct_kind? ~ "{" ~ struct_expr_field* ~ "}" }
 
 array_expr     = { "[" ~  (expression ~ ("," ~ expression)*)? ~ "]" }
 

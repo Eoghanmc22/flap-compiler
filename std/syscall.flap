@@ -28,6 +28,10 @@ const int MREMAP_FIXED = 2;
 // wait
 const int WNOHANG = 1;
 
+// clock_gettime
+const int CLOCK_REALTIME = 0;
+const int CLOCK_MONOTONIC = 1;
+
 const int STDIN = 0;
 const int STDOUT = 1;
 const int STDERR = 2;
@@ -163,4 +167,17 @@ int recvfrom(int fd, char *buffer, int length, int flags, sockaddr *dest_addr, i
 
 int recv(int fd, char *buffer, int length, int flags) {
   recvfrom(fd, buffer, length, flags, NULL, NULL)
+}
+
+int kill(int pid, int sig) {
+  handle_error(syscall(0x3e, pid, sig, 0, 0, 0, 0))
+}
+
+typedef struct inorder {
+  int tv_sec;
+  int tv_nsec;
+} timespec;
+
+int clock_gettime(int clock, timespec *ts) {
+  handle_error(syscall(0xe4, clock, (int)ts, 0, 0, 0, 0))
 }

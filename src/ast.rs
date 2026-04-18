@@ -270,6 +270,11 @@ pub enum SizeOfMode {
 pub enum Expr<'a> {
     Value(Value<'a>, AnnotatedSpan<'a>),
     Variable(IdentRef<'a>, DeferedVersion, AnnotatedSpan<'a>),
+    NamedTuple(
+        Vec<(IdentRef<'a>, Expr<'a>)>,
+        DeferedType<'a>,
+        AnnotatedSpan<'a>,
+    ),
     Struct(
         BTreeMap<IdentRef<'a>, Expr<'a>>,
         DeferedType<'a>,
@@ -316,6 +321,7 @@ impl<'a> AstSpan<'a> for Expr<'a> {
             Expr::Value(_, span)
             | Expr::Variable(_, _, span)
             | Expr::Struct(_, _, span)
+            | Expr::NamedTuple(_, _, span)
             | Expr::Array(_, _, span)
             | Expr::BinaryOp { span, .. }
             | Expr::PrefixOp { span, .. }
@@ -335,6 +341,11 @@ impl<'a> AstSpan<'a> for Expr<'a> {
                 Expr::Variable(..) => {}
                 Expr::Struct(map, ..) => {
                     for expr in map.values() {
+                        yield expr as &dyn AstSpan<'a>;
+                    }
+                }
+                Expr::NamedTuple(map, ..) => {
+                    for (_name, expr) in map.iter() {
                         yield expr as &dyn AstSpan<'a>;
                     }
                 }

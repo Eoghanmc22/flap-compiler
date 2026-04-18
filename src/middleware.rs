@@ -760,10 +760,43 @@ fn walk_expr<'a, 'b>(
             } else {
                 let expected_width = struct_type.width(ctx.type_checker)?;
                 ctx.bring_up_references(
-                    &data_refs
-                        .into_iter()
-                        .map(|(_, data_ref)| data_ref)
-                        .collect::<Vec<_>>(),
+                    data_refs.into_iter().map(|(_, data_ref)| data_ref),
+                    expected_width,
+                )?;
+
+                Ok(
+                    DataReference::Tempoary(ctx.allocate_tempoary(struct_type.clone())?, None)
+                        .into(),
+                )
+            }
+        }
+        Expr::NamedTuple(map, struct_type, _span) => {
+            let DeferedType::ResolvedType(struct_type) = struct_type else {
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
+            };
+
+            let data_refs = map
+                .iter()
+                .map(|(key, expr)| Ok((key, walk_expr(ctx, expr)?.into_data_ref(ctx)?)))
+                .collect::<Result<Vec<_>>>()?;
+
+            let maybe_value = data_refs
+                .iter()
+                .map(
+                    |(key, data_ref)| match ctx.dereference_data_ref(data_ref)? {
+                        DataReference::Value(value, _) => Ok(Some((&***key, value))),
+                        DataReference::Tempoary(_, _) => Ok(None),
+                        _ => unreachable!(),
+                    },
+                )
+                .collect::<Result<Option<Vec<_>>>>()?;
+
+            if let Some(map) = maybe_value {
+                Ok(DataReference::Value(Value::NamedTuple(map), None).into())
+            } else {
+                let expected_width = struct_type.width(ctx.type_checker)?;
+                ctx.bring_up_references(
+                    data_refs.into_iter().map(|(_, data_ref)| data_ref),
                     expected_width,
                 )?;
 
@@ -1081,7 +1114,7 @@ fn walk_expr<'a, 'b>(
             };
 
             match (operand_type.resolve_once(ctx.type_checker)?, op) {
-                (Type::Struct(_), PostfixOp::Member(ident)) => {
+                (Type::Struct(_) | Type::NamedTuple(_), PostfixOp::Member(ident)) => {
                     let (field_type, field_offset) =
                         operand_type.member_and_offset(ctx.type_checker, ident)?;
 

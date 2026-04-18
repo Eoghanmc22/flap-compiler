@@ -12,8 +12,9 @@
 
 // Conways Game of Life
 
-const int DIMENSION = 150;
+const int DIMENSION = 100;
 const int SCALE = 4;
+const bool DO_TEARING = true;
 
 typedef struct {
   char *buf1;
@@ -132,6 +133,10 @@ const int wayland_xdg_surface_get_toplevel_opcode = 1;
 const int wayland_wl_surface_commit_opcode = 6;
 const int wayland_wl_surface_damage_opcode = 9;
 const int wayland_wl_display_error_event = 0;
+const int wayland_wp_tearing_control_manager_v1_get_tearing_control_opcode = 1;
+const int wp_tearing_control_v1_set_presentation_hint_opcode = 0;
+const int wp_tearing_control_v1_presentation_hint_vsync = 0;
+const int wp_tearing_control_v1_presentation_hint_async = 1;
 const int wayland_format_xrgb8888 = 1;
 const int wayland_header_size = 8;
 const int color_channels = 4;
@@ -158,6 +163,9 @@ typedef struct {
   int wl_surface;
   int wl_seat;
   int wl_pointer;
+  int wp_tearing_control_manager_v1;
+  int wp_tearing_control_v1;
+  int child;
   int xdg_toplevel;
   int frame_callback;
   int stride;
@@ -171,6 +179,7 @@ typedef struct {
   int scratch_len;
   gol_t game;
   fps frame_rate;
+  timespec* time_buf;
 
   state_state_t state;
 } state_t;
@@ -191,7 +200,7 @@ int compute_frame_rate_per_10_s(fps *frame_rate) {
     total = total + frame_rate->history[i];
   }
 
-  10_000 * len / total
+  10_000 * len / (total+1)
 }
 
 int observe_frame_time(fps *frame_rate, int frame_time_ms) {
@@ -201,7 +210,29 @@ int observe_frame_time(fps *frame_rate, int frame_time_ms) {
 
   frame_rate->history[frame_rate->next] = frame_time_ms;
   frame_rate->next = (frame_rate->next + 1) % frame_rate->len;
-  compute_frame_rate_per_10_s(frame_rate)
+  int fps_times_10 = compute_frame_rate_per_10_s(frame_rate);
+
+  char *print_buffer = malloc(128);
+  auto s1 = "\t\t\t\tFPS=";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(fps_times_10 / 10);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s1 = ".";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(fps_times_10 % 10);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  print_new_line();
+  free(print_buffer);
+
+  fps_times_10
 }
 
 int next_wayland_id() {
@@ -479,6 +510,94 @@ void create_shared_memory_file(int size, state_t *state) {
   state->shm_fd = fd;
 
   free(memfd_name_ptr);
+}
+
+int wayland_get_tearing_control(int fd, state_t *state) {
+  assert(state->wl_surface > 0, __LINE__);
+  assert(state->wp_tearing_control_manager_v1 > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wp_tearing_control_manager_v1);
+
+  buf_write_u16(buffer, wayland_wp_tearing_control_manager_v1_get_tearing_control_opcode);
+
+  /* int msg_announced_size = wayland_header_size + sizeof(ping); */
+  int msg_announced_size = wayland_header_size + 8;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  int id = next_wayland_id();
+  buf_write_u32(buffer, id);
+
+  buf_write_u32(buffer, state->wl_surface);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wp_tearing_control_manager_v1@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wp_tearing_control_manager_v1);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".get_tearing_control";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
+
+  id
+}
+
+void wayland_set_tearing_hint(int fd, state_t *state, int hint) {
+  assert(state->wp_tearing_control_v1 > 0, __LINE__);
+
+  buf *buffer = buf_new(128);
+  buf_write_u32(buffer, state->wp_tearing_control_v1);
+
+  buf_write_u16(buffer, wp_tearing_control_v1_set_presentation_hint_opcode);
+
+  /* int msg_announced_size = wayland_header_size + sizeof(ping); */
+  int msg_announced_size = wayland_header_size + 4;
+  assert(roundup_4(msg_announced_size) == msg_announced_size, __LINE__);
+  buf_write_u16(buffer, msg_announced_size);
+
+  buf_write_u32(buffer, hint);
+
+  if (buffer->size != send(fd, buffer->buf, buffer->size, 0)) {
+    quit();
+  }
+
+  char *print_buffer = malloc(128);
+
+  auto s1 = "-> wp_tearing_control_v1@";
+  *print_buffer = s1;
+  write_all(STDOUT, print_buffer, sizeof_packed(s1));
+
+  char *num1 = convert_int_to_string(state->wp_tearing_control_v1);
+  write_all(STDOUT, num1, strlen(num1));
+  free(num1);
+
+  auto s2 = ".set_presentation_hint: hint=";
+  *print_buffer = s2;
+  write_all(STDOUT, print_buffer, sizeof_packed(s2));
+
+  char *num2 = convert_int_to_string(hint);
+  write_all(STDOUT, num2, strlen(num2));
+  free(num2);
+
+  print_new_line();
+  free(print_buffer);
+
+  buf_free(buffer);
 }
 
 void wayland_xdg_wm_base_pong(int fd, state_t *state, int ping) {
@@ -1094,11 +1213,41 @@ void update_frame(int fd, state_t *state) {
 
   wayland_wl_surface_attach(fd, state);
   wayland_wl_surface_damage(fd, state);
-  state->frame_callback = wayland_wl_surface_frame(fd, state);
+
+  if (!DO_TEARING) {
+    state->frame_callback = wayland_wl_surface_frame(fd, state);
+  }
   wayland_wl_surface_commit(fd, state);
 
   state->game = compute_next(state->game);
+
+  if (DO_TEARING) {
+    int last_time = state->time_buf->tv_sec * 1000 + state->time_buf->tv_nsec / 1_000_000;
+    clock_gettime(CLOCK_MONOTONIC, state->time_buf);
+    int now_time = state->time_buf->tv_sec * 1000 + state->time_buf->tv_nsec / 1_000_000;
+
+    int frame_time = now_time - last_time;
+    observe_frame_time(&state->frame_rate, frame_time);
+  }
 }
+
+void fix_tearing_child(int fd, state_t *state) {
+  if (DO_TEARING) {
+    if (state->child != 0) {
+      kill(state->child, 9);
+    }
+
+    state->child = fork();
+    if (state->child == 0) {
+      clock_gettime(CLOCK_MONOTONIC, state->time_buf);
+
+      loop {
+        update_frame(fd, state);
+      }
+    }
+  }
+}
+
 
 void wayland_handle_message(int fd, state_t *state, buf *buffer) {
   assert(buffer->size >= 8, __LINE__);
@@ -1202,6 +1351,12 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
       state->wl_seat = wayland_wl_registry_bind(
           fd, state->wl_registry, name, interface, interface_len, version);
     }
+
+    *scratch = "wp_tearing_control_manager_v1\0";
+    if (strcmp(scratch, interface) == 0) {
+      state->wp_tearing_control_manager_v1 = wayland_wl_registry_bind(
+          fd, state->wl_registry, name, interface, interface_len, version);
+    }
   } else if (object_id == wayland_display_object_id &&
              opcode == wayland_wl_display_error_event) {
     int target_object_id = buf_read_u32(buffer);
@@ -1262,22 +1417,6 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     write_all(STDOUT, num1, strlen(num1));
     free(num1);
 
-    auto s1 = " fps=";
-    *print_buffer = s1;
-    write_all(STDOUT, print_buffer, sizeof_packed(s1));
-
-    char *num1 = convert_int_to_string(fps_times_10 / 10);
-    write_all(STDOUT, num1, strlen(num1));
-    free(num1);
-
-    auto s1 = ".";
-    *print_buffer = s1;
-    write_all(STDOUT, print_buffer, sizeof_packed(s1));
-
-    char *num1 = convert_int_to_string(fps_times_10 % 10);
-    write_all(STDOUT, num1, strlen(num1));
-    free(num1);
-
     print_new_line();
     free(print_buffer);
   } else if (object_id == state->wl_pointer &&
@@ -1289,6 +1428,8 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
 
     if (button_state == wayland_wl_pointer_button_pressed) {
       gol_reset(state->game);
+
+      fix_tearing_child(fd, state);
     }
 
     char *print_buffer = malloc(128);
@@ -1500,6 +1641,10 @@ void wayland_handle_message(int fd, state_t *state, buf *buffer) {
     print_new_line();
     free(print_buffer);
 
+    if (state->child != 0) {
+      kill(state->child, 9);
+    }
+
     quit();
   } else {
     /* fprintf(stderr, "object_id=%u opcode=%u buffer->size=%lu\n", object_id,
@@ -1556,13 +1701,20 @@ void main_loop(int fd, buf *read_buf, state_t *state) {
       state->xdg_surface = wayland_xdg_wm_base_get_xdg_surface(fd, state);
       state->xdg_toplevel = wayland_xdg_surface_get_toplevel(fd, state);
       state->wl_pointer = wayland_wl_seat_get_pointer(fd, state);
+
+      if (DO_TEARING) {
+        state->wp_tearing_control_v1 = wayland_get_tearing_control(fd, state);
+        wayland_set_tearing_hint(fd, state, wp_tearing_control_v1_presentation_hint_async);
+      }
+
       wayland_wl_surface_commit(fd, state);
     }
 
     if (state->state == STATE_SURFACE_ACKED_CONFIGURE) {
-      update_frame(fd, state);
-
       state->state = STATE_SURFACE_ATTACHED;
+
+      update_frame(fd, state);
+      fix_tearing_child(fd, state);
     }
 
     buf_reset(read_buf);
@@ -1590,6 +1742,9 @@ state_t *state = malloc(sizeof<state_t>);
   wl_surface = 0;
   wl_pointer = 0;
   wl_seat = 0;
+  wp_tearing_control_manager_v1 = 0;
+  wp_tearing_control_v1 = 0;
+  child = 0;
   xdg_toplevel = 0;
   frame_callback = 0;
   w = width * SCALE;
@@ -1604,6 +1759,7 @@ state_t *state = malloc(sizeof<state_t>);
   game = gol_new();
   time = 0;
   frame_rate = fps_new();
+  time_buf = malloc(sizeof<timespec>);
 };
 
 // Single buffering.
