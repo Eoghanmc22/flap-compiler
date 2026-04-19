@@ -985,8 +985,8 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
             CaptureKind::ReadWrite,
         );
 
-        let expr_type = self.expr.check_and_resolve_types(ctx)?;
-        let target_type = target_type?;
+        let expr_type = self.expr.check_and_resolve_types(ctx)?.resolve_once(ctx)?;
+        let target_type = target_type?.resolve_once(ctx)?;
 
         let mismatched_type = match (&target_type, &expr_type) {
             (target_type, Type::Array(array_type, _len))
@@ -1002,8 +1002,7 @@ impl<'a> TypeCheck<'a> for Assignment<'a> {
                 self.expr.as_span(),
                 format!(
                     "the type `{}`\n, can not be assigned to a place of type a `{}`",
-                    expr_type.resolve_once(ctx)?,
-                    target_type.resolve_once(ctx)?
+                    expr_type, target_type
                 )
                 .into(),
             )];
