@@ -49,7 +49,7 @@ use tracing::{error, info};
 
 use crate::ast::{self, AnnotatedSpan, AstNode, Block, CaptureKind, Expr, NearestMode, Program};
 use crate::compile::{self, CompileConfig, CompileContext, FileCache};
-use crate::error::{IntoSpans, TypeError};
+use crate::error::{IntoSpans, PrintableSpan, TypeError};
 use crate::lsp::ast_cache::{CachedParsedAst, CachedTypedAst};
 use crate::parser;
 use crate::type_check::{TypeCheck, TypeChecker, VariableKind};
@@ -345,7 +345,9 @@ fn handle_request(conn: &Connection, req: &ServerRequest, docs: &mut DocumentMap
             send_ok(
                 conn,
                 req.id.clone(),
-                &GotoDefinitionResponse::Array(defn.map(span_to_location).into_iter().collect()),
+                &GotoDefinitionResponse::Array(
+                    defn.as_ref().map(span_to_location).into_iter().collect(),
+                ),
             )?;
         }
         Completion::METHOD => {
@@ -665,7 +667,7 @@ fn diagnostic_for_error(error: &impl IntoSpans, main_path: &str) -> Diagnostic {
     let mut spans = error
         .spans()
         .fuse()
-        .map(|(span, desc)| (span_to_location(span), desc));
+        .map(|(span, desc)| (span_to_location(span.as_ref()), desc));
 
     let (main, desc) = spans.next().unwrap_or_else(|| {
         (
@@ -754,14 +756,16 @@ fn make_uri_for_path(path: &str) -> Uri {
     format!("file://{path}").parse().unwrap()
 }
 
-fn span_to_location(span: AnnotatedSpan) -> lsp_types::Location {
-    let (start, end) = span.span.split();
-    let start = pest_position_to_lsp_position(start.line_col());
-    let end = pest_position_to_lsp_position(end.line_col());
+fn span_to_location<T>(span: &T) -> lsp_types::Location
+where
+    T: PrintableSpan + ?Sized,
+{
+    let start = pest_position_to_lsp_position(span.start());
+    let end = pest_position_to_lsp_position(span.end());
 
     Location {
         range: Range::new(start, end),
-        uri: make_uri_for_path(span.file_name),
+        uri: make_uri_for_path(span.file_name()),
     }
 }
 

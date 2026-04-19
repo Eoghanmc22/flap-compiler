@@ -120,8 +120,8 @@ fn main() -> Result<()> {
                         let handle =
                             spawner.spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
                                 info!("Compiling {file:?}");
-                                let ctx =
-                                    CompileContext::new(&file, &FileCache::default(), config)?;
+                                let ctx = CompileContext::new(&file, &FileCache::default(), config)
+                                    .flatten()?;
                                 compile::compile_to_file(&ctx).flatten()?;
                                 info!("Finished {file:?}");
 

@@ -12,7 +12,7 @@ use pest::Span;
 use tracing::{debug, warn};
 
 use crate::{
-    ast::{AnnotatedSpan, Block, Directive, OwnedSpan, Program},
+    ast::{AnnotatedSpan, Block, ComputedSpan, Directive, Program},
     codegen::{
         CodegenCtx,
         clac::ClacProgram,
@@ -21,7 +21,7 @@ use crate::{
             PostProcesser, SourceCodeCommentPostProcessor,
         },
     },
-    error::CompileError,
+    error::{CompileError, SpannedErrorExt},
     middleware, parser,
     type_check::{TypeCheck, TypeChecker},
 };
@@ -42,7 +42,15 @@ impl CompileContext {
         file_cache: &FileCache,
         config: CompileConfig,
     ) -> Result<'static, Self> {
-        let root = fs::canonicalize(root.as_ref())?;
+        let root = root.as_ref();
+        let span = ComputedSpan::new("<path to root file>", root.to_string_lossy().into_owned());
+
+        let root = fs::canonicalize(&root)
+            .map_err(|it| -> CompileError { it.into() })
+            .wrap_span_desc(
+                span.clone(),
+                "Io Error while canonicalizing path (path is wrong)",
+            )?;
 
         let mut ctx = CompileContext {
             sources: Default::default(),
@@ -50,7 +58,7 @@ impl CompileContext {
             config,
         };
 
-        ctx.collect_sources(&root, file_cache)?;
+        ctx.collect_sources(&root, file_cache, span)?;
 
         Ok(ctx)
     }
@@ -59,27 +67,46 @@ impl CompileContext {
         &mut self,
         file: impl AsRef<Path>,
         file_cache: &FileCache,
+        span: ComputedSpan<'static>,
     ) -> Result<'static, ()> {
-        let file = fs::canonicalize(file.as_ref())?;
+        let file = fs::canonicalize(file.as_ref())
+            .map_err(|it| -> CompileError { it.into() })
+            .wrap_span_desc(span.clone(), "Io Error while canonicalizing path")?;
 
-        if fs::metadata(&file)?.is_dir() {
+        if fs::metadata(&file)
+            .map_err(|it| -> CompileError { it.into() })
+            .wrap_span_desc(span.clone(), "Io Error while geting path metadata")?
+            .is_dir()
+        {
             let mut source_file = SourceFile::default();
 
-            for file in fs::read_dir(&file)? {
-                let file = file?.path();
-                let file = fs::canonicalize(file)?;
+            for file in fs::read_dir(&file)
+                .map_err(|it| -> CompileError { it.into() })
+                .wrap_span_desc(span.clone(), "Io Error while reading dir")?
+            {
+                let file = file
+                    .map_err(|it| -> CompileError { it.into() })
+                    .wrap_span_desc(span.clone(), "Io Error while reading dir")?
+                    .path();
+                let file = fs::canonicalize(file)
+                    .map_err(|it| -> CompileError { it.into() })
+                    .wrap_span_desc(span.clone(), "Io Error while canonicalizing path")?;
 
                 if file.extension() != Some("flap".as_ref()) {
                     continue;
                 }
 
-                self.collect_sources(&file, file_cache)?;
+                let span = ComputedSpan::new("<dir contents>", file.to_string_lossy().into_owned());
+                self.collect_sources(&file, file_cache, span.clone())
+                    .map_err(|it| -> CompileError { it.into() })
+                    .wrap_span_desc(span.clone(), "Io Error while collecting sources")?;
 
-                let span = OwnedSpan::new("<dir contents>", file.to_string_lossy());
                 source_file.includes.insert(file, span);
             }
 
-            let file = fs::canonicalize(file)?;
+            let file = fs::canonicalize(file)
+                .map_err(|it| -> CompileError { it.into() })
+                .wrap_span_desc(span.clone(), "Io Error while canonicalizing path")?;
             self.sources.insert(file, source_file);
 
             return Ok(());
@@ -92,24 +119,35 @@ impl CompileContext {
         let contents = file_cache
             .get(file.as_path())
             .map(|it| Ok(it.to_string()))
-            .unwrap_or_else(|| fs::read_to_string(&file))?;
+            .unwrap_or_else(|| fs::read_to_string(&file))
+            .map_err(|it| -> CompileError { it.into() })
+            .wrap_span_desc(span.clone(), "Io Error while reading file")?;
 
         let file_name = file
             .as_os_str()
             .to_str()
-            .ok_or(CompileError::NonUtf8Path)?
+            .ok_or(CompileError::NonUtf8Path)
+            .map_err(|it| -> CompileError { it.into() })
+            .wrap_span(span.clone())?
             .to_string();
         let directives = parser::parse_directives(&contents, &file_name)
-            .map_err(|err| parser::map_parser_error(err, &file_name, &contents))?;
+            .map_err(|err| parser::map_parser_error(err, &file_name, &contents))
+            .map_err(|it| -> CompileError { it.into() })
+            .wrap_span_desc(span.clone(), "Error while parsing file")?;
 
         let mut includes = BTreeMap::new();
         for directive in directives {
             match directive {
                 Directive::Include(include_path, span) => {
                     let include_path = file.parent().unwrap().join(include_path);
-                    let include_path = fs::canonicalize(&include_path)?;
+                    let include_path = fs::canonicalize(&include_path)
+                        .map_err(|it| -> CompileError { it.into() })
+                        .wrap_span_desc(
+                            ComputedSpan::from(span).make_static(),
+                            "Io Error while canonicalizing path",
+                        )?;
 
-                    includes.insert(include_path, span.into());
+                    includes.insert(include_path, ComputedSpan::from(span).make_static());
                 }
             }
         }
@@ -120,8 +158,10 @@ impl CompileContext {
             includes: includes.clone(),
         });
 
-        for (include, _) in &includes {
-            self.collect_sources(include, file_cache)?;
+        for (include, span) in &includes {
+            self.collect_sources(include, file_cache, span.clone())
+                .map_err(|it| -> CompileError { it.into() })
+                .wrap_span_desc(span.clone(), "Io Error while canonicalizing path")?;
         }
 
         Ok(())
@@ -214,17 +254,17 @@ impl CompileContext {
 pub struct SourceFile {
     pub file_name: String,
     pub contents: String,
-    pub includes: BTreeMap<PathBuf, OwnedSpan>,
+    pub includes: BTreeMap<PathBuf, ComputedSpan<'static>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum SegmentPath<'a> {
     TopLevel,
-    Imported(&'a OwnedSpan, Rc<SegmentPath<'a>>),
+    Imported(&'a ComputedSpan<'static>, Rc<SegmentPath<'a>>),
 }
 
 impl<'a> SegmentPath<'a> {
-    pub fn to_vec(&self) -> Vec<&'a OwnedSpan> {
+    pub fn to_vec(&self) -> Vec<&'a ComputedSpan<'static>> {
         let mut vec = vec![];
 
         let mut cur = self;
@@ -238,7 +278,7 @@ impl<'a> SegmentPath<'a> {
 }
 
 pub struct Segment<'a> {
-    pub path: Vec<&'a OwnedSpan>,
+    pub path: Vec<&'a ComputedSpan<'a>>,
     pub ast: Result<'a, Program<'a>>,
 }
 

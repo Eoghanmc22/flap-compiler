@@ -67,15 +67,15 @@ impl AnnotatedSpan<'_> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct OwnedSpan {
+pub struct ComputedSpan<'a> {
     pub start: (usize, usize),
     pub end: (usize, usize),
-    pub content: String,
-    pub file_name: String,
+    pub content: Cow<'a, str>,
+    pub file_name: Cow<'a, str>,
 }
 
-impl OwnedSpan {
-    pub fn new(content: impl Into<String>, file_name: impl Into<String>) -> Self {
+impl<'a> ComputedSpan<'a> {
+    pub fn new(content: impl Into<Cow<'a, str>>, file_name: impl Into<Cow<'a, str>>) -> Self {
         let content = content.into();
         let file_name = file_name.into();
         Self {
@@ -85,21 +85,36 @@ impl OwnedSpan {
             file_name,
         }
     }
+
+    pub fn make_static(&self) -> ComputedSpan<'static> {
+        let ComputedSpan {
+            start,
+            end,
+            content,
+            file_name,
+        } = self;
+
+        ComputedSpan {
+            start: *start,
+            end: *end,
+            content: content.clone().into_owned().into(),
+            file_name: file_name.clone().into_owned().into(),
+        }
+    }
 }
 
-impl From<AnnotatedSpan<'_>> for OwnedSpan {
-    fn from(value: AnnotatedSpan) -> Self {
+impl<'a> From<AnnotatedSpan<'a>> for ComputedSpan<'a> {
+    fn from(value: AnnotatedSpan<'a>) -> Self {
         let (start, end) = value.span.split();
 
         Self {
             start: start.line_col(),
             end: end.line_col(),
-            content: value.span.as_str().to_owned(),
-            file_name: value.file_name.to_owned(),
+            content: value.span.as_str().into(),
+            file_name: value.file_name.into(),
         }
     }
 }
-
 pub trait AstSpan<'a> {
     fn as_span(&self) -> AnnotatedSpan<'a>;
     fn children(&self) -> Box<dyn Iterator<Item = &dyn AstSpan<'a>> + '_>;
