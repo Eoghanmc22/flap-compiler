@@ -418,7 +418,7 @@ fn render<'a>(
 
     for (idx, line_str) in span.as_str().lines().enumerate() {
         let line = start_line + idx;
-        write!(&mut string, "{line:4} | {line_str}").unwrap();
+        writeln!(&mut string, "{line:4} | {line_str}").unwrap();
 
         for (anno_span, annotation) in annotations {
             let (anno_start_line, anno_start_col) = anno_span.start();
@@ -445,8 +445,10 @@ fn render<'a>(
                     marker.push_str(&" ".repeat(col_start + 5));
                     marker.push_str(&"^".repeat(width));
 
-                    for line in annotation.lines() {
-                        writeln!(&mut string, "{marker} - {line}").unwrap();
+                    if anno_end_line == line {
+                        writeln!(&mut string, "{marker} - {annotation}").unwrap();
+                    } else {
+                        writeln!(&mut string, "{marker}").unwrap();
                     }
                 }
             }
