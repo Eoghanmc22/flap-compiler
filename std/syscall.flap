@@ -181,3 +181,7 @@ typedef struct inorder {
 int clock_gettime(int clock, timespec *ts) {
   handle_error(syscall(0xe4, clock, (int)ts, 0, 0, 0, 0))
 }
+
+int nanosleep(timespec *duration, timespec *out_rem) {
+  handle_error(syscall(0x23, (int)duration, (int)out_rem, 0, 0, 0, 0))
+}
