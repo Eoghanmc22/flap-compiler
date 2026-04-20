@@ -383,7 +383,32 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 out.consume(ClacToken::Number(2))?;
                 out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Pow)?;
+
+                out.consume(ClacToken::Number(2))?;
+                out.consume(ClacToken::Pick)?;
+                out.consume(ClacToken::Number(2))?;
+                out.consume(ClacToken::Pick)?;
+                out.consume(ClacToken::Mod)?;
+
+                out.consume(ClacToken::Number(2))?;
+                out.consume(ClacToken::Pick)?;
+                out.consume(ClacToken::Add)?;
+
+                out.consume(ClacToken::Number(2))?;
+                out.consume(ClacToken::Pick)?;
+                out.consume(ClacToken::Mod)?;
+
+                // a 2^b (a mod 2^b)
+
+                out.consume(ClacToken::Rot)?;
+                out.consume(ClacToken::Swap)?;
+                out.consume(ClacToken::Sub)?;
+
+                // 2^b (a - a mod 2^b)
+
+                out.consume(ClacToken::Swap)?;
                 out.consume(ClacToken::Div)?;
+
                 Type::Int
             }
             // TODO: this produces bad code, especially when ANDing with a number that is mosly 1s,
@@ -395,66 +420,53 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                         backtrace: Backtrace::capture()
                     });
                 };
+
+                if rhs == -1 {
+                    return Ok(Type::Int);
+                }
+
                 let mut rhs = rhs as ClacValueUnsigned;
 
                 out.consume(ClacToken::Number(0))?;
 
-                // This version doesnt work with negative inputs
-                // // This is more complicated than I expected
-                // let mut total_shift = 0;
-                // while rhs.count_ones() > 0 {
-                //     let trailing = rhs.trailing_ones();
-                //
-                //     out.consume(ClacToken::Number(2))?;
-                //     out.consume(ClacToken::Pick)?;
-                //     if total_shift > 0 {
-                //         out.consume(ClacToken::Number(2i32.pow(total_shift)))?;
-                //         out.consume(ClacToken::Div)?;
-                //     }
-                //     out.consume(ClacToken::Number(2i32.pow(trailing)))?;
-                //     out.consume(ClacToken::Mod)?;
-                //     if total_shift > 0 {
-                //         out.consume(ClacToken::Number(2i32.pow(total_shift)))?;
-                //         out.consume(ClacToken::Mul)?;
-                //     }
-                //     out.consume(ClacToken::Add)?;
-                //
-                //     total_shift += trailing;
-                //     rhs >>= trailing;
-                //     if rhs != 0 {
-                //         total_shift += rhs.trailing_zeros();
-                //         rhs >>= rhs.trailing_zeros();
-                //     } else {
-                //         break;
-                //     }
-                // }
-
-                // This is more complicated than I expected
                 let mut total_shift = 0;
                 while rhs.count_ones() > 0 {
                     let trailing = rhs.trailing_ones();
+                    let mod_factor = (2 as ClacValue).pow(trailing);
+                    let shift_factor = (2 as ClacValue).pow(total_shift);
 
-                    for _ in 0..trailing {
-                        out.consume(ClacToken::Number(2))?;
-                        out.consume(ClacToken::Pick)?;
-                        if total_shift > 0 {
-                            out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
-                            out.consume(ClacToken::Div)?;
-                        }
-                        out.consume(ClacToken::Number(2))?;
-                        out.consume(ClacToken::Mod)?;
+                    out.consume(ClacToken::Number(2))?;
+                    out.consume(ClacToken::Pick)?;
+                    if total_shift > 0 {
+                        // floor div correction
                         out.consume(ClacToken::Number(1))?;
                         out.consume(ClacToken::Pick)?;
-                        out.consume(ClacToken::Mul)?;
-
-                        if total_shift > 0 {
-                            out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
-                            out.consume(ClacToken::Mul)?;
-                        }
+                        out.consume(ClacToken::Number(shift_factor))?;
+                        out.consume(ClacToken::Mod)?;
+                        out.consume(ClacToken::Number(shift_factor))?;
                         out.consume(ClacToken::Add)?;
-                        total_shift += 1;
+                        out.consume(ClacToken::Number(shift_factor))?;
+                        out.consume(ClacToken::Mod)?;
+                        out.consume(ClacToken::Sub)?;
+
+                        out.consume(ClacToken::Number(shift_factor))?;
+                        out.consume(ClacToken::Div)?;
                     }
 
+                    out.consume(ClacToken::Number(mod_factor))?;
+                    out.consume(ClacToken::Mod)?;
+                    out.consume(ClacToken::Number(mod_factor))?;
+                    out.consume(ClacToken::Add)?;
+                    out.consume(ClacToken::Number(mod_factor))?;
+                    out.consume(ClacToken::Mod)?;
+
+                    if total_shift > 0 {
+                        out.consume(ClacToken::Number(shift_factor))?;
+                        out.consume(ClacToken::Mul)?;
+                    }
+                    out.consume(ClacToken::Add)?;
+
+                    total_shift += trailing;
                     rhs >>= trailing;
                     if rhs != 0 {
                         total_shift += rhs.trailing_zeros();
@@ -463,6 +475,42 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                         break;
                     }
                 }
+
+                // Neither does this version
+                // // This is more complicated than I expected
+                // let mut total_shift = 0;
+                // while rhs.count_ones() > 0 {
+                //     let trailing = rhs.trailing_ones();
+                //
+                //     for _ in 0..trailing {
+                //         out.consume(ClacToken::Number(2))?;
+                //         out.consume(ClacToken::Pick)?;
+                //         if total_shift > 0 {
+                //             out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
+                //             out.consume(ClacToken::Div)?;
+                //         }
+                //         out.consume(ClacToken::Number(2))?;
+                //         out.consume(ClacToken::Mod)?;
+                //         out.consume(ClacToken::Number(1))?;
+                //         out.consume(ClacToken::Pick)?;
+                //         out.consume(ClacToken::Mul)?;
+                //
+                //         if total_shift > 0 {
+                //             out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
+                //             out.consume(ClacToken::Mul)?;
+                //         }
+                //         out.consume(ClacToken::Add)?;
+                //         total_shift += 1;
+                //     }
+                //
+                //     rhs >>= trailing;
+                //     if rhs != 0 {
+                //         total_shift += rhs.trailing_zeros();
+                //         rhs >>= rhs.trailing_zeros();
+                //     } else {
+                //         break;
+                //     }
+                // }
 
                 Type::Int
             }
