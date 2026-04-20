@@ -117,8 +117,10 @@ fn main() -> Result<()> {
 
                     for file in files {
                         let config = config.clone();
-                        let handle =
-                            spawner.spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                        // Increase stack size
+                        let handle = thread::Builder::new().stack_size(16777216).spawn_scoped(
+                            spawner,
+                            move || -> Result<(), Box<dyn Error + Send + Sync>> {
                                 info!("Compiling {file:?}");
                                 let ctx = CompileContext::new(&file, &FileCache::default(), config)
                                     .flatten()?;
@@ -126,7 +128,8 @@ fn main() -> Result<()> {
                                 info!("Finished {file:?}");
 
                                 Ok(())
-                            });
+                            },
+                        )?;
 
                         handles.push(handle);
                     }
