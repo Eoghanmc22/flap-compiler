@@ -13,7 +13,7 @@ int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
 // Allow Socket Reuse
 *((int *)scratch) = 1;
-setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, int_width());
+setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, sizeof<int>);
 
 // Configure server address
 *(scratch + 0) = (char)AF_INET;

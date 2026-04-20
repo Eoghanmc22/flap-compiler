@@ -234,7 +234,7 @@ pub fn clac_builtins() -> HashMap<IdentRef<'static>, (ClacToken, FunctionSignatu
     );
 
     map.insert(
-        "int_width",
+        "int_bit_width",
         (
             ClacToken::WidthNative,
             FunctionSignature {
