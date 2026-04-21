@@ -1,0 +1,327 @@
+// Low-level I/O utilities, byte manipulation, and math helpers.
+#include "../../std/"
+#include "globals.flap"
+
+// ---- Math helpers ----
+
+// Euclidean modulo: always non-negative
+int mod_abs(int a, int b) {
+    ((a % b) + b) % b
+}
+
+// Floor division
+int div_floor(int a, int b) {
+    if (a % b < 0) { (a - b) / b } else { a / b }
+}
+
+// Position of the most significant set bit (0 = LSB).
+// Input must be > 0.
+int find_msb(int n) {
+    int go(int v, int k) {
+        if (v <= 1) { k } else { go(v >> 1, k + 1) }
+    }
+    go(n, 0)
+}
+
+// ---- Network I/O (raw syscalls, no error-panic) ----
+
+// These bypass the stdlib wrappers so we can inspect the return value
+// and handle client disconnects ourselves instead of panicking.
+
+// recvfrom(2) — 0x2D on x86-64 Linux
+int raw_recv(int fd, char *buf, int n, int flags) {
+    syscall(0x2D, fd, (int)buf, n, flags, 0, 0)
+}
+
+// sendto(2) — 0x2C on x86-64 Linux; 0x4000 = MSG_NOSIGNAL
+int raw_send(int fd, char *buf, int n, int flags) {
+    syscall(0x2C, fd, (int)buf, n, flags, 0, 0)
+}
+
+// Blocking recv: fills buf with exactly n bytes.
+// If require_first != 0, peeks first and returns 0 immediately if no
+// data is available (used by the main accept loop).
+// Returns byte count on success, 0 on empty non-blocking check, -1 on error.
+int recv_all(int client_fd, char *buf, int n, int require_first) {
+    int initial_ok = if (require_first != 0) {
+        int r = raw_recv(client_fd, buf, 1, 0x02);  // 0x02 = MSG_PEEK
+        if (r <= 0) { 0 } else { 1 }
+    } else { 1 };
+
+    if (initial_ok == 0) { 0 }
+    else {
+        int go(int total) {
+            if (total >= n) {
+                total
+            } else {
+                int r = raw_recv(client_fd, buf + total, n - total, 0);
+                if (r <= 0) {
+                    total_bytes_received = total_bytes_received + total;
+                    -1
+                }
+                else { go(total + r) }
+            }
+        }
+        int result = go(0);
+        if (result > 0) { total_bytes_received = total_bytes_received + result; }
+        result
+    }
+}
+
+// Blocking send: sends all len bytes from buf.
+// Returns bytes sent, or -1 on error.
+int send_all(int client_fd, char *buf, int len) {
+    int go(int sent) {
+        if (sent >= len) {
+            sent
+        } else {
+            int n = raw_send(client_fd, buf + sent, len - sent, 0x4000);
+            if (n <= 0) { -1 }
+            else { go(sent + n) }
+        }
+    }
+    go(0)
+}
+
+// Read and discard `remaining` bytes from the socket.
+void discard_all(int client_fd, int remaining, int require_first) {
+    int max_buf = MAX_RECV_BUF_LEN;
+    void go(int left, int req) {
+        if (left > 0) {
+            int chunk = if (left > max_buf) { max_buf } else { left };
+            int got = recv_all(client_fd, recv_buffer, chunk, req);
+            if (got > 0) {
+                go(left - got, 0)
+            }
+        }
+    }
+    go(remaining, require_first)
+}
+
+// ---- Byte-level I/O ----
+
+// Writes a single byte. Uses recv_buffer[0] as a staging area because
+// flap does not support &local_var.
+void writeByte(int client_fd, int byte) {
+    idek_buffer[0] = (char)(byte & 0xFF);
+    send_all(client_fd, idek_buffer, 1);
+}
+
+// Reads one byte into recv_buffer[0]; sets recv_count.
+int readByte(int client_fd) {
+    recv_count = recv_all(client_fd, recv_buffer, 1, 0);
+    (int)recv_buffer[0] & 0xFF
+}
+
+// ---- Multi-byte writes — big-endian ----
+
+void writeUint16(int client_fd, int n) {
+    writeByte(client_fd, (n >> 8) & 0xFF);
+    writeByte(client_fd, n & 0xFF);
+}
+
+void writeInt16(int client_fd, int n) {
+    writeUint16(client_fd, n & 0xFFFF);
+}
+
+void writeUint32(int client_fd, int n) {
+    writeByte(client_fd, (n >> 24) & 0xFF);
+    writeByte(client_fd, (n >> 16) & 0xFF);
+    writeByte(client_fd, (n >> 8) & 0xFF);
+    writeByte(client_fd, n & 0xFF);
+}
+
+void writeUint64(int client_fd, int n) {
+    writeByte(client_fd, (n >> 56) & 0xFF);
+    writeByte(client_fd, (n >> 48) & 0xFF);
+    writeByte(client_fd, (n >> 40) & 0xFF);
+    writeByte(client_fd, (n >> 32) & 0xFF);
+    writeByte(client_fd, (n >> 24) & 0xFF);
+    writeByte(client_fd, (n >> 16) & 0xFF);
+    writeByte(client_fd, (n >> 8) & 0xFF);
+    writeByte(client_fd, n & 0xFF);
+}
+
+// ---- Multi-byte reads — big-endian ----
+// All use + instead of | because the byte positions are non-overlapping.
+// The & 0xFF masks strip sign extension from char-to-int conversion.
+
+int readUint16(int client_fd) {
+    recv_count = recv_all(client_fd, recv_buffer, 2, 0);
+    (((int)recv_buffer[0] & 0xFF) << 8) +
+    ((int)recv_buffer[1] & 0xFF)
+}
+
+// Reads big-endian 16-bit and sign-extends to machine word.
+int readInt16(int client_fd) {
+    int n = readUint16(client_fd);
+    if (n >= 0x8000) { n - 0x10000 } else { n }
+}
+
+int readUint32(int client_fd) {
+    recv_count = recv_all(client_fd, recv_buffer, 4, 0);
+    (((int)recv_buffer[0] & 0xFF) << 24) +
+    (((int)recv_buffer[1] & 0xFF) << 16) +
+    (((int)recv_buffer[2] & 0xFF) << 8) +
+    ((int)recv_buffer[3] & 0xFF)
+}
+
+// Reads 8 big-endian bytes and assembles them as a 64-bit int.
+// Bytes with MSB set produce negative shifted values in signed arithmetic,
+// but two's-complement addition gives the correct bit pattern.
+int readUint64(int client_fd) {
+    recv_count = recv_all(client_fd, recv_buffer, 8, 0);
+    (((int)recv_buffer[0] & 0xFF) << 56) +
+    (((int)recv_buffer[1] & 0xFF) << 48) +
+    (((int)recv_buffer[2] & 0xFF) << 40) +
+    (((int)recv_buffer[3] & 0xFF) << 32) +
+    (((int)recv_buffer[4] & 0xFF) << 24) +
+    (((int)recv_buffer[5] & 0xFF) << 16) +
+    (((int)recv_buffer[6] & 0xFF) << 8) +
+    ((int)recv_buffer[7] & 0xFF)
+}
+
+// Signed; same bits, already two's-complement.
+int readInt64(int client_fd) {
+    readUint64(client_fd)
+}
+
+// ---- IEEE 754 double encoding/decoding ----
+// Flap has no float type. Doubles are represented as their 64-bit bit patterns.
+// encode_double and decode_double are accurate for integer values |n| <= 2^52,
+// which covers all reasonable Minecraft coordinates.
+
+int encode_double(int n) {
+    if (n == 0) { 0 }
+    else {
+        bool neg = n < 0;
+        int a = if (neg) { -n } else { n };
+        int k = find_msb(a);
+        // Biased exponent packed into bits 52-62
+        int exp_bits = (1023 + k) << 52;
+        // 52-bit mantissa (implicit leading 1 removed by the mask)
+        int mantissa_bits = if (k >= 52) {
+            (a >> (k - 52)) & 0x000F_FFFF_FFFF_FFFF
+        } else {
+            (a << (52 - k)) & 0x000F_FFFF_FFFF_FFFF
+        };
+        int bits = exp_bits + mantissa_bits;
+        // Set sign bit via two's-complement wrap: 1<<63 = i64::MIN,
+        // and positive_bits + i64::MIN wraps to the correct negative pattern.
+        if (neg) { bits + (1 << 63) } else { bits }
+    }
+}
+
+// Convert IEEE 754 double bit pattern back to nearest integer.
+int decode_double(int bits) {
+    if (bits == 0) { 0 }
+    else {
+        bool neg = bits < 0;
+        // Strip sign bit using the same i64::MIN trick
+        int abs_bits = if (neg) { bits - (1 << 63) } else { bits };
+        int exp = ((abs_bits >> 52) & 0x7FF) - 1023;
+        int mantissa = abs_bits & 0x000F_FFFF_FFFF_FFFF;
+        // Restore implicit leading 1 (2^52)
+        int full = 0x0010_0000_0000_0000 + mantissa;
+        int value = if (exp >= 52) {
+            full << (exp - 52)
+        } else if (exp >= 0) {
+            full >> (52 - exp)
+        } else {
+            0
+        };
+        if (neg) { -value } else { value }
+    }
+}
+
+// Write an integer as a big-endian IEEE 754 double (8 bytes).
+void writeDouble(int client_fd, int n) {
+    writeUint64(client_fd, encode_double(n))
+}
+
+// Read 8 bytes from the wire and decode as nearest integer.
+int readDouble(int client_fd) {
+    decode_double(readUint64(client_fd))
+}
+
+// Encode integer n as IEEE 754 single-precision (32-bit) bit pattern.
+// Accurate for integer values |n| <= 2^23.
+int encode_float(int n) {
+    if (n == 0) { 0 }
+    else {
+        bool neg = n < 0;
+        int a = if (neg) { -n } else { n };
+        int k = find_msb(a);
+        int exp_bits = (127 + k) << 23;
+        int mantissa_bits = if (k >= 23) {
+            (a >> (k - 23)) & 0x007F_FFFF
+        } else {
+            (a << (23 - k)) & 0x007F_FFFF
+        };
+        int bits = exp_bits + mantissa_bits;
+        if (neg) { bits + (1 << 31) } else { bits }
+    }
+}
+
+// Convert IEEE 754 float bit pattern back to nearest integer.
+int decode_float(int bits) {
+    if (bits == 0) { 0 }
+    else {
+        bool neg = (bits >> 31) != 0;
+        // Strip sign bit using the same i64::MIN trick
+        int abs_bits = if (neg) { bits - (1 << 31) } else { bits };
+        int exp = ((abs_bits >> 23) & 0xFF) - 127;
+        int mantissa = abs_bits & 0x007F_FFFF;
+        // Restore implicit leading 1 (2^23)
+        int full = 0x0080_0000 + mantissa;
+        int value = if (exp >= 23) {
+            full << (exp - 23)
+        } else if (exp >= 0) {
+            full >> (23 - exp)
+        } else {
+            0
+        };
+        if (neg) { -value } else { value }
+    }
+}
+
+// Write an integer as a big-endian IEEE 754 float (4 bytes).
+void writeFloat(int client_fd, int n) {
+    writeUint32(client_fd, encode_float(n))
+}
+
+// Read 4 byte float from the wire and decode as nearest integer.
+int readFloat(int client_fd) {
+    decode_float(readUint32(client_fd))
+}
+
+// ---- Timing ----
+
+// Returns monotonic system time in microseconds.
+// Allocates a timespec on the heap because flap cannot take &local_var.
+int get_program_time() {
+    timespec *ts = malloc(sizeof<timespec>);
+    clock_gettime(CLOCK_MONOTONIC, ts);
+    int t = ts->tv_sec * 1000000 + ts->tv_nsec / 1000;
+    free(ts);
+    t
+}
+
+// ---- Pseudo-random number generators ----
+
+// LCG-based fast_rand, updating global rng_seed.
+// Replaces the xorshift algorithm from the C original because flap has no
+// bitwise XOR for runtime values.
+int fast_rand() {
+    rng_seed = rng_seed * (-0x2ECB_DABC_217D_106B) + (-0x78A2_2B1A_1BC6_39D9);
+    rng_seed
+}
+
+// LCG-based replacement for splitmix64.
+// The C version used XOR and a uint64 constant that overflows signed int;
+// this LCG chain gives equivalent avalanche properties for chunk seeding.
+int splitmix64(int state) {
+    int z = state * (-0x2ECB_DABC_217D_106B) + (-0x78A2_2B1A_1BC6_39D9);
+    int z = z * (-0x2ECB_DABC_217D_106B) + (-0x78A2_2B1A_1BC6_39D9);
+    z * (-0x2ECB_DABC_217D_106B) + (-0x78A2_2B1A_1BC6_39D9)
+}

@@ -20,7 +20,7 @@ char *scratch = malloc(16);
 
 // Allow Socket Reuse
 *((int *)scratch) = 1;
-setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, int_width());
+setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, scratch, sizeof<int>);
 
 // Configure server address as 0.0.0.0:8080
 *(scratch + 0) = (char)AF_INET;

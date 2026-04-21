@@ -3,8 +3,6 @@
 // - I dont think logical and and or are short circuiting
 // - support inlining regular functions?
 // - Name spaces and methods
-// - Things that should be toggle
-//   - Source code comment
 // - Add data flow analysis and instruction reordering
 // - reduce clone/to_string/to_vec/... usage
 // - consider making loops return the value of their last expression on their last iteration?

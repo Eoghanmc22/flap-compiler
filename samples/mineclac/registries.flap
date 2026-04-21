@@ -1,0 +1,2447 @@
+#include "../../std/"
+
+// Binary contents of required "Registry Data" packets
+const auto registries_bin_ARRAY = (char[904])[
+  0x13, 0x07, 0x0b, 0x63, 0x61, 0x74, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e,
+  0x74, 0x01, 0x03, 0x72, 0x65, 0x64, 0x00, 0x1d, 0x07, 0x0f, 0x63, 0x68, 0x69,
+  0x63, 0x6b, 0x65, 0x6e, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e, 0x74, 0x01,
+  0x09, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x65, 0x00, 0x19, 0x07,
+  0x0b, 0x63, 0x6f, 0x77, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e, 0x74, 0x01,
+  0x09, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x65, 0x00, 0x1a, 0x07,
+  0x0c, 0x66, 0x72, 0x6f, 0x67, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e, 0x74,
+  0x01, 0x09, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x65, 0x00, 0x18,
+  0x07, 0x10, 0x70, 0x61, 0x69, 0x6e, 0x74, 0x69, 0x6e, 0x67, 0x5f, 0x76, 0x61,
+  0x72, 0x69, 0x61, 0x6e, 0x74, 0x01, 0x03, 0x6f, 0x72, 0x62, 0x00, 0x19, 0x07,
+  0x0b, 0x70, 0x69, 0x67, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e, 0x74, 0x01,
+  0x09, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x65, 0x00, 0x1a, 0x07,
+  0x12, 0x77, 0x6f, 0x6c, 0x66, 0x5f, 0x73, 0x6f, 0x75, 0x6e, 0x64, 0x5f, 0x76,
+  0x61, 0x72, 0x69, 0x61, 0x6e, 0x74, 0x01, 0x03, 0x62, 0x69, 0x67, 0x00, 0x15,
+  0x07, 0x0c, 0x77, 0x6f, 0x6c, 0x66, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e,
+  0x74, 0x01, 0x04, 0x70, 0x61, 0x6c, 0x65, 0x00, 0xd7, 0x04, 0x07, 0x0b, 0x64,
+  0x61, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x31, 0x05, 0x61,
+  0x72, 0x72, 0x6f, 0x77, 0x00, 0x11, 0x62, 0x61, 0x64, 0x5f, 0x72, 0x65, 0x73,
+  0x70, 0x61, 0x77, 0x6e, 0x5f, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x00, 0x06, 0x63,
+  0x61, 0x63, 0x74, 0x75, 0x73, 0x00, 0x08, 0x63, 0x61, 0x6d, 0x70, 0x66, 0x69,
+  0x72, 0x65, 0x00, 0x08, 0x63, 0x72, 0x61, 0x6d, 0x6d, 0x69, 0x6e, 0x67, 0x00,
+  0x0d, 0x64, 0x72, 0x61, 0x67, 0x6f, 0x6e, 0x5f, 0x62, 0x72, 0x65, 0x61, 0x74,
+  0x68, 0x00, 0x05, 0x64, 0x72, 0x6f, 0x77, 0x6e, 0x00, 0x07, 0x64, 0x72, 0x79,
+  0x5f, 0x6f, 0x75, 0x74, 0x00, 0x0b, 0x65, 0x6e, 0x64, 0x65, 0x72, 0x5f, 0x70,
+  0x65, 0x61, 0x72, 0x6c, 0x00, 0x09, 0x65, 0x78, 0x70, 0x6c, 0x6f, 0x73, 0x69,
+  0x6f, 0x6e, 0x00, 0x04, 0x66, 0x61, 0x6c, 0x6c, 0x00, 0x0d, 0x66, 0x61, 0x6c,
+  0x6c, 0x69, 0x6e, 0x67, 0x5f, 0x61, 0x6e, 0x76, 0x69, 0x6c, 0x00, 0x0d, 0x66,
+  0x61, 0x6c, 0x6c, 0x69, 0x6e, 0x67, 0x5f, 0x62, 0x6c, 0x6f, 0x63, 0x6b, 0x00,
+  0x12, 0x66, 0x61, 0x6c, 0x6c, 0x69, 0x6e, 0x67, 0x5f, 0x73, 0x74, 0x61, 0x6c,
+  0x61, 0x63, 0x74, 0x69, 0x74, 0x65, 0x00, 0x08, 0x66, 0x69, 0x72, 0x65, 0x62,
+  0x61, 0x6c, 0x6c, 0x00, 0x09, 0x66, 0x69, 0x72, 0x65, 0x77, 0x6f, 0x72, 0x6b,
+  0x73, 0x00, 0x0d, 0x66, 0x6c, 0x79, 0x5f, 0x69, 0x6e, 0x74, 0x6f, 0x5f, 0x77,
+  0x61, 0x6c, 0x6c, 0x00, 0x06, 0x66, 0x72, 0x65, 0x65, 0x7a, 0x65, 0x00, 0x07,
+  0x67, 0x65, 0x6e, 0x65, 0x72, 0x69, 0x63, 0x00, 0x0c, 0x67, 0x65, 0x6e, 0x65,
+  0x72, 0x69, 0x63, 0x5f, 0x6b, 0x69, 0x6c, 0x6c, 0x00, 0x09, 0x68, 0x6f, 0x74,
+  0x5f, 0x66, 0x6c, 0x6f, 0x6f, 0x72, 0x00, 0x07, 0x69, 0x6e, 0x5f, 0x66, 0x69,
+  0x72, 0x65, 0x00, 0x07, 0x69, 0x6e, 0x5f, 0x77, 0x61, 0x6c, 0x6c, 0x00, 0x0e,
+  0x69, 0x6e, 0x64, 0x69, 0x72, 0x65, 0x63, 0x74, 0x5f, 0x6d, 0x61, 0x67, 0x69,
+  0x63, 0x00, 0x04, 0x6c, 0x61, 0x76, 0x61, 0x00, 0x0e, 0x6c, 0x69, 0x67, 0x68,
+  0x74, 0x6e, 0x69, 0x6e, 0x67, 0x5f, 0x62, 0x6f, 0x6c, 0x74, 0x00, 0x0a, 0x6d,
+  0x61, 0x63, 0x65, 0x5f, 0x73, 0x6d, 0x61, 0x73, 0x68, 0x00, 0x05, 0x6d, 0x61,
+  0x67, 0x69, 0x63, 0x00, 0x0a, 0x6d, 0x6f, 0x62, 0x5f, 0x61, 0x74, 0x74, 0x61,
+  0x63, 0x6b, 0x00, 0x13, 0x6d, 0x6f, 0x62, 0x5f, 0x61, 0x74, 0x74, 0x61, 0x63,
+  0x6b, 0x5f, 0x6e, 0x6f, 0x5f, 0x61, 0x67, 0x67, 0x72, 0x6f, 0x00, 0x0e, 0x6d,
+  0x6f, 0x62, 0x5f, 0x70, 0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, 0x69, 0x6c, 0x65,
+  0x00, 0x07, 0x6f, 0x6e, 0x5f, 0x66, 0x69, 0x72, 0x65, 0x00, 0x0c, 0x6f, 0x75,
+  0x74, 0x5f, 0x6f, 0x66, 0x5f, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, 0x0e, 0x6f,
+  0x75, 0x74, 0x73, 0x69, 0x64, 0x65, 0x5f, 0x62, 0x6f, 0x72, 0x64, 0x65, 0x72,
+  0x00, 0x0d, 0x70, 0x6c, 0x61, 0x79, 0x65, 0x72, 0x5f, 0x61, 0x74, 0x74, 0x61,
+  0x63, 0x6b, 0x00, 0x10, 0x70, 0x6c, 0x61, 0x79, 0x65, 0x72, 0x5f, 0x65, 0x78,
+  0x70, 0x6c, 0x6f, 0x73, 0x69, 0x6f, 0x6e, 0x00, 0x0a, 0x73, 0x6f, 0x6e, 0x69,
+  0x63, 0x5f, 0x62, 0x6f, 0x6f, 0x6d, 0x00, 0x04, 0x73, 0x70, 0x69, 0x74, 0x00,
+  0x0a, 0x73, 0x74, 0x61, 0x6c, 0x61, 0x67, 0x6d, 0x69, 0x74, 0x65, 0x00, 0x06,
+  0x73, 0x74, 0x61, 0x72, 0x76, 0x65, 0x00, 0x05, 0x73, 0x74, 0x69, 0x6e, 0x67,
+  0x00, 0x10, 0x73, 0x77, 0x65, 0x65, 0x74, 0x5f, 0x62, 0x65, 0x72, 0x72, 0x79,
+  0x5f, 0x62, 0x75, 0x73, 0x68, 0x00, 0x06, 0x74, 0x68, 0x6f, 0x72, 0x6e, 0x73,
+  0x00, 0x06, 0x74, 0x68, 0x72, 0x6f, 0x77, 0x6e, 0x00, 0x07, 0x74, 0x72, 0x69,
+  0x64, 0x65, 0x6e, 0x74, 0x00, 0x15, 0x75, 0x6e, 0x61, 0x74, 0x74, 0x72, 0x69,
+  0x62, 0x75, 0x74, 0x65, 0x64, 0x5f, 0x66, 0x69, 0x72, 0x65, 0x62, 0x61, 0x6c,
+  0x6c, 0x00, 0x0b, 0x77, 0x69, 0x6e, 0x64, 0x5f, 0x63, 0x68, 0x61, 0x72, 0x67,
+  0x65, 0x00, 0x06, 0x77, 0x69, 0x74, 0x68, 0x65, 0x72, 0x00, 0x0c, 0x77, 0x69,
+  0x74, 0x68, 0x65, 0x72, 0x5f, 0x73, 0x6b, 0x75, 0x6c, 0x6c, 0x00, 0x46, 0x07,
+  0x0e, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x67, 0x65, 0x6e, 0x2f, 0x62, 0x69, 0x6f,
+  0x6d, 0x65, 0x05, 0x06, 0x70, 0x6c, 0x61, 0x69, 0x6e, 0x73, 0x00, 0x0e, 0x6d,
+  0x61, 0x6e, 0x67, 0x72, 0x6f, 0x76, 0x65, 0x5f, 0x73, 0x77, 0x61, 0x6d, 0x70,
+  0x00, 0x06, 0x64, 0x65, 0x73, 0x65, 0x72, 0x74, 0x00, 0x0c, 0x73, 0x6e, 0x6f,
+  0x77, 0x79, 0x5f, 0x70, 0x6c, 0x61, 0x69, 0x6e, 0x73, 0x00, 0x05, 0x62, 0x65,
+  0x61, 0x63, 0x68, 0x00, 0x1c, 0x07, 0x0e, 0x64, 0x69, 0x6d, 0x65, 0x6e, 0x73,
+  0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x01, 0x09, 0x6f, 0x76, 0x65,
+  0x72, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00
+];
+
+const int registries_bin_size = sizeof_packed(registries_bin_ARRAY);
+const char *registries_bin = (char *)NEXT_GLOBAL;
+const char *NEXT_GLOBAL =
+    NEXT_GLOBAL + PAGE_SIZE;
+map_global(registries_bin, registries_bin_size);
+*registries_bin = registries_bin_ARRAY;
+
+
+// Binary contents of "Update Tags" packets
+const auto tags_bin_ARRAY = (char[160])[
+  0x9e, 0x01, 0x0d, 0x03, 0x05, 0x66, 0x6c, 0x75, 0x69, 0x64, 0x02, 0x05, 0x77,
+  0x61, 0x74, 0x65, 0x72, 0x02, 0x01, 0x02, 0x04, 0x6c, 0x61, 0x76, 0x61, 0x02,
+  0x03, 0x04, 0x05, 0x62, 0x6c, 0x6f, 0x63, 0x6b, 0x04, 0x10, 0x6d, 0x69, 0x6e,
+  0x65, 0x61, 0x62, 0x6c, 0x65, 0x2f, 0x70, 0x69, 0x63, 0x6b, 0x61, 0x78, 0x65,
+  0x14, 0x01, 0xc2, 0x04, 0x0c, 0xc7, 0x04, 0x6a, 0xc4, 0x04, 0x88, 0x02, 0xbe,
+  0x01, 0x2a, 0x82, 0x02, 0x2c, 0x2e, 0xcb, 0x07, 0xc4, 0x01, 0xae, 0x01, 0xad,
+  0x01, 0xc0, 0x01, 0xbb, 0x03, 0x8b, 0x04, 0xc7, 0x07, 0x0c, 0x6d, 0x69, 0x6e,
+  0x65, 0x61, 0x62, 0x6c, 0x65, 0x2f, 0x61, 0x78, 0x65, 0x06, 0x31, 0x0d, 0x47,
+  0xb7, 0x04, 0xc1, 0x01, 0xbc, 0x01, 0x0f, 0x6d, 0x69, 0x6e, 0x65, 0x61, 0x62,
+  0x6c, 0x65, 0x2f, 0x73, 0x68, 0x6f, 0x76, 0x65, 0x6c, 0x06, 0x08, 0x09, 0x25,
+  0x87, 0x02, 0x89, 0x02, 0xa3, 0x08, 0x06, 0x6c, 0x65, 0x61, 0x76, 0x65, 0x73,
+  0x01, 0x58, 0x04, 0x69, 0x74, 0x65, 0x6d, 0x01, 0x06, 0x70, 0x6c, 0x61, 0x6e,
+  0x6b, 0x73, 0x01, 0x24
+];
+
+const int tags_bin_size = sizeof_packed(tags_bin_ARRAY);
+const char *tags_bin = (char *)NEXT_GLOBAL;
+const char *NEXT_GLOBAL =
+    NEXT_GLOBAL + PAGE_SIZE;
+map_global(tags_bin, tags_bin_size);
+*tags_bin = tags_bin_ARRAY;
+
+// Block palette
+const auto block_palette_ARRAY = [
+  0,     86,    87,    88,    89,    90,    91,    92,    93,    102,   104,
+  106,   108,   8,     25995, 25886, 12054, 12120, 12150, 20432, 11634, 24002,
+  23998, 1,     2,     3,     4,     5,     6,     7,     9,     10,    11,
+  13,    14,    15,    29,    85,    118,   119,   123,   124,   125,   129,
+  131,   133,   135,   137,   193,   202,   226,   279,   531,   559,   560,
+  561,   562,   563,   565,   567,   578,   579,   580,   582,   1734,  1750,
+  1766,  1782,  1798,  1814,  1830,  1846,  1862,  1878,  1894,  1910,  1926,
+  1942,  1958,  1974,  2000,  2024,  2041,  2047,  2048,  2049,  2050,  2051,
+  2052,  2053,  2054,  2063,  2093,  2094,  2095,  2096,  2097,  2098,  2099,
+  2100,  2101,  2102,  2103,  2104,  2105,  2106,  2107,  2108,  2121,  2122,
+  2123,  2124,  2125,  2126,  2127,  2128,  2129,  2130,  2131,  2132,  2133,
+  2134,  2135,  2136,  2137,  2138,  2139,  2141,  2142,  2206,  2399,  2400,
+  2401,  2919,  2927,  2949,  3019,  4338,  4340,  4341,  4342,  4350,  4359,
+  4367,  4697,  4751,  4759,  4789,  4971,  5811,  5827,  5839,  5893,  5913,
+  5916,  5935,  5950,  5958,  5959,  5960,  5976,  5977,  5978,  5995,  6027,
+  6028,  6029,  6030,  6032,  6035,  6037,  6042,  6045,  6049,  6053,  6063,
+  6155,  6780,  6781,  6782,  6783,  6784,  6785,  6792,  6856,  6920,  7015,
+  7019,  7053,  7054,  7055,  7111,  7239,  7367,  7375,  7411,  7491,  7571,
+  7641,  7642,  7643,  7644,  7656,  7728,  7734,  8055,  8056,  8088,  8100,
+  8169,  8173,  8181,  8182,  8195,  8199,  8200,  8202,  8226,  8295,  8298,
+  8314,  8449,  8696,  8702,  8706,  9030,  9351,  9405,  9652,  9692,  9916,
+  9920,  9924,  9929,  9952,  9968,  9985,  10016, 10032, 10033, 10034, 10044,
+  10045, 10047, 10060, 10142, 10154, 11253, 11255, 11287, 11303, 11352, 11353,
+  11354, 11366, 11446
+];
+
+const int *block_palette = (int *)NEXT_GLOBAL;
+const char *NEXT_GLOBAL =
+    NEXT_GLOBAL + PAGE_SIZE;
+map_global(block_palette, sizeof(block_palette_ARRAY));
+*block_palette = block_palette_ARRAY;
+
+// Block palette as VarInt buffer
+const auto network_block_palette_ARRAY = (char[483])[
+  0x00, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x66, 0x68, 0x6a, 0x6c,
+  0x08, 0x8b, 0xcb, 0x01, 0x9e, 0xca, 0x01, 0x96, 0x5e, 0xd8, 0x5e, 0xf6, 0x5e,
+  0xd0, 0x9f, 0x01, 0xf2, 0x5a, 0xc2, 0xbb, 0x01, 0xbe, 0xbb, 0x01, 0x01, 0x02,
+  0x03, 0x04, 0x05, 0x06, 0x07, 0x09, 0x0a, 0x0b, 0x0d, 0x0e, 0x0f, 0x1d, 0x55,
+  0x76, 0x77, 0x7b, 0x7c, 0x7d, 0x81, 0x01, 0x83, 0x01, 0x85, 0x01, 0x87, 0x01,
+  0x89, 0x01, 0xc1, 0x01, 0xca, 0x01, 0xe2, 0x01, 0x97, 0x02, 0x93, 0x04, 0xaf,
+  0x04, 0xb0, 0x04, 0xb1, 0x04, 0xb2, 0x04, 0xb3, 0x04, 0xb5, 0x04, 0xb7, 0x04,
+  0xc2, 0x04, 0xc3, 0x04, 0xc4, 0x04, 0xc6, 0x04, 0xc6, 0x0d, 0xd6, 0x0d, 0xe6,
+  0x0d, 0xf6, 0x0d, 0x86, 0x0e, 0x96, 0x0e, 0xa6, 0x0e, 0xb6, 0x0e, 0xc6, 0x0e,
+  0xd6, 0x0e, 0xe6, 0x0e, 0xf6, 0x0e, 0x86, 0x0f, 0x96, 0x0f, 0xa6, 0x0f, 0xb6,
+  0x0f, 0xd0, 0x0f, 0xe8, 0x0f, 0xf9, 0x0f, 0xff, 0x0f, 0x80, 0x10, 0x81, 0x10,
+  0x82, 0x10, 0x83, 0x10, 0x84, 0x10, 0x85, 0x10, 0x86, 0x10, 0x8f, 0x10, 0xad,
+  0x10, 0xae, 0x10, 0xaf, 0x10, 0xb0, 0x10, 0xb1, 0x10, 0xb2, 0x10, 0xb3, 0x10,
+  0xb4, 0x10, 0xb5, 0x10, 0xb6, 0x10, 0xb7, 0x10, 0xb8, 0x10, 0xb9, 0x10, 0xba,
+  0x10, 0xbb, 0x10, 0xbc, 0x10, 0xc9, 0x10, 0xca, 0x10, 0xcb, 0x10, 0xcc, 0x10,
+  0xcd, 0x10, 0xce, 0x10, 0xcf, 0x10, 0xd0, 0x10, 0xd1, 0x10, 0xd2, 0x10, 0xd3,
+  0x10, 0xd4, 0x10, 0xd5, 0x10, 0xd6, 0x10, 0xd7, 0x10, 0xd8, 0x10, 0xd9, 0x10,
+  0xda, 0x10, 0xdb, 0x10, 0xdd, 0x10, 0xde, 0x10, 0x9e, 0x11, 0xdf, 0x12, 0xe0,
+  0x12, 0xe1, 0x12, 0xe7, 0x16, 0xef, 0x16, 0x85, 0x17, 0xcb, 0x17, 0xf2, 0x21,
+  0xf4, 0x21, 0xf5, 0x21, 0xf6, 0x21, 0xfe, 0x21, 0x87, 0x22, 0x8f, 0x22, 0xd9,
+  0x24, 0x8f, 0x25, 0x97, 0x25, 0xb5, 0x25, 0xeb, 0x26, 0xb3, 0x2d, 0xc3, 0x2d,
+  0xcf, 0x2d, 0x85, 0x2e, 0x99, 0x2e, 0x9c, 0x2e, 0xaf, 0x2e, 0xbe, 0x2e, 0xc6,
+  0x2e, 0xc7, 0x2e, 0xc8, 0x2e, 0xd8, 0x2e, 0xd9, 0x2e, 0xda, 0x2e, 0xeb, 0x2e,
+  0x8b, 0x2f, 0x8c, 0x2f, 0x8d, 0x2f, 0x8e, 0x2f, 0x90, 0x2f, 0x93, 0x2f, 0x95,
+  0x2f, 0x9a, 0x2f, 0x9d, 0x2f, 0xa1, 0x2f, 0xa5, 0x2f, 0xaf, 0x2f, 0x8b, 0x30,
+  0xfc, 0x34, 0xfd, 0x34, 0xfe, 0x34, 0xff, 0x34, 0x80, 0x35, 0x81, 0x35, 0x88,
+  0x35, 0xc8, 0x35, 0x88, 0x36, 0xe7, 0x36, 0xeb, 0x36, 0x8d, 0x37, 0x8e, 0x37,
+  0x8f, 0x37, 0xc7, 0x37, 0xc7, 0x38, 0xc7, 0x39, 0xcf, 0x39, 0xf3, 0x39, 0xc3,
+  0x3a, 0x93, 0x3b, 0xd9, 0x3b, 0xda, 0x3b, 0xdb, 0x3b, 0xdc, 0x3b, 0xe8, 0x3b,
+  0xb0, 0x3c, 0xb6, 0x3c, 0xf7, 0x3e, 0xf8, 0x3e, 0x98, 0x3f, 0xa4, 0x3f, 0xe9,
+  0x3f, 0xed, 0x3f, 0xf5, 0x3f, 0xf6, 0x3f, 0x83, 0x40, 0x87, 0x40, 0x88, 0x40,
+  0x8a, 0x40, 0xa2, 0x40, 0xe7, 0x40, 0xea, 0x40, 0xfa, 0x40, 0x81, 0x42, 0xf8,
+  0x43, 0xfe, 0x43, 0x82, 0x44, 0xc6, 0x46, 0x87, 0x49, 0xbd, 0x49, 0xb4, 0x4b,
+  0xdc, 0x4b, 0xbc, 0x4d, 0xc0, 0x4d, 0xc4, 0x4d, 0xc9, 0x4d, 0xe0, 0x4d, 0xf0,
+  0x4d, 0x81, 0x4e, 0xa0, 0x4e, 0xb0, 0x4e, 0xb1, 0x4e, 0xb2, 0x4e, 0xbc, 0x4e,
+  0xbd, 0x4e, 0xbf, 0x4e, 0xcc, 0x4e, 0x9e, 0x4f, 0xaa, 0x4f, 0xf5, 0x57, 0xf7,
+  0x57, 0x97, 0x58, 0xa7, 0x58, 0xd8, 0x58, 0xd9, 0x58, 0xda, 0x58, 0xe6, 0x58,
+  0xb6, 0x59
+];
+
+const int network_block_palette_size = sizeof_packed(network_block_palette_ARRAY);
+const char *network_block_palette = (char *)NEXT_GLOBAL;
+const char *NEXT_GLOBAL =
+    NEXT_GLOBAL + PAGE_SIZE;
+map_global(network_block_palette, network_block_palette_size);
+*network_block_palette = network_block_palette_ARRAY;
+
+// Block-to-item mapping
+const auto B_to_I_ARRAY = [
+    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+    0,    28,   32,   261,  270,  283,  288,  1288, 83,   869,  91,   35,
+    2,    3,    4,    5,    6,    7,    28,   28,   29,   30,   35,   36,
+    49,   58,   59,   60,   62,   63,   61,   871,  867,  860,  80,   134,
+    148,  171,  159,  182,  191,  192,  193,  194,  195,  76,   197,  699,
+    198,  199,  200,  712,  1041, 1042, 1043, 1044, 1045, 1046, 1047, 1048,
+    1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 797,  798,  694,  201,
+    202,  203,  905,  204,  209,  210,  211,  693,  213,  214,  215,  216,
+    217,  218,  219,  220,  221,  222,  223,  224,  225,  226,  227,  228,
+    229,  244,  232,  233,  234,  235,  236,  237,  238,  239,  240,  241,
+    243,  242,  247,  248,  92,   90,   304,  710,  305,  306,  308,  309,
+    310,  317,  318,  412,  319,  862,  93,   320,  911,  321,  322,  943,
+    744,  323,  799,  324,  955,  703,  727,  743,  731,  688,  689,  713,
+    971,  326,  327,  328,  329,  330,  256,  331,  332,  347,  348,  349,
+    350,  351,  353,  354,  345,  346,  1040, 691,  765,  362,  363,  364,
+    365,  366,  367,  374,  375,  376,  377,  378,  379,  344,  380,  381,
+    382,  383,  785,  390,  391,  392,  393,  394,  384,  385,  386,  387,
+    388,  389,  395,  398,  399,  1074, 404,  1081, 1082, 405,  406,  408,
+    711,  409,  74,   410,  708,  411,  425,  426,  427,  428,  1176, 715,
+    1183, 1184, 449,  450,  451,  709,  729,  730,  692,  705,  690,  81,
+    698,  453,  452,  455,  456,  800,  700,  695,  473,  474,  764,  533,
+    534,  535,  536,  537
+];
+
+const int *B_to_I = (int *)NEXT_GLOBAL;
+const char *NEXT_GLOBAL =
+    NEXT_GLOBAL + PAGE_SIZE;
+map_global(B_to_I, sizeof(B_to_I_ARRAY));
+*B_to_I = B_to_I_ARRAY;
+
+// Item-to-block mapping
+int I_to_B(int item) {
+  if (item == 32) {
+    14
+  } else if (item == 261) {
+    15
+  } else if (item == 270) {
+    16
+  } else if (item == 283) {
+    17
+  } else if (item == 288) {
+    18
+  } else if (item == 1288) {
+    19
+  } else if (item == 83) {
+    20
+  } else if (item == 68) {
+    21
+  } else if (item == 91) {
+    22
+  } else if (item == 1) {
+    23
+  } else if (item == 2) {
+    24
+  } else if (item == 3) {
+    25
+  } else if (item == 4) {
+    26
+  } else if (item == 5) {
+    27
+  } else if (item == 6) {
+    28
+  } else if (item == 7) {
+    29
+  } else if (item == 27) {
+    30
+  } else if (item == 28) {
+    31
+  } else if (item == 29) {
+    32
+  } else if (item == 30) {
+    33
+  } else if (item == 35) {
+    34
+  } else if (item == 36) {
+    35
+  } else if (item == 49) {
+    36
+  } else if (item == 58) {
+    37
+  } else if (item == 59) {
+    38
+  } else if (item == 60) {
+    39
+  } else if (item == 62) {
+    40
+  } else if (item == 63) {
+    41
+  } else if (item == 61) {
+    42
+  } else if (item == 70) {
+    43
+  } else if (item == 66) {
+    44
+  } else if (item == 64) {
+    45
+  } else if (item == 80) {
+    46
+  } else if (item == 134) {
+    47
+  } else if (item == 148) {
+    48
+  } else if (item == 171) {
+    49
+  } else if (item == 159) {
+    50
+  } else if (item == 182) {
+    51
+  } else if (item == 191) {
+    52
+  } else if (item == 192) {
+    53
+  } else if (item == 193) {
+    54
+  } else if (item == 194) {
+    55
+  } else if (item == 195) {
+    56
+  } else if (item == 76) {
+    57
+  } else if (item == 197) {
+    58
+  } else if (item == 699) {
+    59
+  } else if (item == 198) {
+    60
+  } else if (item == 199) {
+    61
+  } else if (item == 200) {
+    62
+  } else if (item == 712) {
+    63
+  } else if (item == 1041) {
+    64
+  } else if (item == 1042) {
+    65
+  } else if (item == 1043) {
+    66
+  } else if (item == 1044) {
+    67
+  } else if (item == 1045) {
+    68
+  } else if (item == 1046) {
+    69
+  } else if (item == 1047) {
+    70
+  } else if (item == 1048) {
+    71
+  } else if (item == 1049) {
+    72
+  } else if (item == 1050) {
+    73
+  } else if (item == 1051) {
+    74
+  } else if (item == 1052) {
+    75
+  } else if (item == 1053) {
+    76
+  } else if (item == 1054) {
+    77
+  } else if (item == 1055) {
+    78
+  } else if (item == 1056) {
+    79
+  } else if (item == 797) {
+    80
+  } else if (item == 798) {
+    81
+  } else if (item == 694) {
+    82
+  } else if (item == 201) {
+    83
+  } else if (item == 202) {
+    84
+  } else if (item == 203) {
+    85
+  } else if (item == 207) {
+    86
+  } else if (item == 204) {
+    87
+  } else if (item == 209) {
+    88
+  } else if (item == 210) {
+    89
+  } else if (item == 211) {
+    90
+  } else if (item == 693) {
+    91
+  } else if (item == 213) {
+    92
+  } else if (item == 214) {
+    93
+  } else if (item == 215) {
+    94
+  } else if (item == 216) {
+    95
+  } else if (item == 217) {
+    96
+  } else if (item == 218) {
+    97
+  } else if (item == 219) {
+    98
+  } else if (item == 220) {
+    99
+  } else if (item == 221) {
+    100
+  } else if (item == 222) {
+    101
+  } else if (item == 223) {
+    102
+  } else if (item == 224) {
+    103
+  } else if (item == 225) {
+    104
+  } else if (item == 226) {
+    105
+  } else if (item == 227) {
+    106
+  } else if (item == 228) {
+    107
+  } else if (item == 229) {
+    108
+  } else if (item == 244) {
+    109
+  } else if (item == 232) {
+    110
+  } else if (item == 233) {
+    111
+  } else if (item == 234) {
+    112
+  } else if (item == 235) {
+    113
+  } else if (item == 236) {
+    114
+  } else if (item == 237) {
+    115
+  } else if (item == 238) {
+    116
+  } else if (item == 239) {
+    117
+  } else if (item == 240) {
+    118
+  } else if (item == 241) {
+    119
+  } else if (item == 243) {
+    120
+  } else if (item == 242) {
+    121
+  } else if (item == 247) {
+    122
+  } else if (item == 248) {
+    123
+  } else if (item == 92) {
+    124
+  } else if (item == 90) {
+    125
+  } else if (item == 304) {
+    126
+  } else if (item == 710) {
+    127
+  } else if (item == 305) {
+    128
+  } else if (item == 306) {
+    129
+  } else if (item == 308) {
+    130
+  } else if (item == 309) {
+    131
+  } else if (item == 310) {
+    132
+  } else if (item == 317) {
+    133
+  } else if (item == 318) {
+    134
+  } else if (item == 412) {
+    135
+  } else if (item == 319) {
+    136
+  } else if (item == 78) {
+    137
+  } else if (item == 93) {
+    138
+  } else if (item == 320) {
+    139
+  } else if (item == 911) {
+    140
+  } else if (item == 321) {
+    141
+  } else if (item == 322) {
+    142
+  } else if (item == 943) {
+    143
+  } else if (item == 744) {
+    144
+  } else if (item == 323) {
+    145
+  } else if (item == 799) {
+    146
+  } else if (item == 324) {
+    147
+  } else if (item == 955) {
+    148
+  } else if (item == 703) {
+    149
+  } else if (item == 727) {
+    150
+  } else if (item == 743) {
+    151
+  } else if (item == 731) {
+    152
+  } else if (item == 72) {
+    153
+  } else if (item == 689) {
+    154
+  } else if (item == 713) {
+    155
+  } else if (item == 325) {
+    156
+  } else if (item == 326) {
+    157
+  } else if (item == 327) {
+    158
+  } else if (item == 328) {
+    159
+  } else if (item == 329) {
+    160
+  } else if (item == 330) {
+    161
+  } else if (item == 256) {
+    162
+  } else if (item == 331) {
+    163
+  } else if (item == 332) {
+    164
+  } else if (item == 347) {
+    165
+  } else if (item == 348) {
+    166
+  } else if (item == 349) {
+    167
+  } else if (item == 350) {
+    168
+  } else if (item == 351) {
+    169
+  } else if (item == 353) {
+    170
+  } else if (item == 354) {
+    171
+  } else if (item == 345) {
+    172
+  } else if (item == 346) {
+    173
+  } else if (item == 1040) {
+    174
+  } else if (item == 691) {
+    175
+  } else if (item == 765) {
+    176
+  } else if (item == 362) {
+    177
+  } else if (item == 363) {
+    178
+  } else if (item == 364) {
+    179
+  } else if (item == 365) {
+    180
+  } else if (item == 366) {
+    181
+  } else if (item == 367) {
+    182
+  } else if (item == 374) {
+    183
+  } else if (item == 375) {
+    184
+  } else if (item == 376) {
+    185
+  } else if (item == 377) {
+    186
+  } else if (item == 378) {
+    187
+  } else if (item == 379) {
+    188
+  } else if (item == 344) {
+    189
+  } else if (item == 380) {
+    190
+  } else if (item == 381) {
+    191
+  } else if (item == 382) {
+    192
+  } else if (item == 383) {
+    193
+  } else if (item == 785) {
+    194
+  } else if (item == 390) {
+    195
+  } else if (item == 391) {
+    196
+  } else if (item == 392) {
+    197
+  } else if (item == 393) {
+    198
+  } else if (item == 394) {
+    199
+  } else if (item == 384) {
+    200
+  } else if (item == 385) {
+    201
+  } else if (item == 386) {
+    202
+  } else if (item == 387) {
+    203
+  } else if (item == 388) {
+    204
+  } else if (item == 389) {
+    205
+  } else if (item == 395) {
+    206
+  } else if (item == 398) {
+    207
+  } else if (item == 399) {
+    208
+  } else if (item == 1074) {
+    209
+  } else if (item == 404) {
+    210
+  } else if (item == 1081) {
+    211
+  } else if (item == 1082) {
+    212
+  } else if (item == 405) {
+    213
+  } else if (item == 406) {
+    214
+  } else if (item == 408) {
+    215
+  } else if (item == 711) {
+    216
+  } else if (item == 409) {
+    217
+  } else if (item == 74) {
+    218
+  } else if (item == 410) {
+    219
+  } else if (item == 708) {
+    220
+  } else if (item == 411) {
+    221
+  } else if (item == 425) {
+    222
+  } else if (item == 426) {
+    223
+  } else if (item == 427) {
+    224
+  } else if (item == 428) {
+    225
+  } else if (item == 1176) {
+    226
+  } else if (item == 715) {
+    227
+  } else if (item == 1183) {
+    228
+  } else if (item == 1184) {
+    229
+  } else if (item == 449) {
+    230
+  } else if (item == 450) {
+    231
+  } else if (item == 451) {
+    232
+  } else if (item == 709) {
+    233
+  } else if (item == 729) {
+    234
+  } else if (item == 730) {
+    235
+  } else if (item == 692) {
+    236
+  } else if (item == 705) {
+    237
+  } else if (item == 690) {
+    238
+  } else if (item == 81) {
+    239
+  } else if (item == 698) {
+    240
+  } else if (item == 453) {
+    241
+  } else if (item == 452) {
+    242
+  } else if (item == 455) {
+    243
+  } else if (item == 456) {
+    244
+  } else if (item == 800) {
+    245
+  } else if (item == 700) {
+    246
+  } else if (item == 695) {
+    247
+  } else if (item == 473) {
+    248
+  } else if (item == 474) {
+    249
+  } else if (item == 764) {
+    250
+  } else if (item == 533) {
+    251
+  } else if (item == 534) {
+    252
+  } else if (item == 535) {
+    253
+  } else if (item == 536) {
+    254
+  } else if (item == 537) {
+    255
+  } else {
+    0
+  }
+}
+
+// Block identifiers
+const int B_air = 0;
+const int B_water = 1;
+const int B_water_1 = 2;
+const int B_water_2 = 3;
+const int B_water_3 = 4;
+const int B_water_4 = 5;
+const int B_water_5 = 6;
+const int B_water_6 = 7;
+const int B_water_7 = 8;
+const int B_lava = 9;
+const int B_lava_2 = 10;
+const int B_lava_4 = 11;
+const int B_lava_6 = 12;
+const int B_snowy_grass_block = 13;
+const int B_mud = 14;
+const int B_moss_carpet = 15;
+const int B_oak_slab = 16;
+const int B_stone_slab = 17;
+const int B_cobblestone_slab = 18;
+const int B_composter = 19;
+const int B_coal_block = 20;
+const int B_copper_ore = 21;
+const int B_copper_block = 22;
+const int B_stone = 23;
+const int B_granite = 24;
+const int B_polished_granite = 25;
+const int B_diorite = 26;
+const int B_polished_diorite = 27;
+const int B_andesite = 28;
+const int B_polished_andesite = 29;
+const int B_grass_block = 30;
+const int B_dirt = 31;
+const int B_coarse_dirt = 32;
+const int B_podzol = 33;
+const int B_cobblestone = 34;
+const int B_oak_planks = 35;
+const int B_oak_sapling = 36;
+const int B_bedrock = 37;
+const int B_sand = 38;
+const int B_suspicious_sand = 39;
+const int B_red_sand = 40;
+const int B_gravel = 41;
+const int B_suspicious_gravel = 42;
+const int B_gold_ore = 43;
+const int B_iron_ore = 44;
+const int B_coal_ore = 45;
+const int B_nether_gold_ore = 46;
+const int B_oak_log = 47;
+const int B_stripped_oak_log = 48;
+const int B_oak_wood = 49;
+const int B_stripped_oak_wood = 50;
+const int B_oak_leaves = 51;
+const int B_azalea_leaves = 52;
+const int B_flowering_azalea_leaves = 53;
+const int B_sponge = 54;
+const int B_wet_sponge = 55;
+const int B_glass = 56;
+const int B_lapis_ore = 57;
+const int B_lapis_block = 58;
+const int B_dispenser = 59;
+const int B_sandstone = 60;
+const int B_chiseled_sandstone = 61;
+const int B_cut_sandstone = 62;
+const int B_note_block = 63;
+const int B_white_bed = 64;
+const int B_orange_bed = 65;
+const int B_magenta_bed = 66;
+const int B_light_blue_bed = 67;
+const int B_yellow_bed = 68;
+const int B_lime_bed = 69;
+const int B_pink_bed = 70;
+const int B_gray_bed = 71;
+const int B_light_gray_bed = 72;
+const int B_cyan_bed = 73;
+const int B_purple_bed = 74;
+const int B_blue_bed = 75;
+const int B_brown_bed = 76;
+const int B_green_bed = 77;
+const int B_red_bed = 78;
+const int B_black_bed = 79;
+const int B_powered_rail = 80;
+const int B_detector_rail = 81;
+const int B_sticky_piston = 82;
+const int B_cobweb = 83;
+const int B_short_grass = 84;
+const int B_fern = 85;
+const int B_dead_bush = 86;
+const int B_bush = 87;
+const int B_short_dry_grass = 88;
+const int B_tall_dry_grass = 89;
+const int B_seagrass = 90;
+const int B_piston = 91;
+const int B_white_wool = 92;
+const int B_orange_wool = 93;
+const int B_magenta_wool = 94;
+const int B_light_blue_wool = 95;
+const int B_yellow_wool = 96;
+const int B_lime_wool = 97;
+const int B_pink_wool = 98;
+const int B_gray_wool = 99;
+const int B_light_gray_wool = 100;
+const int B_cyan_wool = 101;
+const int B_purple_wool = 102;
+const int B_blue_wool = 103;
+const int B_brown_wool = 104;
+const int B_green_wool = 105;
+const int B_red_wool = 106;
+const int B_black_wool = 107;
+const int B_dandelion = 108;
+const int B_torchflower = 109;
+const int B_poppy = 110;
+const int B_blue_orchid = 111;
+const int B_allium = 112;
+const int B_azure_bluet = 113;
+const int B_red_tulip = 114;
+const int B_orange_tulip = 115;
+const int B_white_tulip = 116;
+const int B_pink_tulip = 117;
+const int B_oxeye_daisy = 118;
+const int B_cornflower = 119;
+const int B_wither_rose = 120;
+const int B_lily_of_the_valley = 121;
+const int B_brown_mushroom = 122;
+const int B_red_mushroom = 123;
+const int B_gold_block = 124;
+const int B_iron_block = 125;
+const int B_bricks = 126;
+const int B_tnt = 127;
+const int B_bookshelf = 128;
+const int B_chiseled_bookshelf = 129;
+const int B_mossy_cobblestone = 130;
+const int B_obsidian = 131;
+const int B_torch = 132;
+const int B_spawner = 133;
+const int B_creaking_heart = 134;
+const int B_oak_stairs = 135;
+const int B_chest = 136;
+const int B_diamond_ore = 137;
+const int B_diamond_block = 138;
+const int B_crafting_table = 139;
+const int B_wheat = 140;
+const int B_farmland = 141;
+const int B_furnace = 142;
+const int B_oak_sign = 143;
+const int B_oak_door = 144;
+const int B_ladder = 145;
+const int B_rail = 146;
+const int B_cobblestone_stairs = 147;
+const int B_oak_hanging_sign = 148;
+const int B_lever = 149;
+const int B_stone_pressure_plate = 150;
+const int B_iron_door = 151;
+const int B_oak_pressure_plate = 152;
+const int B_redstone_ore = 153;
+const int B_redstone_torch = 154;
+const int B_stone_button = 155;
+const int B_snow = 156;
+const int B_ice = 157;
+const int B_snow_block = 158;
+const int B_cactus = 159;
+const int B_cactus_flower = 160;
+const int B_clay = 161;
+const int B_sugar_cane = 162;
+const int B_jukebox = 163;
+const int B_oak_fence = 164;
+const int B_netherrack = 165;
+const int B_soul_sand = 166;
+const int B_soul_soil = 167;
+const int B_basalt = 168;
+const int B_polished_basalt = 169;
+const int B_soul_torch = 170;
+const int B_glowstone = 171;
+const int B_carved_pumpkin = 172;
+const int B_jack_o_lantern = 173;
+const int B_cake = 174;
+const int B_repeater = 175;
+const int B_oak_trapdoor = 176;
+const int B_stone_bricks = 177;
+const int B_mossy_stone_bricks = 178;
+const int B_cracked_stone_bricks = 179;
+const int B_chiseled_stone_bricks = 180;
+const int B_packed_mud = 181;
+const int B_mud_bricks = 182;
+const int B_brown_mushroom_block = 183;
+const int B_red_mushroom_block = 184;
+const int B_mushroom_stem = 185;
+const int B_iron_bars = 186;
+const int B_chain = 187;
+const int B_glass_pane = 188;
+const int B_pumpkin = 189;
+const int B_melon = 190;
+const int B_vine = 191;
+const int B_glow_lichen = 192;
+const int B_resin_clump = 193;
+const int B_oak_fence_gate = 194;
+const int B_brick_stairs = 195;
+const int B_stone_brick_stairs = 196;
+const int B_mud_brick_stairs = 197;
+const int B_mycelium = 198;
+const int B_lily_pad = 199;
+const int B_resin_block = 200;
+const int B_resin_bricks = 201;
+const int B_resin_brick_stairs = 202;
+const int B_resin_brick_slab = 203;
+const int B_resin_brick_wall = 204;
+const int B_chiseled_resin_bricks = 205;
+const int B_nether_bricks = 206;
+const int B_nether_brick_fence = 207;
+const int B_nether_brick_stairs = 208;
+const int B_nether_wart = 209;
+const int B_enchanting_table = 210;
+const int B_brewing_stand = 211;
+const int B_cauldron = 212;
+const int B_end_portal_frame = 213;
+const int B_end_stone = 214;
+const int B_dragon_egg = 215;
+const int B_redstone_lamp = 216;
+const int B_sandstone_stairs = 217;
+const int B_emerald_ore = 218;
+const int B_ender_chest = 219;
+const int B_tripwire_hook = 220;
+const int B_emerald_block = 221;
+const int B_command_block = 222;
+const int B_beacon = 223;
+const int B_cobblestone_wall = 224;
+const int B_mossy_cobblestone_wall = 225;
+const int B_flower_pot = 226;
+const int B_oak_button = 227;
+const int B_skeleton_skull = 228;
+const int B_wither_skeleton_skull = 229;
+const int B_anvil = 230;
+const int B_chipped_anvil = 231;
+const int B_damaged_anvil = 232;
+const int B_trapped_chest = 233;
+const int B_light_weighted_pressure_plate = 234;
+const int B_heavy_weighted_pressure_plate = 235;
+const int B_comparator = 236;
+const int B_daylight_detector = 237;
+const int B_redstone_block = 238;
+const int B_nether_quartz_ore = 239;
+const int B_hopper = 240;
+const int B_quartz_block = 241;
+const int B_chiseled_quartz_block = 242;
+const int B_quartz_pillar = 243;
+const int B_quartz_stairs = 244;
+const int B_activator_rail = 245;
+const int B_dropper = 246;
+const int B_slime_block = 247;
+const int B_barrier = 248;
+const int B_light = 249;
+const int B_iron_trapdoor = 250;
+const int B_prismarine = 251;
+const int B_prismarine_bricks = 252;
+const int B_dark_prismarine = 253;
+const int B_prismarine_stairs = 254;
+const int B_prismarine_brick_stairs = 255;
+
+// Item identifiers
+const int I_acacia_boat = 835;
+const int I_acacia_button = 719;
+const int I_acacia_chest_boat = 836;
+const int I_acacia_door = 748;
+const int I_acacia_fence = 336;
+const int I_acacia_fence_gate = 789;
+const int I_acacia_hanging_sign = 959;
+const int I_acacia_leaves = 186;
+const int I_acacia_log = 138;
+const int I_acacia_planks = 40;
+const int I_acacia_pressure_plate = 735;
+const int I_acacia_sapling = 53;
+const int I_acacia_sign = 947;
+const int I_acacia_slab = 274;
+const int I_acacia_stairs = 416;
+const int I_acacia_trapdoor = 769;
+const int I_acacia_wood = 175;
+const int I_activator_rail = 800;
+const int I_air = 0;
+const int I_allay_spawn_egg = 1086;
+const int I_allium = 234;
+const int I_amethyst_block = 88;
+const int I_amethyst_cluster = 1345;
+const int I_amethyst_shard = 866;
+const int I_ancient_debris = 82;
+const int I_andesite = 6;
+const int I_andesite_slab = 679;
+const int I_andesite_stairs = 662;
+const int I_andesite_wall = 437;
+const int I_angler_pottery_sherd = 1372;
+const int I_anvil = 449;
+const int I_apple = 857;
+const int I_archer_pottery_sherd = 1373;
+const int I_armadillo_scute = 853;
+const int I_armadillo_spawn_egg = 1085;
+const int I_armor_stand = 1204;
+const int I_arms_up_pottery_sherd = 1374;
+const int I_arrow = 859;
+const int I_axolotl_bucket = 978;
+const int I_axolotl_spawn_egg = 1087;
+const int I_azalea = 205;
+const int I_azalea_leaves = 191;
+const int I_azure_bluet = 235;
+const int I_baked_potato = 1179;
+const int I_bamboo = 269;
+const int I_bamboo_block = 147;
+const int I_bamboo_button = 724;
+const int I_bamboo_chest_raft = 846;
+const int I_bamboo_door = 753;
+const int I_bamboo_fence = 341;
+const int I_bamboo_fence_gate = 794;
+const int I_bamboo_hanging_sign = 964;
+const int I_bamboo_mosaic = 48;
+const int I_bamboo_mosaic_slab = 280;
+const int I_bamboo_mosaic_stairs = 422;
+const int I_bamboo_planks = 45;
+const int I_bamboo_pressure_plate = 740;
+const int I_bamboo_raft = 845;
+const int I_bamboo_sign = 952;
+const int I_bamboo_slab = 279;
+const int I_bamboo_stairs = 421;
+const int I_bamboo_trapdoor = 774;
+const int I_barrel = 1289;
+const int I_barrier = 473;
+const int I_basalt = 350;
+const int I_bat_spawn_egg = 1088;
+const int I_beacon = 426;
+const int I_bedrock = 58;
+const int I_bee_nest = 1306;
+const int I_bee_spawn_egg = 1089;
+const int I_beef = 1065;
+const int I_beehive = 1307;
+const int I_beetroot = 1235;
+const int I_beetroot_seeds = 1236;
+const int I_beetroot_soup = 1237;
+const int I_bell = 1297;
+const int I_big_dripleaf = 267;
+const int I_birch_boat = 831;
+const int I_birch_button = 717;
+const int I_birch_chest_boat = 832;
+const int I_birch_door = 746;
+const int I_birch_fence = 334;
+const int I_birch_fence_gate = 787;
+const int I_birch_hanging_sign = 957;
+const int I_birch_leaves = 184;
+const int I_birch_log = 136;
+const int I_birch_planks = 38;
+const int I_birch_pressure_plate = 733;
+const int I_birch_sapling = 51;
+const int I_birch_sign = 945;
+const int I_birch_slab = 272;
+const int I_birch_stairs = 414;
+const int I_birch_trapdoor = 767;
+const int I_birch_wood = 173;
+const int I_black_banner = 1229;
+const int I_black_bed = 1056;
+const int I_black_bundle = 1007;
+const int I_black_candle = 1341;
+const int I_black_carpet = 491;
+const int I_black_concrete = 600;
+const int I_black_concrete_powder = 616;
+const int I_black_dye = 1036;
+const int I_black_glazed_terracotta = 584;
+const int I_black_harness = 817;
+const int I_black_shulker_box = 568;
+const int I_black_stained_glass = 516;
+const int I_black_stained_glass_pane = 532;
+const int I_black_terracotta = 472;
+const int I_black_wool = 228;
+const int I_blackstone = 1312;
+const int I_blackstone_slab = 1313;
+const int I_blackstone_stairs = 1314;
+const int I_blackstone_wall = 442;
+const int I_blade_pottery_sherd = 1375;
+const int I_blast_furnace = 1291;
+const int I_blaze_powder = 1079;
+const int I_blaze_rod = 1071;
+const int I_blaze_spawn_egg = 1090;
+const int I_blue_banner = 1225;
+const int I_blue_bed = 1052;
+const int I_blue_bundle = 1003;
+const int I_blue_candle = 1337;
+const int I_blue_carpet = 487;
+const int I_blue_concrete = 596;
+const int I_blue_concrete_powder = 612;
+const int I_blue_dye = 1032;
+const int I_blue_egg = 987;
+const int I_blue_glazed_terracotta = 580;
+const int I_blue_harness = 813;
+const int I_blue_ice = 650;
+const int I_blue_orchid = 233;
+const int I_blue_shulker_box = 564;
+const int I_blue_stained_glass = 512;
+const int I_blue_stained_glass_pane = 528;
+const int I_blue_terracotta = 468;
+const int I_blue_wool = 224;
+const int I_bogged_spawn_egg = 1091;
+const int I_bolt_armor_trim_smithing_template = 1371;
+const int I_bone = 1038;
+const int I_bone_block = 550;
+const int I_bone_meal = 1037;
+const int I_book = 984;
+const int I_bookshelf = 305;
+const int I_bordure_indented_banner_pattern = 1286;
+const int I_bow = 858;
+const int I_bowl = 856;
+const int I_brain_coral = 631;
+const int I_brain_coral_block = 626;
+const int I_brain_coral_fan = 641;
+const int I_bread = 912;
+const int I_breeze_rod = 1172;
+const int I_breeze_spawn_egg = 1092;
+const int I_brewer_pottery_sherd = 1376;
+const int I_brewing_stand = 1081;
+const int I_brick = 980;
+const int I_brick_slab = 289;
+const int I_brick_stairs = 390;
+const int I_brick_wall = 429;
+const int I_bricks = 304;
+const int I_brown_banner = 1226;
+const int I_brown_bed = 1053;
+const int I_brown_bundle = 1004;
+const int I_brown_candle = 1338;
+const int I_brown_carpet = 488;
+const int I_brown_concrete = 597;
+const int I_brown_concrete_powder = 613;
+const int I_brown_dye = 1033;
+const int I_brown_egg = 988;
+const int I_brown_glazed_terracotta = 581;
+const int I_brown_harness = 814;
+const int I_brown_mushroom = 247;
+const int I_brown_mushroom_block = 374;
+const int I_brown_shulker_box = 565;
+const int I_brown_stained_glass = 513;
+const int I_brown_stained_glass_pane = 529;
+const int I_brown_terracotta = 469;
+const int I_brown_wool = 225;
+const int I_brush = 1352;
+const int I_bubble_coral = 632;
+const int I_bubble_coral_block = 627;
+const int I_bubble_coral_fan = 642;
+const int I_bucket = 967;
+const int I_budding_amethyst = 89;
+const int I_bundle = 991;
+const int I_burn_pottery_sherd = 1377;
+const int I_bush = 204;
+const int I_cactus = 328;
+const int I_cactus_flower = 329;
+const int I_cake = 1040;
+const int I_calcite = 11;
+const int I_calibrated_sculk_sensor = 707;
+const int I_camel_spawn_egg = 1094;
+const int I_campfire = 1302;
+const int I_candle = 1325;
+const int I_carrot = 1177;
+const int I_carrot_on_a_stick = 823;
+const int I_cartography_table = 1292;
+const int I_carved_pumpkin = 345;
+const int I_cat_spawn_egg = 1093;
+const int I_cauldron = 1082;
+const int I_cave_spider_spawn_egg = 1095;
+const int I_chain = 378;
+const int I_chain_command_block = 545;
+const int I_chainmail_boots = 920;
+const int I_chainmail_chestplate = 918;
+const int I_chainmail_helmet = 917;
+const int I_chainmail_leggings = 919;
+const int I_charcoal = 861;
+const int I_cherry_boat = 837;
+const int I_cherry_button = 720;
+const int I_cherry_chest_boat = 838;
+const int I_cherry_door = 749;
+const int I_cherry_fence = 337;
+const int I_cherry_fence_gate = 790;
+const int I_cherry_hanging_sign = 960;
+const int I_cherry_leaves = 187;
+const int I_cherry_log = 139;
+const int I_cherry_planks = 41;
+const int I_cherry_pressure_plate = 736;
+const int I_cherry_sapling = 54;
+const int I_cherry_sign = 948;
+const int I_cherry_slab = 275;
+const int I_cherry_stairs = 417;
+const int I_cherry_trapdoor = 770;
+const int I_cherry_wood = 176;
+const int I_chest = 319;
+const int I_chest_minecart = 819;
+const int I_chicken = 1067;
+const int I_chicken_spawn_egg = 1096;
+const int I_chipped_anvil = 450;
+const int I_chiseled_bookshelf = 306;
+const int I_chiseled_copper = 98;
+const int I_chiseled_deepslate = 372;
+const int I_chiseled_nether_bricks = 397;
+const int I_chiseled_polished_blackstone = 1319;
+const int I_chiseled_quartz_block = 452;
+const int I_chiseled_red_sandstone = 541;
+const int I_chiseled_resin_bricks = 389;
+const int I_chiseled_sandstone = 199;
+const int I_chiseled_stone_bricks = 365;
+const int I_chiseled_tuff = 16;
+const int I_chiseled_tuff_bricks = 25;
+const int I_chorus_flower = 313;
+const int I_chorus_fruit = 1231;
+const int I_chorus_plant = 312;
+const int I_clay = 330;
+const int I_clay_ball = 981;
+const int I_clock = 1009;
+const int I_closed_eyeblossom = 231;
+const int I_coal = 860;
+const int I_coal_block = 83;
+const int I_coal_ore = 64;
+const int I_coarse_dirt = 29;
+const int I_coast_armor_trim_smithing_template = 1356;
+const int I_cobbled_deepslate = 9;
+const int I_cobbled_deepslate_slab = 683;
+const int I_cobbled_deepslate_stairs = 666;
+const int I_cobbled_deepslate_wall = 445;
+const int I_cobblestone = 35;
+const int I_cobblestone_slab = 288;
+const int I_cobblestone_stairs = 324;
+const int I_cobblestone_wall = 427;
+const int I_cobweb = 201;
+const int I_cocoa_beans = 1020;
+const int I_cod = 1012;
+const int I_cod_bucket = 976;
+const int I_cod_spawn_egg = 1097;
+const int I_command_block = 425;
+const int I_command_block_minecart = 1211;
+const int I_comparator = 692;
+const int I_compass = 989;
+const int I_composter = 1288;
+const int I_conduit = 651;
+const int I_cooked_beef = 1066;
+const int I_cooked_chicken = 1068;
+const int I_cooked_cod = 1016;
+const int I_cooked_mutton = 1213;
+const int I_cooked_porkchop = 939;
+const int I_cooked_rabbit = 1200;
+const int I_cooked_salmon = 1017;
+const int I_cookie = 1057;
+const int I_copper_block = 91;
+const int I_copper_bulb = 1403;
+const int I_copper_door = 756;
+const int I_copper_grate = 1395;
+const int I_copper_ingot = 870;
+const int I_copper_ore = 68;
+const int I_copper_trapdoor = 777;
+const int I_cornflower = 241;
+const int I_cow_spawn_egg = 1098;
+const int I_cracked_deepslate_bricks = 369;
+const int I_cracked_deepslate_tiles = 371;
+const int I_cracked_nether_bricks = 396;
+const int I_cracked_polished_blackstone_bricks = 1323;
+const int I_cracked_stone_bricks = 364;
+const int I_crafter = 1058;
+const int I_crafting_table = 320;
+const int I_creaking_heart = 318;
+const int I_creaking_spawn_egg = 1162;
+const int I_creeper_banner_pattern = 1278;
+const int I_creeper_head = 1187;
+const int I_creeper_spawn_egg = 1099;
+const int I_crimson_button = 725;
+const int I_crimson_door = 754;
+const int I_crimson_fence = 342;
+const int I_crimson_fence_gate = 795;
+const int I_crimson_fungus = 249;
+const int I_crimson_hanging_sign = 965;
+const int I_crimson_hyphae = 180;
+const int I_crimson_nylium = 33;
+const int I_crimson_planks = 46;
+const int I_crimson_pressure_plate = 741;
+const int I_crimson_roots = 251;
+const int I_crimson_sign = 953;
+const int I_crimson_slab = 281;
+const int I_crimson_stairs = 423;
+const int I_crimson_stem = 145;
+const int I_crimson_trapdoor = 775;
+const int I_crossbow = 1274;
+const int I_crying_obsidian = 1311;
+const int I_cut_copper = 102;
+const int I_cut_copper_slab = 110;
+const int I_cut_copper_stairs = 106;
+const int I_cut_red_sandstone = 542;
+const int I_cut_red_sandstone_slab = 295;
+const int I_cut_sandstone = 200;
+const int I_cut_sandstone_slab = 286;
+const int I_cyan_banner = 1223;
+const int I_cyan_bed = 1050;
+const int I_cyan_bundle = 1001;
+const int I_cyan_candle = 1335;
+const int I_cyan_carpet = 485;
+const int I_cyan_concrete = 594;
+const int I_cyan_concrete_powder = 610;
+const int I_cyan_dye = 1030;
+const int I_cyan_glazed_terracotta = 578;
+const int I_cyan_harness = 811;
+const int I_cyan_shulker_box = 562;
+const int I_cyan_stained_glass = 510;
+const int I_cyan_stained_glass_pane = 526;
+const int I_cyan_terracotta = 466;
+const int I_cyan_wool = 222;
+const int I_damaged_anvil = 451;
+const int I_dandelion = 229;
+const int I_danger_pottery_sherd = 1378;
+const int I_dark_oak_boat = 839;
+const int I_dark_oak_button = 721;
+const int I_dark_oak_chest_boat = 840;
+const int I_dark_oak_door = 750;
+const int I_dark_oak_fence = 338;
+const int I_dark_oak_fence_gate = 791;
+const int I_dark_oak_hanging_sign = 961;
+const int I_dark_oak_leaves = 188;
+const int I_dark_oak_log = 141;
+const int I_dark_oak_planks = 42;
+const int I_dark_oak_pressure_plate = 737;
+const int I_dark_oak_sapling = 55;
+const int I_dark_oak_sign = 949;
+const int I_dark_oak_slab = 276;
+const int I_dark_oak_stairs = 418;
+const int I_dark_oak_trapdoor = 771;
+const int I_dark_oak_wood = 178;
+const int I_dark_prismarine = 535;
+const int I_dark_prismarine_slab = 299;
+const int I_dark_prismarine_stairs = 538;
+const int I_daylight_detector = 705;
+const int I_dead_brain_coral = 635;
+const int I_dead_brain_coral_block = 621;
+const int I_dead_brain_coral_fan = 646;
+const int I_dead_bubble_coral = 636;
+const int I_dead_bubble_coral_block = 622;
+const int I_dead_bubble_coral_fan = 647;
+const int I_dead_bush = 207;
+const int I_dead_fire_coral = 637;
+const int I_dead_fire_coral_block = 623;
+const int I_dead_fire_coral_fan = 648;
+const int I_dead_horn_coral = 638;
+const int I_dead_horn_coral_block = 624;
+const int I_dead_horn_coral_fan = 649;
+const int I_dead_tube_coral = 639;
+const int I_dead_tube_coral_block = 620;
+const int I_dead_tube_coral_fan = 645;
+const int I_debug_stick = 1248;
+const int I_decorated_pot = 307;
+const int I_deepslate = 8;
+const int I_deepslate_brick_slab = 685;
+const int I_deepslate_brick_stairs = 668;
+const int I_deepslate_brick_wall = 447;
+const int I_deepslate_bricks = 368;
+const int I_deepslate_coal_ore = 65;
+const int I_deepslate_copper_ore = 69;
+const int I_deepslate_diamond_ore = 79;
+const int I_deepslate_emerald_ore = 75;
+const int I_deepslate_gold_ore = 71;
+const int I_deepslate_iron_ore = 67;
+const int I_deepslate_lapis_ore = 77;
+const int I_deepslate_redstone_ore = 73;
+const int I_deepslate_tile_slab = 686;
+const int I_deepslate_tile_stairs = 669;
+const int I_deepslate_tile_wall = 448;
+const int I_deepslate_tiles = 370;
+const int I_detector_rail = 798;
+const int I_diamond = 862;
+const int I_diamond_axe = 898;
+const int I_diamond_block = 93;
+const int I_diamond_boots = 928;
+const int I_diamond_chestplate = 926;
+const int I_diamond_helmet = 925;
+const int I_diamond_hoe = 899;
+const int I_diamond_horse_armor = 1207;
+const int I_diamond_leggings = 927;
+const int I_diamond_ore = 78;
+const int I_diamond_pickaxe = 897;
+const int I_diamond_shovel = 896;
+const int I_diamond_sword = 895;
+const int I_diorite = 4;
+const int I_diorite_slab = 682;
+const int I_diorite_stairs = 665;
+const int I_diorite_wall = 441;
+const int I_dirt = 28;
+const int I_dirt_path = 494;
+const int I_disc_fragment_5 = 1270;
+const int I_dispenser = 699;
+const int I_dolphin_spawn_egg = 1100;
+const int I_donkey_spawn_egg = 1101;
+const int I_dragon_breath = 1238;
+const int I_dragon_egg = 408;
+const int I_dragon_head = 1188;
+const int I_dried_ghast = 619;
+const int I_dried_kelp = 1062;
+const int I_dried_kelp_block = 982;
+const int I_dripstone_block = 26;
+const int I_dropper = 700;
+const int I_drowned_spawn_egg = 1102;
+const int I_dune_armor_trim_smithing_template = 1355;
+const int I_echo_shard = 1351;
+const int I_egg = 986;
+const int I_elder_guardian_spawn_egg = 1103;
+const int I_elytra = 826;
+const int I_emerald = 863;
+const int I_emerald_block = 411;
+const int I_emerald_ore = 74;
+const int I_enchanted_book = 1194;
+const int I_enchanted_golden_apple = 942;
+const int I_enchanting_table = 404;
+const int I_end_crystal = 1230;
+const int I_end_portal_frame = 405;
+const int I_end_rod = 311;
+const int I_end_stone = 406;
+const int I_end_stone_brick_slab = 675;
+const int I_end_stone_brick_stairs = 657;
+const int I_end_stone_brick_wall = 440;
+const int I_end_stone_bricks = 407;
+const int I_ender_chest = 410;
+const int I_ender_dragon_spawn_egg = 1104;
+const int I_ender_eye = 1083;
+const int I_ender_pearl = 1070;
+const int I_enderman_spawn_egg = 1105;
+const int I_endermite_spawn_egg = 1106;
+const int I_evoker_spawn_egg = 1107;
+const int I_experience_bottle = 1167;
+const int I_explorer_pottery_sherd = 1379;
+const int I_exposed_chiseled_copper = 99;
+const int I_exposed_copper = 95;
+const int I_exposed_copper_bulb = 1404;
+const int I_exposed_copper_door = 757;
+const int I_exposed_copper_grate = 1396;
+const int I_exposed_copper_trapdoor = 778;
+const int I_exposed_cut_copper = 103;
+const int I_exposed_cut_copper_slab = 111;
+const int I_exposed_cut_copper_stairs = 107;
+const int I_eye_armor_trim_smithing_template = 1359;
+const int I_farmland = 321;
+const int I_feather = 908;
+const int I_fermented_spider_eye = 1078;
+const int I_fern = 203;
+const int I_field_masoned_banner_pattern = 1285;
+const int I_filled_map = 1059;
+const int I_fire_charge = 1168;
+const int I_fire_coral = 633;
+const int I_fire_coral_block = 628;
+const int I_fire_coral_fan = 643;
+const int I_firefly_bush = 208;
+const int I_firework_rocket = 1192;
+const int I_firework_star = 1193;
+const int I_fishing_rod = 1008;
+const int I_fletching_table = 1293;
+const int I_flint = 937;
+const int I_flint_and_steel = 855;
+const int I_flow_armor_trim_smithing_template = 1370;
+const int I_flow_banner_pattern = 1283;
+const int I_flow_pottery_sherd = 1380;
+const int I_flower_banner_pattern = 1277;
+const int I_flower_pot = 1176;
+const int I_flowering_azalea = 206;
+const int I_flowering_azalea_leaves = 192;
+const int I_fox_spawn_egg = 1108;
+const int I_friend_pottery_sherd = 1381;
+const int I_frog_spawn_egg = 1109;
+const int I_frogspawn = 1350;
+const int I_furnace = 322;
+const int I_furnace_minecart = 820;
+const int I_ghast_spawn_egg = 1110;
+const int I_ghast_tear = 1072;
+const int I_gilded_blackstone = 1315;
+const int I_glass = 195;
+const int I_glass_bottle = 1075;
+const int I_glass_pane = 379;
+const int I_glistering_melon_slice = 1084;
+const int I_globe_banner_pattern = 1281;
+const int I_glow_berries = 1301;
+const int I_glow_ink_sac = 1019;
+const int I_glow_item_frame = 1175;
+const int I_glow_lichen = 382;
+const int I_glow_squid_spawn_egg = 1112;
+const int I_glowstone = 354;
+const int I_glowstone_dust = 1011;
+const int I_goat_horn = 1287;
+const int I_goat_spawn_egg = 1113;
+const int I_gold_block = 92;
+const int I_gold_ingot = 872;
+const int I_gold_nugget = 1073;
+const int I_gold_ore = 70;
+const int I_golden_apple = 941;
+const int I_golden_axe = 888;
+const int I_golden_boots = 932;
+const int I_golden_carrot = 1182;
+const int I_golden_chestplate = 930;
+const int I_golden_helmet = 929;
+const int I_golden_hoe = 889;
+const int I_golden_horse_armor = 1206;
+const int I_golden_leggings = 931;
+const int I_golden_pickaxe = 887;
+const int I_golden_shovel = 886;
+const int I_golden_sword = 885;
+const int I_granite = 2;
+const int I_granite_slab = 678;
+const int I_granite_stairs = 661;
+const int I_granite_wall = 433;
+const int I_grass_block = 27;
+const int I_gravel = 63;
+const int I_gray_banner = 1221;
+const int I_gray_bed = 1048;
+const int I_gray_bundle = 999;
+const int I_gray_candle = 1333;
+const int I_gray_carpet = 483;
+const int I_gray_concrete = 592;
+const int I_gray_concrete_powder = 608;
+const int I_gray_dye = 1028;
+const int I_gray_glazed_terracotta = 576;
+const int I_gray_harness = 809;
+const int I_gray_shulker_box = 560;
+const int I_gray_stained_glass = 508;
+const int I_gray_stained_glass_pane = 524;
+const int I_gray_terracotta = 464;
+const int I_gray_wool = 220;
+const int I_green_banner = 1227;
+const int I_green_bed = 1054;
+const int I_green_bundle = 1005;
+const int I_green_candle = 1339;
+const int I_green_carpet = 489;
+const int I_green_concrete = 598;
+const int I_green_concrete_powder = 614;
+const int I_green_dye = 1034;
+const int I_green_glazed_terracotta = 582;
+const int I_green_harness = 815;
+const int I_green_shulker_box = 566;
+const int I_green_stained_glass = 514;
+const int I_green_stained_glass_pane = 530;
+const int I_green_terracotta = 470;
+const int I_green_wool = 226;
+const int I_grindstone = 1294;
+const int I_guardian_spawn_egg = 1114;
+const int I_gunpowder = 909;
+const int I_guster_banner_pattern = 1284;
+const int I_guster_pottery_sherd = 1382;
+const int I_hanging_roots = 266;
+const int I_happy_ghast_spawn_egg = 1111;
+const int I_hay_block = 475;
+const int I_heart_of_the_sea = 1273;
+const int I_heart_pottery_sherd = 1383;
+const int I_heartbreak_pottery_sherd = 1384;
+const int I_heavy_core = 87;
+const int I_heavy_weighted_pressure_plate = 730;
+const int I_hoglin_spawn_egg = 1115;
+const int I_honey_block = 696;
+const int I_honey_bottle = 1308;
+const int I_honeycomb = 1305;
+const int I_honeycomb_block = 1309;
+const int I_hopper = 698;
+const int I_hopper_minecart = 822;
+const int I_horn_coral = 634;
+const int I_horn_coral_block = 629;
+const int I_horn_coral_fan = 644;
+const int I_horse_spawn_egg = 1116;
+const int I_host_armor_trim_smithing_template = 1369;
+const int I_howl_pottery_sherd = 1385;
+const int I_husk_spawn_egg = 1117;
+const int I_ice = 326;
+const int I_infested_chiseled_stone_bricks = 360;
+const int I_infested_cobblestone = 356;
+const int I_infested_cracked_stone_bricks = 359;
+const int I_infested_deepslate = 361;
+const int I_infested_mossy_stone_bricks = 358;
+const int I_infested_stone = 355;
+const int I_infested_stone_bricks = 357;
+const int I_ink_sac = 1018;
+const int I_iron_axe = 893;
+const int I_iron_bars = 377;
+const int I_iron_block = 90;
+const int I_iron_boots = 924;
+const int I_iron_chestplate = 922;
+const int I_iron_door = 743;
+const int I_iron_golem_spawn_egg = 1118;
+const int I_iron_helmet = 921;
+const int I_iron_hoe = 894;
+const int I_iron_horse_armor = 1205;
+const int I_iron_ingot = 868;
+const int I_iron_leggings = 923;
+const int I_iron_nugget = 1246;
+const int I_iron_ore = 66;
+const int I_iron_pickaxe = 892;
+const int I_iron_shovel = 891;
+const int I_iron_sword = 890;
+const int I_iron_trapdoor = 764;
+const int I_item_frame = 1174;
+const int I_jack_o_lantern = 346;
+const int I_jigsaw = 848;
+const int I_jukebox = 331;
+const int I_jungle_boat = 833;
+const int I_jungle_button = 718;
+const int I_jungle_chest_boat = 834;
+const int I_jungle_door = 747;
+const int I_jungle_fence = 335;
+const int I_jungle_fence_gate = 788;
+const int I_jungle_hanging_sign = 958;
+const int I_jungle_leaves = 185;
+const int I_jungle_log = 137;
+const int I_jungle_planks = 39;
+const int I_jungle_pressure_plate = 734;
+const int I_jungle_sapling = 52;
+const int I_jungle_sign = 946;
+const int I_jungle_slab = 273;
+const int I_jungle_stairs = 415;
+const int I_jungle_trapdoor = 768;
+const int I_jungle_wood = 174;
+const int I_kelp = 257;
+const int I_knowledge_book = 1247;
+const int I_ladder = 323;
+const int I_lantern = 1298;
+const int I_lapis_block = 197;
+const int I_lapis_lazuli = 864;
+const int I_lapis_ore = 76;
+const int I_large_amethyst_bud = 1344;
+const int I_large_fern = 500;
+const int I_lava_bucket = 969;
+const int I_lead = 1209;
+const int I_leaf_litter = 260;
+const int I_leather = 972;
+const int I_leather_boots = 916;
+const int I_leather_chestplate = 914;
+const int I_leather_helmet = 913;
+const int I_leather_horse_armor = 1208;
+const int I_leather_leggings = 915;
+const int I_lectern = 701;
+const int I_lever = 703;
+const int I_light = 474;
+const int I_light_blue_banner = 1217;
+const int I_light_blue_bed = 1044;
+const int I_light_blue_bundle = 995;
+const int I_light_blue_candle = 1329;
+const int I_light_blue_carpet = 479;
+const int I_light_blue_concrete = 588;
+const int I_light_blue_concrete_powder = 604;
+const int I_light_blue_dye = 1024;
+const int I_light_blue_glazed_terracotta = 572;
+const int I_light_blue_harness = 805;
+const int I_light_blue_shulker_box = 556;
+const int I_light_blue_stained_glass = 504;
+const int I_light_blue_stained_glass_pane = 520;
+const int I_light_blue_terracotta = 460;
+const int I_light_blue_wool = 216;
+const int I_light_gray_banner = 1222;
+const int I_light_gray_bed = 1049;
+const int I_light_gray_bundle = 1000;
+const int I_light_gray_candle = 1334;
+const int I_light_gray_carpet = 484;
+const int I_light_gray_concrete = 593;
+const int I_light_gray_concrete_powder = 609;
+const int I_light_gray_dye = 1029;
+const int I_light_gray_glazed_terracotta = 577;
+const int I_light_gray_harness = 810;
+const int I_light_gray_shulker_box = 561;
+const int I_light_gray_stained_glass = 509;
+const int I_light_gray_stained_glass_pane = 525;
+const int I_light_gray_terracotta = 465;
+const int I_light_gray_wool = 221;
+const int I_light_weighted_pressure_plate = 729;
+const int I_lightning_rod = 704;
+const int I_lilac = 496;
+const int I_lily_of_the_valley = 242;
+const int I_lily_pad = 394;
+const int I_lime_banner = 1219;
+const int I_lime_bed = 1046;
+const int I_lime_bundle = 997;
+const int I_lime_candle = 1331;
+const int I_lime_carpet = 481;
+const int I_lime_concrete = 590;
+const int I_lime_concrete_powder = 606;
+const int I_lime_dye = 1026;
+const int I_lime_glazed_terracotta = 574;
+const int I_lime_harness = 807;
+const int I_lime_shulker_box = 558;
+const int I_lime_stained_glass = 506;
+const int I_lime_stained_glass_pane = 522;
+const int I_lime_terracotta = 462;
+const int I_lime_wool = 218;
+const int I_lingering_potion = 1242;
+const int I_llama_spawn_egg = 1119;
+const int I_lodestone = 1310;
+const int I_loom = 1276;
+const int I_mace = 1173;
+const int I_magenta_banner = 1216;
+const int I_magenta_bed = 1043;
+const int I_magenta_bundle = 994;
+const int I_magenta_candle = 1328;
+const int I_magenta_carpet = 478;
+const int I_magenta_concrete = 587;
+const int I_magenta_concrete_powder = 603;
+const int I_magenta_dye = 1023;
+const int I_magenta_glazed_terracotta = 571;
+const int I_magenta_harness = 804;
+const int I_magenta_shulker_box = 555;
+const int I_magenta_stained_glass = 503;
+const int I_magenta_stained_glass_pane = 519;
+const int I_magenta_terracotta = 459;
+const int I_magenta_wool = 215;
+const int I_magma_block = 546;
+const int I_magma_cream = 1080;
+const int I_magma_cube_spawn_egg = 1120;
+const int I_mangrove_boat = 843;
+const int I_mangrove_button = 723;
+const int I_mangrove_chest_boat = 844;
+const int I_mangrove_door = 752;
+const int I_mangrove_fence = 340;
+const int I_mangrove_fence_gate = 793;
+const int I_mangrove_hanging_sign = 963;
+const int I_mangrove_leaves = 190;
+const int I_mangrove_log = 142;
+const int I_mangrove_planks = 44;
+const int I_mangrove_pressure_plate = 739;
+const int I_mangrove_propagule = 57;
+const int I_mangrove_roots = 143;
+const int I_mangrove_sign = 951;
+const int I_mangrove_slab = 278;
+const int I_mangrove_stairs = 420;
+const int I_mangrove_trapdoor = 773;
+const int I_mangrove_wood = 179;
+const int I_map = 1181;
+const int I_medium_amethyst_bud = 1343;
+const int I_melon = 380;
+const int I_melon_seeds = 1064;
+const int I_melon_slice = 1061;
+const int I_milk_bucket = 973;
+const int I_minecart = 818;
+const int I_miner_pottery_sherd = 1386;
+const int I_mojang_banner_pattern = 1280;
+const int I_mooshroom_spawn_egg = 1121;
+const int I_moss_block = 262;
+const int I_moss_carpet = 261;
+const int I_mossy_cobblestone = 308;
+const int I_mossy_cobblestone_slab = 674;
+const int I_mossy_cobblestone_stairs = 656;
+const int I_mossy_cobblestone_wall = 428;
+const int I_mossy_stone_brick_slab = 672;
+const int I_mossy_stone_brick_stairs = 654;
+const int I_mossy_stone_brick_wall = 432;
+const int I_mossy_stone_bricks = 363;
+const int I_mourner_pottery_sherd = 1387;
+const int I_mud = 32;
+const int I_mud_brick_slab = 291;
+const int I_mud_brick_stairs = 392;
+const int I_mud_brick_wall = 435;
+const int I_mud_bricks = 367;
+const int I_muddy_mangrove_roots = 144;
+const int I_mule_spawn_egg = 1122;
+const int I_mushroom_stem = 376;
+const int I_mushroom_stew = 906;
+const int I_music_disc_11 = 1262;
+const int I_music_disc_13 = 1249;
+const int I_music_disc_5 = 1266;
+const int I_music_disc_blocks = 1251;
+const int I_music_disc_cat = 1250;
+const int I_music_disc_chirp = 1252;
+const int I_music_disc_creator = 1253;
+const int I_music_disc_creator_music_box = 1254;
+const int I_music_disc_far = 1255;
+const int I_music_disc_lava_chicken = 1256;
+const int I_music_disc_mall = 1257;
+const int I_music_disc_mellohi = 1258;
+const int I_music_disc_otherside = 1264;
+const int I_music_disc_pigstep = 1267;
+const int I_music_disc_precipice = 1268;
+const int I_music_disc_relic = 1265;
+const int I_music_disc_stal = 1259;
+const int I_music_disc_strad = 1260;
+const int I_music_disc_tears = 1269;
+const int I_music_disc_wait = 1263;
+const int I_music_disc_ward = 1261;
+const int I_mutton = 1212;
+const int I_mycelium = 393;
+const int I_name_tag = 1210;
+const int I_nautilus_shell = 1272;
+const int I_nether_brick = 1195;
+const int I_nether_brick_fence = 398;
+const int I_nether_brick_slab = 292;
+const int I_nether_brick_stairs = 399;
+const int I_nether_brick_wall = 436;
+const int I_nether_bricks = 395;
+const int I_nether_gold_ore = 80;
+const int I_nether_quartz_ore = 81;
+const int I_nether_sprouts = 253;
+const int I_nether_star = 1190;
+const int I_nether_wart = 1074;
+const int I_nether_wart_block = 547;
+const int I_netherite_axe = 903;
+const int I_netherite_block = 94;
+const int I_netherite_boots = 936;
+const int I_netherite_chestplate = 934;
+const int I_netherite_helmet = 933;
+const int I_netherite_hoe = 904;
+const int I_netherite_ingot = 873;
+const int I_netherite_leggings = 935;
+const int I_netherite_pickaxe = 902;
+const int I_netherite_scrap = 874;
+const int I_netherite_shovel = 901;
+const int I_netherite_sword = 900;
+const int I_netherite_upgrade_smithing_template = 1353;
+const int I_netherrack = 347;
+const int I_note_block = 712;
+const int I_oak_boat = 827;
+const int I_oak_button = 715;
+const int I_oak_chest_boat = 828;
+const int I_oak_door = 744;
+const int I_oak_fence = 332;
+const int I_oak_fence_gate = 785;
+const int I_oak_hanging_sign = 955;
+const int I_oak_leaves = 182;
+const int I_oak_log = 134;
+const int I_oak_planks = 36;
+const int I_oak_pressure_plate = 731;
+const int I_oak_sapling = 49;
+const int I_oak_sign = 943;
+const int I_oak_slab = 270;
+const int I_oak_stairs = 412;
+const int I_oak_trapdoor = 765;
+const int I_oak_wood = 171;
+const int I_observer = 697;
+const int I_obsidian = 309;
+const int I_ocelot_spawn_egg = 1123;
+const int I_ochre_froglight = 1347;
+const int I_ominous_bottle = 1415;
+const int I_ominous_trial_key = 1413;
+const int I_open_eyeblossom = 230;
+const int I_orange_banner = 1215;
+const int I_orange_bed = 1042;
+const int I_orange_bundle = 993;
+const int I_orange_candle = 1327;
+const int I_orange_carpet = 477;
+const int I_orange_concrete = 586;
+const int I_orange_concrete_powder = 602;
+const int I_orange_dye = 1022;
+const int I_orange_glazed_terracotta = 570;
+const int I_orange_harness = 803;
+const int I_orange_shulker_box = 554;
+const int I_orange_stained_glass = 502;
+const int I_orange_stained_glass_pane = 518;
+const int I_orange_terracotta = 458;
+const int I_orange_tulip = 237;
+const int I_orange_wool = 214;
+const int I_oxeye_daisy = 240;
+const int I_oxidized_chiseled_copper = 101;
+const int I_oxidized_copper = 97;
+const int I_oxidized_copper_bulb = 1406;
+const int I_oxidized_copper_door = 759;
+const int I_oxidized_copper_grate = 1398;
+const int I_oxidized_copper_trapdoor = 780;
+const int I_oxidized_cut_copper = 105;
+const int I_oxidized_cut_copper_slab = 113;
+const int I_oxidized_cut_copper_stairs = 109;
+const int I_packed_ice = 493;
+const int I_packed_mud = 366;
+const int I_painting = 940;
+const int I_pale_hanging_moss = 264;
+const int I_pale_moss_block = 265;
+const int I_pale_moss_carpet = 263;
+const int I_pale_oak_boat = 841;
+const int I_pale_oak_button = 722;
+const int I_pale_oak_chest_boat = 842;
+const int I_pale_oak_door = 751;
+const int I_pale_oak_fence = 339;
+const int I_pale_oak_fence_gate = 792;
+const int I_pale_oak_hanging_sign = 962;
+const int I_pale_oak_leaves = 189;
+const int I_pale_oak_log = 140;
+const int I_pale_oak_planks = 43;
+const int I_pale_oak_pressure_plate = 738;
+const int I_pale_oak_sapling = 56;
+const int I_pale_oak_sign = 950;
+const int I_pale_oak_slab = 277;
+const int I_pale_oak_stairs = 419;
+const int I_pale_oak_trapdoor = 772;
+const int I_pale_oak_wood = 177;
+const int I_panda_spawn_egg = 1124;
+const int I_paper = 983;
+const int I_parrot_spawn_egg = 1125;
+const int I_pearlescent_froglight = 1349;
+const int I_peony = 498;
+const int I_petrified_oak_slab = 287;
+const int I_phantom_membrane = 825;
+const int I_phantom_spawn_egg = 1126;
+const int I_pig_spawn_egg = 1127;
+const int I_piglin_banner_pattern = 1282;
+const int I_piglin_brute_spawn_egg = 1129;
+const int I_piglin_head = 1189;
+const int I_piglin_spawn_egg = 1128;
+const int I_pillager_spawn_egg = 1130;
+const int I_pink_banner = 1220;
+const int I_pink_bed = 1047;
+const int I_pink_bundle = 998;
+const int I_pink_candle = 1332;
+const int I_pink_carpet = 482;
+const int I_pink_concrete = 591;
+const int I_pink_concrete_powder = 607;
+const int I_pink_dye = 1027;
+const int I_pink_glazed_terracotta = 575;
+const int I_pink_harness = 808;
+const int I_pink_petals = 258;
+const int I_pink_shulker_box = 559;
+const int I_pink_stained_glass = 507;
+const int I_pink_stained_glass_pane = 523;
+const int I_pink_terracotta = 463;
+const int I_pink_tulip = 239;
+const int I_pink_wool = 219;
+const int I_piston = 693;
+const int I_pitcher_plant = 245;
+const int I_pitcher_pod = 1234;
+const int I_player_head = 1185;
+const int I_plenty_pottery_sherd = 1388;
+const int I_podzol = 30;
+const int I_pointed_dripstone = 1346;
+const int I_poisonous_potato = 1180;
+const int I_polar_bear_spawn_egg = 1131;
+const int I_polished_andesite = 7;
+const int I_polished_andesite_slab = 681;
+const int I_polished_andesite_stairs = 664;
+const int I_polished_basalt = 351;
+const int I_polished_blackstone = 1316;
+const int I_polished_blackstone_brick_slab = 1321;
+const int I_polished_blackstone_brick_stairs = 1322;
+const int I_polished_blackstone_brick_wall = 444;
+const int I_polished_blackstone_bricks = 1320;
+const int I_polished_blackstone_button = 714;
+const int I_polished_blackstone_pressure_plate = 728;
+const int I_polished_blackstone_slab = 1317;
+const int I_polished_blackstone_stairs = 1318;
+const int I_polished_blackstone_wall = 443;
+const int I_polished_deepslate = 10;
+const int I_polished_deepslate_slab = 684;
+const int I_polished_deepslate_stairs = 667;
+const int I_polished_deepslate_wall = 446;
+const int I_polished_diorite = 5;
+const int I_polished_diorite_slab = 673;
+const int I_polished_diorite_stairs = 655;
+const int I_polished_granite = 3;
+const int I_polished_granite_slab = 670;
+const int I_polished_granite_stairs = 652;
+const int I_polished_tuff = 17;
+const int I_polished_tuff_slab = 18;
+const int I_polished_tuff_stairs = 19;
+const int I_polished_tuff_wall = 20;
+const int I_popped_chorus_fruit = 1232;
+const int I_poppy = 232;
+const int I_porkchop = 938;
+const int I_potato = 1178;
+const int I_potion = 1076;
+const int I_powder_snow_bucket = 970;
+const int I_powered_rail = 797;
+const int I_prismarine = 533;
+const int I_prismarine_brick_slab = 298;
+const int I_prismarine_brick_stairs = 537;
+const int I_prismarine_bricks = 534;
+const int I_prismarine_crystals = 1198;
+const int I_prismarine_shard = 1197;
+const int I_prismarine_slab = 297;
+const int I_prismarine_stairs = 536;
+const int I_prismarine_wall = 430;
+const int I_prize_pottery_sherd = 1389;
+const int I_pufferfish = 1015;
+const int I_pufferfish_bucket = 974;
+const int I_pufferfish_spawn_egg = 1132;
+const int I_pumpkin = 344;
+const int I_pumpkin_pie = 1191;
+const int I_pumpkin_seeds = 1063;
+const int I_purple_banner = 1224;
+const int I_purple_bed = 1051;
+const int I_purple_bundle = 1002;
+const int I_purple_candle = 1336;
+const int I_purple_carpet = 486;
+const int I_purple_concrete = 595;
+const int I_purple_concrete_powder = 611;
+const int I_purple_dye = 1031;
+const int I_purple_glazed_terracotta = 579;
+const int I_purple_harness = 812;
+const int I_purple_shulker_box = 563;
+const int I_purple_stained_glass = 511;
+const int I_purple_stained_glass_pane = 527;
+const int I_purple_terracotta = 467;
+const int I_purple_wool = 223;
+const int I_purpur_block = 314;
+const int I_purpur_pillar = 315;
+const int I_purpur_slab = 296;
+const int I_purpur_stairs = 316;
+const int I_quartz = 865;
+const int I_quartz_block = 453;
+const int I_quartz_bricks = 454;
+const int I_quartz_pillar = 455;
+const int I_quartz_slab = 293;
+const int I_quartz_stairs = 456;
+const int I_rabbit = 1199;
+const int I_rabbit_foot = 1202;
+const int I_rabbit_hide = 1203;
+const int I_rabbit_spawn_egg = 1133;
+const int I_rabbit_stew = 1201;
+const int I_rail = 799;
+const int I_raiser_armor_trim_smithing_template = 1368;
+const int I_ravager_spawn_egg = 1134;
+const int I_raw_copper = 869;
+const int I_raw_copper_block = 85;
+const int I_raw_gold = 871;
+const int I_raw_gold_block = 86;
+const int I_raw_iron = 867;
+const int I_raw_iron_block = 84;
+const int I_recovery_compass = 990;
+const int I_red_banner = 1228;
+const int I_red_bed = 1055;
+const int I_red_bundle = 1006;
+const int I_red_candle = 1340;
+const int I_red_carpet = 490;
+const int I_red_concrete = 599;
+const int I_red_concrete_powder = 615;
+const int I_red_dye = 1035;
+const int I_red_glazed_terracotta = 583;
+const int I_red_harness = 816;
+const int I_red_mushroom = 248;
+const int I_red_mushroom_block = 375;
+const int I_red_nether_brick_slab = 680;
+const int I_red_nether_brick_stairs = 663;
+const int I_red_nether_brick_wall = 438;
+const int I_red_nether_bricks = 549;
+const int I_red_sand = 62;
+const int I_red_sandstone = 540;
+const int I_red_sandstone_slab = 294;
+const int I_red_sandstone_stairs = 543;
+const int I_red_sandstone_wall = 431;
+const int I_red_shulker_box = 567;
+const int I_red_stained_glass = 515;
+const int I_red_stained_glass_pane = 531;
+const int I_red_terracotta = 471;
+const int I_red_tulip = 236;
+const int I_red_wool = 227;
+const int I_redstone = 688;
+const int I_redstone_block = 690;
+const int I_redstone_lamp = 711;
+const int I_redstone_ore = 72;
+const int I_redstone_torch = 689;
+const int I_reinforced_deepslate = 373;
+const int I_repeater = 691;
+const int I_repeating_command_block = 544;
+const int I_resin_block = 384;
+const int I_resin_brick = 1196;
+const int I_resin_brick_slab = 387;
+const int I_resin_brick_stairs = 386;
+const int I_resin_brick_wall = 388;
+const int I_resin_bricks = 385;
+const int I_resin_clump = 383;
+const int I_respawn_anchor = 1324;
+const int I_rib_armor_trim_smithing_template = 1363;
+const int I_rooted_dirt = 31;
+const int I_rose_bush = 497;
+const int I_rotten_flesh = 1069;
+const int I_saddle = 801;
+const int I_salmon = 1013;
+const int I_salmon_bucket = 975;
+const int I_salmon_spawn_egg = 1135;
+const int I_sand = 59;
+const int I_sandstone = 198;
+const int I_sandstone_slab = 285;
+const int I_sandstone_stairs = 409;
+const int I_sandstone_wall = 439;
+const int I_scaffolding = 687;
+const int I_scrape_pottery_sherd = 1390;
+const int I_sculk = 400;
+const int I_sculk_catalyst = 402;
+const int I_sculk_sensor = 706;
+const int I_sculk_shrieker = 403;
+const int I_sculk_vein = 401;
+const int I_sea_lantern = 539;
+const int I_sea_pickle = 212;
+const int I_seagrass = 211;
+const int I_sentry_armor_trim_smithing_template = 1354;
+const int I_shaper_armor_trim_smithing_template = 1366;
+const int I_sheaf_pottery_sherd = 1391;
+const int I_shears = 1060;
+const int I_sheep_spawn_egg = 1136;
+const int I_shelter_pottery_sherd = 1392;
+const int I_shield = 1243;
+const int I_short_dry_grass = 209;
+const int I_short_grass = 202;
+const int I_shroomlight = 1304;
+const int I_shulker_box = 552;
+const int I_shulker_shell = 1245;
+const int I_shulker_spawn_egg = 1137;
+const int I_silence_armor_trim_smithing_template = 1367;
+const int I_silverfish_spawn_egg = 1138;
+const int I_skeleton_horse_spawn_egg = 1140;
+const int I_skeleton_skull = 1183;
+const int I_skeleton_spawn_egg = 1139;
+const int I_skull_banner_pattern = 1279;
+const int I_skull_pottery_sherd = 1393;
+const int I_slime_ball = 985;
+const int I_slime_block = 695;
+const int I_slime_spawn_egg = 1141;
+const int I_small_amethyst_bud = 1342;
+const int I_small_dripleaf = 268;
+const int I_smithing_table = 1295;
+const int I_smoker = 1290;
+const int I_smooth_basalt = 352;
+const int I_smooth_quartz = 300;
+const int I_smooth_quartz_slab = 677;
+const int I_smooth_quartz_stairs = 660;
+const int I_smooth_red_sandstone = 301;
+const int I_smooth_red_sandstone_slab = 671;
+const int I_smooth_red_sandstone_stairs = 653;
+const int I_smooth_sandstone = 302;
+const int I_smooth_sandstone_slab = 676;
+const int I_smooth_sandstone_stairs = 659;
+const int I_smooth_stone = 303;
+const int I_smooth_stone_slab = 284;
+const int I_sniffer_egg = 618;
+const int I_sniffer_spawn_egg = 1142;
+const int I_snort_pottery_sherd = 1394;
+const int I_snout_armor_trim_smithing_template = 1362;
+const int I_snow = 325;
+const int I_snow_block = 327;
+const int I_snow_golem_spawn_egg = 1143;
+const int I_snowball = 971;
+const int I_soul_campfire = 1303;
+const int I_soul_lantern = 1299;
+const int I_soul_sand = 348;
+const int I_soul_soil = 349;
+const int I_soul_torch = 353;
+const int I_spawner = 317;
+const int I_spectral_arrow = 1240;
+const int I_spider_eye = 1077;
+const int I_spider_spawn_egg = 1144;
+const int I_spire_armor_trim_smithing_template = 1364;
+const int I_splash_potion = 1239;
+const int I_sponge = 193;
+const int I_spore_blossom = 246;
+const int I_spruce_boat = 829;
+const int I_spruce_button = 716;
+const int I_spruce_chest_boat = 830;
+const int I_spruce_door = 745;
+const int I_spruce_fence = 333;
+const int I_spruce_fence_gate = 786;
+const int I_spruce_hanging_sign = 956;
+const int I_spruce_leaves = 183;
+const int I_spruce_log = 135;
+const int I_spruce_planks = 37;
+const int I_spruce_pressure_plate = 732;
+const int I_spruce_sapling = 50;
+const int I_spruce_sign = 944;
+const int I_spruce_slab = 271;
+const int I_spruce_stairs = 413;
+const int I_spruce_trapdoor = 766;
+const int I_spruce_wood = 172;
+const int I_spyglass = 1010;
+const int I_squid_spawn_egg = 1145;
+const int I_stick = 905;
+const int I_sticky_piston = 694;
+const int I_stone = 1;
+const int I_stone_axe = 883;
+const int I_stone_brick_slab = 290;
+const int I_stone_brick_stairs = 391;
+const int I_stone_brick_wall = 434;
+const int I_stone_bricks = 362;
+const int I_stone_button = 713;
+const int I_stone_hoe = 884;
+const int I_stone_pickaxe = 882;
+const int I_stone_pressure_plate = 727;
+const int I_stone_shovel = 881;
+const int I_stone_slab = 283;
+const int I_stone_stairs = 658;
+const int I_stone_sword = 880;
+const int I_stonecutter = 1296;
+const int I_stray_spawn_egg = 1146;
+const int I_strider_spawn_egg = 1147;
+const int I_string = 907;
+const int I_stripped_acacia_log = 152;
+const int I_stripped_acacia_wood = 163;
+const int I_stripped_bamboo_block = 170;
+const int I_stripped_birch_log = 150;
+const int I_stripped_birch_wood = 161;
+const int I_stripped_cherry_log = 153;
+const int I_stripped_cherry_wood = 164;
+const int I_stripped_crimson_hyphae = 168;
+const int I_stripped_crimson_stem = 157;
+const int I_stripped_dark_oak_log = 154;
+const int I_stripped_dark_oak_wood = 165;
+const int I_stripped_jungle_log = 151;
+const int I_stripped_jungle_wood = 162;
+const int I_stripped_mangrove_log = 156;
+const int I_stripped_mangrove_wood = 167;
+const int I_stripped_oak_log = 148;
+const int I_stripped_oak_wood = 159;
+const int I_stripped_pale_oak_log = 155;
+const int I_stripped_pale_oak_wood = 166;
+const int I_stripped_spruce_log = 149;
+const int I_stripped_spruce_wood = 160;
+const int I_stripped_warped_hyphae = 169;
+const int I_stripped_warped_stem = 158;
+const int I_structure_block = 847;
+const int I_structure_void = 551;
+const int I_sugar = 1039;
+const int I_sugar_cane = 256;
+const int I_sunflower = 495;
+const int I_suspicious_gravel = 61;
+const int I_suspicious_sand = 60;
+const int I_suspicious_stew = 1275;
+const int I_sweet_berries = 1300;
+const int I_tadpole_bucket = 979;
+const int I_tadpole_spawn_egg = 1148;
+const int I_tall_dry_grass = 210;
+const int I_tall_grass = 499;
+const int I_target = 702;
+const int I_terracotta = 492;
+const int I_test_block = 849;
+const int I_test_instance_block = 850;
+const int I_tide_armor_trim_smithing_template = 1361;
+const int I_tinted_glass = 196;
+const int I_tipped_arrow = 1241;
+const int I_tnt = 710;
+const int I_tnt_minecart = 821;
+const int I_torch = 310;
+const int I_torchflower = 244;
+const int I_torchflower_seeds = 1233;
+const int I_totem_of_undying = 1244;
+const int I_trader_llama_spawn_egg = 1149;
+const int I_trapped_chest = 709;
+const int I_trial_key = 1412;
+const int I_trial_spawner = 1411;
+const int I_trident = 1271;
+const int I_tripwire_hook = 708;
+const int I_tropical_fish = 1014;
+const int I_tropical_fish_bucket = 977;
+const int I_tropical_fish_spawn_egg = 1150;
+const int I_tube_coral = 630;
+const int I_tube_coral_block = 625;
+const int I_tube_coral_fan = 640;
+const int I_tuff = 12;
+const int I_tuff_brick_slab = 22;
+const int I_tuff_brick_stairs = 23;
+const int I_tuff_brick_wall = 24;
+const int I_tuff_bricks = 21;
+const int I_tuff_slab = 13;
+const int I_tuff_stairs = 14;
+const int I_tuff_wall = 15;
+const int I_turtle_egg = 617;
+const int I_turtle_helmet = 851;
+const int I_turtle_scute = 852;
+const int I_turtle_spawn_egg = 1151;
+const int I_twisting_vines = 255;
+const int I_vault = 1414;
+const int I_verdant_froglight = 1348;
+const int I_vex_armor_trim_smithing_template = 1360;
+const int I_vex_spawn_egg = 1152;
+const int I_villager_spawn_egg = 1153;
+const int I_vindicator_spawn_egg = 1154;
+const int I_vine = 381;
+const int I_wandering_trader_spawn_egg = 1155;
+const int I_ward_armor_trim_smithing_template = 1358;
+const int I_warden_spawn_egg = 1156;
+const int I_warped_button = 726;
+const int I_warped_door = 755;
+const int I_warped_fence = 343;
+const int I_warped_fence_gate = 796;
+const int I_warped_fungus = 250;
+const int I_warped_fungus_on_a_stick = 824;
+const int I_warped_hanging_sign = 966;
+const int I_warped_hyphae = 181;
+const int I_warped_nylium = 34;
+const int I_warped_planks = 47;
+const int I_warped_pressure_plate = 742;
+const int I_warped_roots = 252;
+const int I_warped_sign = 954;
+const int I_warped_slab = 282;
+const int I_warped_stairs = 424;
+const int I_warped_stem = 146;
+const int I_warped_trapdoor = 776;
+const int I_warped_wart_block = 548;
+const int I_water_bucket = 968;
+const int I_waxed_chiseled_copper = 118;
+const int I_waxed_copper_block = 114;
+const int I_waxed_copper_bulb = 1407;
+const int I_waxed_copper_door = 760;
+const int I_waxed_copper_grate = 1399;
+const int I_waxed_copper_trapdoor = 781;
+const int I_waxed_cut_copper = 122;
+const int I_waxed_cut_copper_slab = 130;
+const int I_waxed_cut_copper_stairs = 126;
+const int I_waxed_exposed_chiseled_copper = 119;
+const int I_waxed_exposed_copper = 115;
+const int I_waxed_exposed_copper_bulb = 1408;
+const int I_waxed_exposed_copper_door = 761;
+const int I_waxed_exposed_copper_grate = 1400;
+const int I_waxed_exposed_copper_trapdoor = 782;
+const int I_waxed_exposed_cut_copper = 123;
+const int I_waxed_exposed_cut_copper_slab = 131;
+const int I_waxed_exposed_cut_copper_stairs = 127;
+const int I_waxed_oxidized_chiseled_copper = 121;
+const int I_waxed_oxidized_copper = 117;
+const int I_waxed_oxidized_copper_bulb = 1410;
+const int I_waxed_oxidized_copper_door = 763;
+const int I_waxed_oxidized_copper_grate = 1402;
+const int I_waxed_oxidized_copper_trapdoor = 784;
+const int I_waxed_oxidized_cut_copper = 125;
+const int I_waxed_oxidized_cut_copper_slab = 133;
+const int I_waxed_oxidized_cut_copper_stairs = 129;
+const int I_waxed_weathered_chiseled_copper = 120;
+const int I_waxed_weathered_copper = 116;
+const int I_waxed_weathered_copper_bulb = 1409;
+const int I_waxed_weathered_copper_door = 762;
+const int I_waxed_weathered_copper_grate = 1401;
+const int I_waxed_weathered_copper_trapdoor = 783;
+const int I_waxed_weathered_cut_copper = 124;
+const int I_waxed_weathered_cut_copper_slab = 132;
+const int I_waxed_weathered_cut_copper_stairs = 128;
+const int I_wayfinder_armor_trim_smithing_template = 1365;
+const int I_weathered_chiseled_copper = 100;
+const int I_weathered_copper = 96;
+const int I_weathered_copper_bulb = 1405;
+const int I_weathered_copper_door = 758;
+const int I_weathered_copper_grate = 1397;
+const int I_weathered_copper_trapdoor = 779;
+const int I_weathered_cut_copper = 104;
+const int I_weathered_cut_copper_slab = 112;
+const int I_weathered_cut_copper_stairs = 108;
+const int I_weeping_vines = 254;
+const int I_wet_sponge = 194;
+const int I_wheat = 911;
+const int I_wheat_seeds = 910;
+const int I_white_banner = 1214;
+const int I_white_bed = 1041;
+const int I_white_bundle = 992;
+const int I_white_candle = 1326;
+const int I_white_carpet = 476;
+const int I_white_concrete = 585;
+const int I_white_concrete_powder = 601;
+const int I_white_dye = 1021;
+const int I_white_glazed_terracotta = 569;
+const int I_white_harness = 802;
+const int I_white_shulker_box = 553;
+const int I_white_stained_glass = 501;
+const int I_white_stained_glass_pane = 517;
+const int I_white_terracotta = 457;
+const int I_white_tulip = 238;
+const int I_white_wool = 213;
+const int I_wild_armor_trim_smithing_template = 1357;
+const int I_wildflowers = 259;
+const int I_wind_charge = 1169;
+const int I_witch_spawn_egg = 1157;
+const int I_wither_rose = 243;
+const int I_wither_skeleton_skull = 1184;
+const int I_wither_skeleton_spawn_egg = 1159;
+const int I_wither_spawn_egg = 1158;
+const int I_wolf_armor = 854;
+const int I_wolf_spawn_egg = 1160;
+const int I_wooden_axe = 878;
+const int I_wooden_hoe = 879;
+const int I_wooden_pickaxe = 877;
+const int I_wooden_shovel = 876;
+const int I_wooden_sword = 875;
+const int I_writable_book = 1170;
+const int I_written_book = 1171;
+const int I_yellow_banner = 1218;
+const int I_yellow_bed = 1045;
+const int I_yellow_bundle = 996;
+const int I_yellow_candle = 1330;
+const int I_yellow_carpet = 480;
+const int I_yellow_concrete = 589;
+const int I_yellow_concrete_powder = 605;
+const int I_yellow_dye = 1025;
+const int I_yellow_glazed_terracotta = 573;
+const int I_yellow_harness = 806;
+const int I_yellow_shulker_box = 557;
+const int I_yellow_stained_glass = 505;
+const int I_yellow_stained_glass_pane = 521;
+const int I_yellow_terracotta = 461;
+const int I_yellow_wool = 217;
+const int I_zoglin_spawn_egg = 1161;
+const int I_zombie_head = 1186;
+const int I_zombie_horse_spawn_egg = 1164;
+const int I_zombie_spawn_egg = 1163;
+const int I_zombie_villager_spawn_egg = 1165;
+const int I_zombified_piglin_spawn_egg = 1166;
+
+// Biome identifiers
+const int W_plains = 0;
+const int W_mangrove_swamp = 1;
+const int W_desert = 2;
+const int W_snowy_plains = 3;
+const int W_beach = 4;
+
+// Damage type identifiers
+const int D_arrow = 0;
+const int D_bad_respawn_point = 1;
+const int D_cactus = 2;
+const int D_campfire = 3;
+const int D_cramming = 4;
+const int D_dragon_breath = 5;
+const int D_drown = 6;
+const int D_dry_out = 7;
+const int D_ender_pearl = 8;
+const int D_explosion = 9;
+const int D_fall = 10;
+const int D_falling_anvil = 11;
+const int D_falling_block = 12;
+const int D_falling_stalactite = 13;
+const int D_fireball = 14;
+const int D_fireworks = 15;
+const int D_fly_into_wall = 16;
+const int D_freeze = 17;
+const int D_generic = 18;
+const int D_generic_kill = 19;
+const int D_hot_floor = 20;
+const int D_in_fire = 21;
+const int D_in_wall = 22;
+const int D_indirect_magic = 23;
+const int D_lava = 24;
+const int D_lightning_bolt = 25;
+const int D_mace_smash = 26;
+const int D_magic = 27;
+const int D_mob_attack = 28;
+const int D_mob_attack_no_aggro = 29;
+const int D_mob_projectile = 30;
+const int D_on_fire = 31;
+const int D_out_of_world = 32;
+const int D_outside_border = 33;
+const int D_player_attack = 34;
+const int D_player_explosion = 35;
+const int D_sonic_boom = 36;
+const int D_spit = 37;
+const int D_stalagmite = 38;
+const int D_starve = 39;
+const int D_sting = 40;
+const int D_sweet_berry_bush = 41;
+const int D_thorns = 42;
+const int D_thrown = 43;
+const int D_trident = 44;
+const int D_unattributed_fireball = 45;
+const int D_wind_charge = 46;
+const int D_wither = 47;
+const int D_wither_skull = 48;

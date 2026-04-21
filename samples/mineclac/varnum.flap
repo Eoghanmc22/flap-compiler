@@ -1,0 +1,63 @@
+// Variable-length integer encoding (Minecraft protocol VarInt).
+// Each encoded byte contributes 7 data bits; the high bit signals continuation.
+#include "../../std/"
+#include "tools.flap"
+
+const int SEGMENT_BITS = 0x7F;
+const int CONTINUE_BIT = 0x80;
+const int VARNUM_ERROR = 0xFFFF_FFFF;
+
+// Read a VarInt from fd. Returns VARNUM_ERROR on malformed input.
+// Uses a recursive helper instead of a break-loop because flap has no break.
+// Bitwise OR is replaced by + — the 7-bit chunks are non-overlapping so
+// addition is equivalent.
+int readVarInt(int client_fd) {
+    int go(int value, int position) {
+        int byte = readByte(client_fd);
+        if (recv_count != 1) {
+            VARNUM_ERROR
+        } else {
+            int new_value = value + ((byte & SEGMENT_BITS) << position);
+            if ((byte & CONTINUE_BIT) == 0) {
+                new_value
+            } else {
+                int new_pos = position + 7;
+                if (new_pos >= 32) {
+                    VARNUM_ERROR
+                } else {
+                    go(new_value, new_pos)
+                }
+            }
+        }
+    }
+    go(0, 0)
+}
+
+// Return the number of bytes required to encode value as a VarInt.
+// C original used (value & ~SEGMENT_BITS) != 0 to test if more bits remain;
+// since SEGMENT_BITS = 0x7F, that condition is equivalent to value > 0x7F.
+int sizeVarInt(int value) {
+    int go(int v, int size) {
+        if (v > 0x7F || v < 0) {
+            go((v >> 7) & 0x1FFFFFF, size + 1)
+        } else {
+            size
+        }
+    }
+    go(value, 1)
+}
+
+// Write value as a VarInt to fd.
+// (value & SEGMENT_BITS) | CONTINUE_BIT uses non-overlapping masks
+// (0x7F and 0x80), so + is equivalent to |.
+void writeVarInt(int client_fd, int value) {
+    void go(int v) {
+        if (v > 0x7F || v < 0) {
+            writeByte(client_fd, (v & SEGMENT_BITS) + CONTINUE_BIT);
+            go((v >> 7) & 0x1FFFFFF)
+        } else {
+            writeByte(client_fd, v & 0xFF);
+        }
+    }
+    go(value)
+}

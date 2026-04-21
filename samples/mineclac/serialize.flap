@@ -1,0 +1,10 @@
+// World serialization — no-op stubs (disk sync not implemented in this port).
+
+#include "../../std/"
+#include "globals.flap"
+
+int initSerializer() { 0 }
+
+void writeBlockChangesToDisk(int start, int end) { }
+
+void writeDataToDiskOnInterval() { }

@@ -1,0 +1,192 @@
+// Entry point and main server loop.
+#include "../../std/"
+#include "packets_recv.flap"
+
+// socket(2), bind(2), listen(2), accept(2), setsockopt(2) syscall numbers on x86-64 Linux.
+// We use the flap socket stdlib if available, otherwise raw syscalls.
+// On Linux x86-64: socket=41, bind=49, listen=50, accept=43, setsockopt=54, fcntl=72, accept4=288
+
+// O_NONBLOCK=2048=0x800, F_GETFL=3, F_SETFL=4
+const int F_GETFL     = 3;
+const int F_SETFL     = 4;
+const int O_NONBLOCK  = 0x800;
+const int MSG_PEEK    = 2;
+const int EAGAIN      = 11;
+const int EWOULDBLOCK = 11;
+
+init_globals();
+
+// Hash seeds
+world_seed = splitmix64(world_seed);
+rng_seed   = splitmix64(rng_seed);
+
+// Initialize block changes as unallocated (0xFF)
+for (int i = 0; i < MAX_BLOCK_CHANGES; i = i + 1) {
+    block_changes[i].block = 0xFF;
+}
+
+// Initialize player data client_fd to -1
+for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+    player_data[i].client_fd = -1;
+    // Allocate per-player heap arrays
+    player_data[i].uuid            = malloc(16);
+    player_data[i].name            = malloc(16);
+    player_data[i].visited_x       = malloc(sizeof<int> * VISITED_HISTORY);
+    player_data[i].visited_z       = malloc(sizeof<int> * VISITED_HISTORY);
+    player_data[i].inventory_items = malloc(sizeof<int> * (41 + 9));
+    player_data[i].inventory_count = malloc(sizeof<int> * (41 + 9));
+    player_data[i].craft_items     = player_data[i].inventory_items + 41;
+    player_data[i].craft_count     = player_data[i].inventory_count + 41;
+    // Zero uuid so reservePlayerData sees an empty slot
+    for (int k = 0; k < 16; k = k + 1) {
+        player_data[i].uuid[k] = (char)0;
+        player_data[i].name[k] = (char)0;
+    }
+}
+
+// Create TCP server socket: socket(AF_INET, SOCK_STREAM, 0)
+int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+// Store opt=1 in recv_buffer[0..8] then pass pointer
+*(int*)recv_buffer = 1;
+setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, recv_buffer, sizeof<int>);
+
+// Build sockaddr_in in recv_buffer: sin_family(2) + sin_port(2) + sin_addr(4) + zero_pad(8)
+// AF_INET=2 (little-endian short), port=htons(25565), addr=INADDR_ANY=0
+recv_buffer[0]  = (char)AF_INET;   // AF_INET lo
+recv_buffer[1]  = (char)0;         // AF_INET hi
+recv_buffer[2]  = (char)0x63; // port hi byte (htons(25565))
+recv_buffer[3]  = (char)0xDD; // port lo byte
+recv_buffer[4]  = (char)0;   // INADDR_ANY
+recv_buffer[5]  = (char)0;
+recv_buffer[6]  = (char)0;
+recv_buffer[7]  = (char)0;
+recv_buffer[8]  = (char)0;   // sin_zero padding
+recv_buffer[9]  = (char)0;
+recv_buffer[10] = (char)0;
+recv_buffer[11] = (char)0;
+recv_buffer[12] = (char)0;
+recv_buffer[13] = (char)0;
+recv_buffer[14] = (char)0;
+recv_buffer[15] = (char)0;
+
+bind(server_fd, (sockaddr *)recv_buffer, 16);
+
+listen(server_fd, 5);
+
+// Set server socket non-blocking: fcntl(F_SETFL, flags | O_NONBLOCK)
+int flags = syscall(72, server_fd, F_GETFL, 0, 0, 0, 0);
+syscall(72, server_fd, F_SETFL, flags + O_NONBLOCK, 0, 0, 0);
+
+int last_tick_time = get_program_time();
+
+// clients[]: one fd per slot, -1 = free
+int *clients = malloc(sizeof<int> * MAX_PLAYERS);
+for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+    clients[i] = -1;
+}
+
+// Accept buffer for sockaddr_in (16 bytes) + addrlen (4 bytes)
+// We'll reuse recv_buffer for the accept sockaddr
+
+// addr_len on stack — use a malloc'd int
+int *addr_len_ptr = malloc(sizeof<int>);
+*addr_len_ptr = 16;
+
+timespec *sleep_spec = malloc(sizeof<timespec>);
+
+loop {
+    for (int client_index = 0; client_index < MAX_PLAYERS; client_index = client_index + 1) {
+        if (clients[client_index] != -1) {
+            // Tick an existing client
+            int client_fd = clients[client_index];
+
+            bool read_more = true;
+            while (read_more) {
+                // Peek 2 bytes to check if data is available
+                recv_count = raw_recv(client_fd, recv_buffer, 2, MSG_PEEK);
+                if (recv_count < 2) {
+                    if (recv_count == 0) {
+                        disconnectClient(client_fd);
+                        clients[client_index] = -1;
+                    }
+                    read_more = false;
+                } else {
+                    // Read packet length
+                    int length = readVarInt(client_fd);
+                    if (length == VARNUM_ERROR) {
+                        disconnectClient(client_fd);
+                        clients[client_index] = -1;
+                        read_more = false;
+                    } else {
+                        int packet_id = readVarInt(client_fd);
+                        if (packet_id == VARNUM_ERROR) {
+                            disconnectClient(client_fd);
+                            clients[client_index] = -1;
+                            read_more = false;
+                        } else {
+                            int state = getClientState(client_fd);
+                            // Legacy server list ping disconnect
+                            if (state == STATE_NONE && length == 254 && packet_id == 122) {
+                                disconnectClient(client_fd);
+                                clients[client_index] = -1;
+                                read_more = false;
+                            } else {
+                                handlePacket(client_fd, length - sizeVarInt(packet_id), packet_id, state);
+                                if (recv_count == 0) {
+                                    disconnectClient(client_fd);
+                                    clients[client_index] = -1;
+                                    read_more = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Try to accept a new client
+            *addr_len_ptr = 16;
+            // Cant use accept wrapper because of non blocking
+            int new_fd = syscall(43, server_fd, 0, 0, 0, 0, 0);
+            if (new_fd >= 0) {
+                clients[client_index] = new_fd;
+                client_count = client_count + 1;
+                // Make client non-blocking
+                int cf = syscall(72, new_fd, F_GETFL, 0, 0, 0, 0);
+                syscall(72, new_fd, F_SETFL, cf + O_NONBLOCK, 0, 0, 0);
+            }
+        }
+    }
+
+    // Maybe handle server tick
+    int now = get_program_time();
+    int elapsed = now - last_tick_time;
+
+    while (elapsed + TICK_AHEAD_MICROS < TIME_BETWEEN_TICKS) {
+        sleep_spec->tv_sec = 0;
+        sleep_spec->tv_nsec = (TIME_BETWEEN_TICKS - elapsed - TICK_AHEAD_MICROS) * 1000;
+
+        nanosleep(sleep_spec, NULL);
+
+        now = get_program_time();
+        elapsed = now - last_tick_time;
+    }
+
+    if (client_count > 0) {
+        while (elapsed < TIME_BETWEEN_TICKS) {
+            now = get_program_time();
+            elapsed = now - last_tick_time;
+        }
+
+        handleServerTick(elapsed);
+    }
+
+    now = get_program_time();
+    // elapsed = now - last_tick_time;
+    // print(elapsed);
+    last_tick_time = now;
+}
+
+// close server (unreachable in practice)
+close(server_fd);
+

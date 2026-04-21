@@ -1,0 +1,42 @@
+// String and length-prefixed data reading utilities.
+#include "../../std/"
+#include "varnum.flap"
+
+// Reads a length-prefixed chunk of raw bytes into recv_buffer.
+// Returns byte count, or 0 on length-exceeded error.
+int readLengthPrefixedData(int client_fd) {
+    int length = readVarInt(client_fd);
+    if (length >= MAX_RECV_BUF_LEN) {
+        recv_count = 0;
+        0
+    } else {
+        recv_all(client_fd, recv_buffer, length, 0)
+    }
+}
+
+// Reads a Minecraft network string into recv_buffer, null-terminates it,
+// and sets recv_count to the byte count.
+void readString(int client_fd) {
+    recv_count = readLengthPrefixedData(client_fd);
+    recv_buffer[recv_count] = (char)0;
+}
+
+// Like readString, but reads at most max_length bytes.
+// Excess bytes are read and discarded to keep the stream in sync.
+void readStringN(int client_fd, int max_length) {
+    if (max_length >= MAX_RECV_BUF_LEN) {
+        readString(client_fd)
+    } else {
+        int length = readVarInt(client_fd);
+        if (max_length > length) {
+            // String fits within the maximum — read all of it
+            recv_count = recv_all(client_fd, recv_buffer, length, 0);
+            recv_buffer[recv_count] = (char)0;
+        } else {
+            // Read up to max_length, then discard the remainder
+            recv_count = recv_all(client_fd, recv_buffer, max_length, 0);
+            recv_buffer[recv_count] = (char)0;
+            discard_all(client_fd, length - max_length, 0);
+        }
+    }
+}

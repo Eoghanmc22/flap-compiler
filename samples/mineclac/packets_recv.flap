@@ -1,0 +1,696 @@
+// Client→server packet handlers and the top-level packet dispatcher.
+#include "../../std/"
+#include "procedures.flap"
+
+// ---- cs_* packet handlers ----
+
+void cs_handshake(int client_fd) {
+    readVarInt(client_fd);   // protocol version
+    readString(client_fd);   // server address
+    readUint16(client_fd);   // server port
+    int intent = readVarInt(client_fd);
+    if (intent != VARNUM_ERROR) {
+        setClientState(client_fd, intent);
+    }
+}
+
+// Reads login start: copies name (up to 15 chars + NUL) and UUID into provided buffers.
+// name and uuid must be pre-allocated by the caller.
+void cs_loginStart(int client_fd, char *name, char *uuid) {
+    readStringN(client_fd, 15);
+    memcpy_char(name, recv_buffer, recv_count);
+    name[recv_count] = (char)0;
+    recv_count = recv_all(client_fd, recv_buffer, 16, 0);
+    memcpy_char(uuid, recv_buffer, 16);
+}
+
+void cs_clientInformation(int client_fd) {
+    readString(client_fd);   // locale
+    readByte(client_fd);     // view distance
+    readVarInt(client_fd);   // chat mode
+    readByte(client_fd);     // chat colors
+    readByte(client_fd);     // skin parts
+    readVarInt(client_fd);   // main hand
+    readByte(client_fd);     // text filtering
+    readByte(client_fd);     // allow listing
+    readVarInt(client_fd);   // particles
+}
+
+void cs_pluginMessage(int client_fd) {
+    readString(client_fd);   // channel
+    // Check for minecraft:brand payload
+    int is_brand = 1;
+    for (int k = 0; k < brand_channel_len; k = k + 1) {
+        if (recv_buffer[k] != brand_channel[k]) { is_brand = 0; }
+    }
+    if (is_brand != 0) {
+        readString(client_fd);   // brand name
+    }
+}
+
+// C→S Player Action
+void cs_playerAction(int client_fd) {
+    int action = readByte(client_fd);
+    int pos = readUint64(client_fd);
+    int x = pos >> 38;
+    int y = pos << 52 >> 52;
+    int z = pos << 26 >> 38;
+    readByte(client_fd);  // face (ignored)
+    int sequence = readVarInt(client_fd);
+    sc_acknowledgeBlockChange(client_fd, sequence);
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        handlePlayerAction(player, action, x, y, z);
+    }
+}
+
+// C→S Use Item
+void cs_useItem(int client_fd) {
+    readByte(client_fd);     // hand
+    readVarInt(client_fd);   // sequence
+    recv_all(client_fd, recv_buffer, 8, 0);  // yaw/pitch (ignored)
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        handlePlayerUseItem(player, 0, 0, 0, 255);
+    }
+}
+
+// C→S Use Item On
+void cs_useItemOn(int client_fd) {
+    readByte(client_fd);     // hand
+    int pos = readUint64(client_fd);
+    int x = pos >> 38;
+    int y = pos << 52 >> 52;
+    int z = pos << 26 >> 38;
+    int face = readByte(client_fd);
+    readUint32(client_fd);   // cursor x
+    readUint32(client_fd);   // cursor y
+    readUint32(client_fd);   // cursor z
+    readByte(client_fd);     // inside block
+    readByte(client_fd);     // world border hit
+    int sequence = readVarInt(client_fd);
+    sc_acknowledgeBlockChange(client_fd, sequence);
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        handlePlayerUseItem(player, x, y, z, face);
+    }
+}
+
+// C→S Click Container
+void cs_clickContainer(int client_fd) {
+    int window_id = readVarInt(client_fd);
+    readVarInt(client_fd);           // state id (ignored)
+    int clicked_slot = readInt16(client_fd);
+    int button = readByte(client_fd);
+    int mode = readVarInt(client_fd);
+    int changes_count = readVarInt(client_fd);
+
+    PlayerData *player = getPlayerData(client_fd);
+    if (player == (PlayerData *)0) {
+        discard_all(client_fd, 0, 0);
+    }
+    if (player != (PlayerData *)0) {
+        int apply_changes = 1;
+
+        // Prevent dropping items
+        if (mode == 4 && clicked_slot != -999) {
+            int svr_slot = clientSlotToServerSlot(window_id, clicked_slot);
+            sc_setContainerSlot(client_fd, window_id, clicked_slot,
+                player->inventory_count[svr_slot], player->inventory_items[svr_slot]);
+            apply_changes = 0;
+        } else {
+            if (mode == 0 && clicked_slot == -999) {
+                if (button == 0) {
+                    givePlayerItem(player, player->flagval_16, player->flagval_8);
+                    player->flagval_16 = 0;
+                    player->flagval_8 = 0;
+                } else {
+                    givePlayerItem(player, player->flagval_16, 1);
+                    player->flagval_8 = player->flagval_8 - 1;
+                    if (player->flagval_8 == 0) { player->flagval_16 = 0; }
+                }
+                apply_changes = 0;
+            }
+        }
+
+        int craft = 0;
+        for (int i = 0; i < changes_count; i = i + 1) {
+            int slot = clientSlotToServerSlot(window_id, readUint16(client_fd));
+            if (slot > 40 && apply_changes != 0) { craft = 1; }
+            if ((slot > 40 && (player->flags & 0x80) != 0)) {
+                // Skip rest but still drain
+                readByte(client_fd);
+                readVarInt(client_fd);
+                readVarInt(client_fd);
+                readLengthPrefixedData(client_fd);
+                readLengthPrefixedData(client_fd);
+            } else {
+                int has_item = readByte(client_fd);
+                if (has_item == 0) {
+                    if (slot != 255 && apply_changes != 0) {
+                        player->inventory_items[slot] = 0;
+                        player->inventory_count[slot] = 0;
+                    }
+                } else {
+                    int item = readVarInt(client_fd);
+                    int count = readVarInt(client_fd);
+                    readLengthPrefixedData(client_fd);
+                    readLengthPrefixedData(client_fd);
+                    if (count > 0 && apply_changes != 0) {
+                        player->inventory_items[slot] = item;
+                        player->inventory_count[slot] = count;
+                    }
+                }
+            }
+        }
+
+        // Update crafting output if applicable
+        if (craft != 0 && (window_id == 0 || window_id == 12)) {
+            Slot output = getCraftingOutput(player);
+            sc_setContainerSlot(client_fd, window_id, 0, output.count, output.item);
+        } else {
+            if (window_id == 14) {
+                getSmeltingOutput(player);
+                for (int i = 0; i < 3; i = i + 1) {
+                    sc_setContainerSlot(client_fd, window_id, i, player->craft_count[i], player->craft_items[i]);
+                }
+            }
+        }
+
+        // Read cursor-carried slot
+        int has_cursor = readByte(client_fd);
+        if (has_cursor != 0) {
+            player->flagval_16 = readVarInt(client_fd);
+            player->flagval_8  = readVarInt(client_fd);
+            readLengthPrefixedData(client_fd);
+            readLengthPrefixedData(client_fd);
+        } else {
+            player->flagval_16 = 0;
+            player->flagval_8  = 0;
+        }
+    }
+}
+
+// Reads x/y/z doubles and on_ground byte into provided int pointers.
+// Returns decoded integer coordinates.
+void cs_setPlayerPosition(int client_fd, int *ox, int *oy, int *oz, int *on_ground) {
+    int fx = readDouble(client_fd);
+    int fy = readDouble(client_fd);
+    int fz = readDouble(client_fd);
+    *ox = fx;
+    *oy = fy;
+    *oz = fz;
+    *on_ground = readByte(client_fd) & 0x01;
+}
+
+void cs_setPlayerPositionAndRotation(int client_fd, int *ox, int *oy, int *oz, int *oyaw, int *opitch, int *on_ground) {
+    int fx = readDouble(client_fd);
+    int fy = readDouble(client_fd);
+    int fz = readDouble(client_fd);
+    *ox = fx;
+    *oy = fy;
+    *oz = fz;
+    *oyaw   = readFloat(client_fd);
+    *opitch = readFloat(client_fd);
+    *on_ground = readByte(client_fd) & 0x01;
+}
+
+void cs_setPlayerRotation(int client_fd, int *oyaw, int *opitch, int *on_ground) {
+    *oyaw   = readFloat(client_fd);
+    *opitch = readFloat(client_fd);
+    *on_ground = readByte(client_fd) & 0x01;
+}
+
+void cs_setPlayerMovementFlags(int client_fd, int *on_ground) {
+    *on_ground = readByte(client_fd) & 0x01;
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        broadcastPlayerMetadata(player);
+    }
+}
+
+// C→S Swing Arm
+void cs_swingArm(int client_fd) {
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        int hand = readVarInt(client_fd);
+        int animation = if (hand == 0) { 0 } else { if (hand == 1) { 2 } else { 255 } };
+        if (animation != 255) {
+            for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+                PlayerData *op = player_data + i;
+                if (op->client_fd != -1 && op->client_fd != player->client_fd && (op->flags & 0x20) == 0) {
+                    sc_entityAnimation(op->client_fd, player->client_fd, animation);
+                }
+            }
+        }
+    }
+}
+
+// C→S Set Held Item
+void cs_setHeldItem(int client_fd) {
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        int slot = readUint16(client_fd);
+        if (slot < 9) {
+            player->hotbar = slot;
+        }
+    }
+}
+
+// C→S Close Container
+void cs_closeContainer(int client_fd) {
+    int window_id = readVarInt(client_fd);
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        for (int i = 0; i < 9; i = i + 1) {
+            if (window_id != 2) {
+                givePlayerItem(player, player->craft_items[i], player->craft_count[i]);
+                int client_slot = serverSlotToClientSlot(window_id, 41 + i);
+                if (client_slot != 255) {
+                    sc_setContainerSlot(player->client_fd, window_id, client_slot, 0, 0);
+                }
+            }
+            player->craft_items[i] = 0;
+            player->craft_count[i] = 0;
+            player->flags = player->flags - (player->flags & 0x80);
+        }
+        givePlayerItem(player, player->flagval_16, player->flagval_8);
+        sc_setCursorItem(client_fd, 0, 0);
+        player->flagval_16 = 0;
+        player->flagval_8  = 0;
+    }
+}
+
+// C→S Client Status (e.g., respawn request)
+void cs_clientStatus(int client_fd) {
+    int id = readByte(client_fd);
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        if (id == 0) {
+            sc_respawn(client_fd);
+            resetPlayerData(player);
+            spawnPlayer(player);
+        }
+    }
+}
+
+// C→S Chat Message
+void cs_chat(int client_fd) {
+    readStringN(client_fd, 224);
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        int message_len = strlen(recv_buffer);
+        int name_len = strlen(player->name);
+
+        if ((int)recv_buffer[0] != 33) {  // not '!'
+            // Shift message forward to make room for "<name> "
+            int j = message_len;
+            for (int j = message_len; j >= 0; j = j - 1) {
+                recv_buffer[j + name_len + 3] = recv_buffer[j];
+            }
+            recv_buffer[0] = (char)60;  // '<'
+            memcpy_char(recv_buffer + 1, player->name, name_len);
+            recv_buffer[name_len + 1] = (char)62;  // '>'
+            recv_buffer[name_len + 2] = (char)32;  // ' '
+            int total_len = message_len + name_len + 3;
+            for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+                if (player_data[i].client_fd != -1 && (player_data[i].flags & 0x20) == 0) {
+                    sc_systemChat(player_data[i].client_fd, recv_buffer, total_len);
+                }
+            }
+        } else {
+            // Chat commands: !help only (skip !msg for simplicity)
+            int is_help = 1;
+            for (int k = 0; k < 5; k = k + 1) {
+                if (recv_buffer[k] != str_help_cmd[k]) { is_help = 0; }
+            }
+            if (is_help != 0) {
+                sc_systemChat(client_fd, str_help_msg, 40);
+            } else {
+                sc_systemChat(client_fd, str_unknown_cmd, 15);
+            }
+        }
+    }
+    readUint64(client_fd);   // timestamp
+    readUint64(client_fd);   // salt
+    int has_sig = readByte(client_fd);
+    if (has_sig != 0) { recv_all(client_fd, recv_buffer, 256, 0); }
+    readVarInt(client_fd);   // message count
+    recv_all(client_fd, recv_buffer, 4, 0);  // acknowledgement
+}
+
+// C→S Interact
+void cs_interact(int client_fd) {
+    int entity_id = readVarInt(client_fd);
+    int type = readByte(client_fd);
+    if (type == 2) { recv_all(client_fd, recv_buffer, 12, 0); }  // target coords
+    if (type != 1) { recv_all(client_fd, recv_buffer, 1, 0); }   // hand
+    recv_all(client_fd, recv_buffer, 1, 0);                       // sneaking
+    if (type == 0) { interactEntity(entity_id, client_fd); }
+    else { if (type == 1) { hurtEntity(entity_id, client_fd, D_generic, 1); } }
+}
+
+// C→S Player Input
+void cs_playerInput(int client_fd) {
+    int flags = readByte(client_fd);
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        if ((flags & 0x20) != 0) {
+            player->flags = player->flags + if ((player->flags & 0x04) == 0) { 0x04 } else { 0 };
+        } else {
+            player->flags = player->flags - (player->flags & 0x04);
+        }
+        broadcastPlayerMetadata(player);
+    }
+}
+
+// C→S Player Command (sprint start/stop)
+void cs_playerCommand(int client_fd) {
+    readVarInt(client_fd);  // entity ID
+    int action = readByte(client_fd);
+    readVarInt(client_fd);  // jump boost
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        if (action == 1) {
+            player->flags = player->flags + if ((player->flags & 0x08) == 0) { 0x08 } else { 0 };
+        } else {
+            if (action == 2) {
+                player->flags = player->flags - (player->flags & 0x08);
+            }
+        }
+        broadcastPlayerMetadata(player);
+    }
+}
+
+// C→S Player Loaded
+void cs_playerLoaded(int client_fd) {
+    PlayerData *player = getPlayerData(client_fd);
+    if (player != (PlayerData *)0) {
+        handlePlayerJoin(player);
+    }
+}
+
+// ---- Packet dispatcher ----
+
+void handlePacket(int client_fd, int length, int packet_id, int state) {
+    int bytes_start = total_bytes_received;
+
+    if (packet_id == 0x00) {
+        if (state == STATE_NONE) {
+            cs_handshake(client_fd);
+        } else if (state == STATE_STATUS) {
+            sc_statusResponse(client_fd);
+        } else if (state == STATE_LOGIN) {
+            char *uuid = malloc(16);
+            char *name = malloc(16);
+            cs_loginStart(client_fd, name, uuid);
+            if (reservePlayerData(client_fd, uuid, name) == 0) {
+                sc_loginSuccess(client_fd, uuid, name);
+            } else {
+                recv_count = 0;
+            }
+            free(uuid);
+            free(name);
+        } else if (state == STATE_CONFIGURATION) {
+            cs_clientInformation(client_fd);
+            sc_knownPacks(client_fd);
+            sc_registries(client_fd);
+            sc_sendPluginMessage(client_fd, brand_channel, brand_channel_len, brand, brand_len);
+        }
+    } else if (packet_id == 0x01) {
+        if (state == STATE_STATUS) {
+            writeByte(client_fd, 9);
+            writeByte(client_fd, 0x01);
+            writeUint64(client_fd, readUint64(client_fd));
+            recv_count = 0;
+        }
+    } else if (packet_id == 0x02) {
+        if (state == STATE_CONFIGURATION) { cs_pluginMessage(client_fd); }
+    } else if (packet_id == 0x03) {
+        if (state == STATE_LOGIN) {
+            setClientState(client_fd, STATE_CONFIGURATION);
+        } else if (state == STATE_CONFIGURATION) {
+            setClientState(client_fd, STATE_PLAY);
+            sc_loginPlay(client_fd);
+            PlayerData *player = getPlayerData(client_fd);
+            if (player != (PlayerData *)0) {
+                spawnPlayer(player);
+                for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+                    if (player_data[i].client_fd != -1 && (player_data[i].flags & 0x20) == 0) {
+                        sc_playerInfoUpdateAddPlayer(client_fd, player_data + i);
+                        sc_spawnEntityPlayer(client_fd, player_data + i);
+                    }
+                }
+                // Spawn existing mobs
+                char *uuid = malloc(16);
+                int r = fast_rand();
+                uuid[0] = (char)(r & 0xFF);
+                uuid[1] = (char)((r >> 8) & 0xFF);
+                uuid[2] = (char)((r >> 16) & 0xFF);
+                uuid[3] = (char)((r >> 24) & 0xFF);
+                for (int i = 0; i < MAX_MOBS; i = i + 1) {
+                    if (mob_data[i].type != 0 && (mob_data[i].data & 31) != 0) {
+                        uuid[4] = (char)(i & 0xFF);
+                        uuid[5] = (char)0; uuid[6] = (char)0; uuid[7] = (char)0;
+                        uuid[8] = (char)0; uuid[9] = (char)0; uuid[10] = (char)0;
+                        uuid[11] = (char)0; uuid[12] = (char)0; uuid[13] = (char)0;
+                        uuid[14] = (char)0; uuid[15] = (char)0;
+                        sc_spawnEntity(client_fd, -2 - i, uuid, mob_data[i].type,
+                            mob_data[i].x, mob_data[i].y, mob_data[i].z, 0, 0);
+                        broadcastMobMetadata(client_fd, -2 - i);
+                    }
+                }
+                free(uuid);
+            }
+        }
+    } else if (packet_id == 0x07) {
+        if (state == STATE_CONFIGURATION) { sc_finishConfiguration(client_fd); }
+    } else if (packet_id == 0x08) {
+        if (state == STATE_PLAY) { cs_chat(client_fd); }
+    } else if (packet_id == 0x0B) {
+        if (state == STATE_PLAY) { cs_clientStatus(client_fd); }
+    } else if (packet_id == 0x11) {
+        if (state == STATE_PLAY) { cs_clickContainer(client_fd); }
+    } else if (packet_id == 0x12) {
+        if (state == STATE_PLAY) { cs_closeContainer(client_fd); }
+    } else if (packet_id == 0x1B) {
+        if (state == STATE_PLAY) { discard_all(client_fd, length, 0); }
+    } else if (packet_id == 0x19) {
+        if (state == STATE_PLAY) { cs_interact(client_fd); }
+    } else if (packet_id == 0x1D || packet_id == 0x1E || packet_id == 0x1F || packet_id == 0x20) {
+        if (state == STATE_PLAY) {
+            int *px = malloc(sizeof<int>);
+            int *py = malloc(sizeof<int>);
+            int *pz = malloc(sizeof<int>);
+            int *pyaw = malloc(sizeof<int>);
+            int *ppitch = malloc(sizeof<int>);
+            int *on_ground = malloc(sizeof<int>);
+            *px = 0;
+            *py = 0;
+            *pz = 0;
+            *pyaw = 0;
+            *ppitch = 0;
+            *on_ground = 0;
+
+            if (packet_id == 0x1D) {
+                cs_setPlayerPosition(client_fd, px, py, pz, on_ground);
+            } else if (packet_id == 0x1F) {
+                cs_setPlayerRotation(client_fd, pyaw, ppitch, on_ground);
+            } else if (packet_id == 0x20) {
+                cs_setPlayerMovementFlags(client_fd, on_ground);
+            } else {
+                cs_setPlayerPositionAndRotation(client_fd, px, py, pz, pyaw, ppitch, on_ground);
+            }
+
+            PlayerData *player = getPlayerData(client_fd);
+            if (player != NULL) {
+                int block_feet = getBlockAt(player->x, player->y, player->z);
+                bool swimming = block_feet >= B_water && block_feet < B_water + 8;
+
+                if (*on_ground != 0) {
+                    int fall_dmg = player->grounded_y - player->y - 3;
+                    if (fall_dmg > 0 && GAMEMODE != 1 && GAMEMODE != 3 && !swimming) {
+                        hurtEntity(client_fd, -1, D_fall, fall_dmg);
+                    }
+                    player->grounded_y = player->y;
+                } else {
+                    if (swimming) { player->grounded_y = player->y; }
+                }
+
+                if (packet_id != 0x20) {
+                    if (packet_id != 0x1D) {
+                        player->yaw = *pyaw * 127 / 180;
+                        player->pitch = *ppitch * 127 / 180;
+                    }
+
+                    bool should_broadcast = true;
+                    if ((player->flags & 0x40) != 0) {
+                        should_broadcast = false;
+                    }
+                    if (should_broadcast) {
+                        player->flags = player->flags + if ((player->flags & 0x40) == 0) { 0x40 } else { 0 };
+                    }
+
+                    if (should_broadcast) {
+                        // TODO: this code is sus
+                        int bc_yaw = if (packet_id == 0x1D) { player->yaw * 180 / 127 } else { *pyaw };
+                        int bc_pitch = if (packet_id == 0x1D) { player->pitch * 90 / 127 } else { *ppitch };
+                        for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+                            if (player_data[i].client_fd != -1 &&
+                                player_data[i].client_fd != client_fd &&
+                                (player_data[i].flags & 0x20) == 0) {
+                                if (packet_id == 0x1F) {
+                                    sc_updateEntityRotation(player_data[i].client_fd, client_fd, player->yaw, player->pitch);
+                                } else {
+                                    sc_teleportEntity(player_data[i].client_fd, client_fd, *px, *py, *pz, bc_yaw, bc_pitch);
+                                }
+                                sc_setHeadRotation(player_data[i].client_fd, client_fd, player->yaw);
+                            }
+                        }
+                    }
+
+                    if (packet_id != 0x1F) {
+                        // Hunger decay via movement packets
+                        if (player->saturation == 0) {
+                            if (player->hunger > 0) { player->hunger = player->hunger - 1; }
+                            player->saturation = 200;
+                            sc_setHealth(client_fd, player->health, player->hunger, player->saturation);
+                        } else if ((player->flags & 0x08) != 0) {
+                            player->saturation = player->saturation - 1;
+                        }
+
+                        // Update position
+                        int cx = *px;
+                        int cy = *py;
+                        int cz = *pz;
+
+                        if (cx < 0) { cx = cx - 1; }
+                        if (cz < 0) { cz = cz - 1; }
+
+                        int chunk_x = div_floor(cx, 16);
+                        int chunk_z = div_floor(cz, 16);
+                        int old_chunk_x = div_floor(player->x, 16);
+                        int old_chunk_z = div_floor(player->z, 16);
+                        int dx = chunk_x - old_chunk_x;
+                        int dz = chunk_z - old_chunk_z;
+
+                        if (cy < 0) {
+                            cy = 0;
+                            player->grounded_y = 0;
+                            sc_synchronizePlayerPosition(client_fd, cx, 0, cz, player->yaw * 180 / 127, player->pitch * 90 / 127);
+                        } else if (cy > 255) {
+                            cy = 255;
+                            sc_synchronizePlayerPosition(client_fd, cx, 255, cz, player->yaw * 180 / 127, player->pitch * 90 / 127);
+                        }
+
+                        player->x = cx;
+                        player->y = cy;
+                        player->z = cz;
+
+                        if (dx != 0 || dz != 0) {
+                            // Check recently visited chunks
+                            int found = 0;
+                            for (int vi = 0; vi < VISITED_HISTORY; vi = vi + 1) {
+                                if (player->visited_x[vi] == chunk_x && player->visited_z[vi] == chunk_z) {
+                                    found = 1;
+                                }
+                            }
+                            if (found == 0) {
+                                // Shift visited history
+                                for (int vi = 0; vi < VISITED_HISTORY - 1; vi = vi + 1) {
+                                    player->visited_x[vi] = player->visited_x[vi + 1];
+                                    player->visited_z[vi] = player->visited_z[vi + 1];
+                                }
+                                player->visited_x[VISITED_HISTORY - 1] = chunk_x;
+                                player->visited_z[VISITED_HISTORY - 1] = chunk_z;
+
+                                // Maybe spawn mob in new chunk
+                                int r = fast_rand();
+                                if ((r & 3) == 0) {
+                                    int mob_x = (chunk_x + dx * VIEW_DISTANCE) * 16 + ((r >> 4) & 15);
+                                    int mob_z = (chunk_z + dz * VIEW_DISTANCE) * 16 + ((r >> 8) & 15);
+                                    int mob_y = cy - 8;
+                                    int b_low = getBlockAt(mob_x, mob_y - 1, mob_z);
+                                    int b_mid = getBlockAt(mob_x, mob_y, mob_z);
+                                    int b_top = getBlockAt(mob_x, mob_y + 1, mob_z);
+                                    int go_mob(int my, int bl, int bm, int bt) {
+                                        if (my >= 255) { my }
+                                        else {
+                                            if (!isPassableBlock(bl) && isPassableSpawnBlock(bm) && isPassableSpawnBlock(bt)) { my }
+                                            else { go_mob(my + 1, bm, bt, getBlockAt(mob_x, my + 2, mob_z)) }
+                                        }
+                                    }
+                                    mob_y = go_mob(mob_y, b_low, b_mid, b_top);
+                                    if (mob_y < 255) {
+                                        if ((world_time < 13000 || world_time > 23460) && mob_y > 48) {
+                                            int mob_choice = (r >> 12) & 3;
+                                            if (mob_choice == 0) { spawnMob(25, mob_x, mob_y, mob_z, 4); }
+                                            else { if (mob_choice == 1) { spawnMob(28, mob_x, mob_y, mob_z, 10); }
+                                            else { if (mob_choice == 2) { spawnMob(95, mob_x, mob_y, mob_z, 10); }
+                                            else { spawnMob(106, mob_x, mob_y, mob_z, 8); } } }
+                                        } else {
+                                            spawnMob(145, mob_x, mob_y, mob_z, 20);
+                                        }
+                                    }
+                                }
+
+                                sc_setCenterChunk(client_fd, chunk_x, chunk_z);
+
+                                // Send new chunks along X axis
+                                void go_dx(int ddx) {
+                                    if (ddx == 0) { } else {
+                                        sc_chunkDataAndUpdateLight(client_fd, chunk_x + ddx * VIEW_DISTANCE, chunk_z);
+                                        for (int ci = 1; ci <= VIEW_DISTANCE; ci = ci + 1) {
+                                            sc_chunkDataAndUpdateLight(client_fd, chunk_x + ddx * VIEW_DISTANCE, chunk_z - ci);
+                                            sc_chunkDataAndUpdateLight(client_fd, chunk_x + ddx * VIEW_DISTANCE, chunk_z + ci);
+                                        }
+                                        go_dx(ddx + if (ddx > 0) { -1 } else { 1 });
+                                    }
+                                }
+                                go_dx(dx);
+
+                                // Send new chunks along Z axis
+                                void go_dz(int ddz) {
+                                    if (ddz == 0) { } else {
+                                        sc_chunkDataAndUpdateLight(client_fd, chunk_x, chunk_z + ddz * VIEW_DISTANCE);
+                                        for (int ci = 1; ci <= VIEW_DISTANCE; ci = ci + 1) {
+                                            sc_chunkDataAndUpdateLight(client_fd, chunk_x - ci, chunk_z + ddz * VIEW_DISTANCE);
+                                            sc_chunkDataAndUpdateLight(client_fd, chunk_x + ci, chunk_z + ddz * VIEW_DISTANCE);
+                                        }
+                                        go_dz(ddz + if (ddz > 0) { -1 } else { 1 });
+                                    }
+                                }
+                                go_dz(dz);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if (packet_id == 0x29) {
+        if (state == STATE_PLAY) { cs_playerCommand(client_fd); }
+    } else if (packet_id == 0x2A) {
+        if (state == STATE_PLAY) { cs_playerInput(client_fd); }
+    } else if (packet_id == 0x2B) {
+        if (state == STATE_PLAY) { cs_playerLoaded(client_fd); }
+    } else if (packet_id == 0x34) {
+        if (state == STATE_PLAY) { cs_setHeldItem(client_fd); }
+    } else if (packet_id == 0x3C) {
+        if (state == STATE_PLAY) { cs_swingArm(client_fd); }
+    } else if (packet_id == 0x28) {
+        if (state == STATE_PLAY) { cs_playerAction(client_fd); }
+    } else if (packet_id == 0x3F) {
+        if (state == STATE_PLAY) { cs_useItemOn(client_fd); }
+    } else if (packet_id == 0x40) {
+        if (state == STATE_PLAY) { cs_useItem(client_fd); }
+    } else {
+        // Unknown packet: discard
+        discard_all(client_fd, length, 0);
+    }
+
+    // Detect and fix incorrectly parsed packets
+    int processed = total_bytes_received - bytes_start;
+    if (processed < length) {
+        discard_all(client_fd, length - processed, 0);
+    }
+}

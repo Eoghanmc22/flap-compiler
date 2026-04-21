@@ -1,0 +1,634 @@
+// Server→client packet senders and entity metadata helpers.
+// Does NOT call any procedure functions — procedures.flap includes this file.
+#include "../../std/"
+#include "crafting.flap"
+#include "protocol_utils.flap"
+#include "registries.flap"
+#include "worldgen.flap"
+
+// ---- Entity metadata size/write helpers ----
+// Placed here because sc_setEntityMetadata needs them and procedures.flap
+// also needs them (sizeEntityMetadata is called from procedures.c).
+
+// Returns the serialised byte count of one EntityData entry, or -1 if unknown type.
+int sizeEntityData(EntityData *data) {
+    if (data->type == 0) {
+        // Byte: 1 (index) + sizeVarInt(type) + 1 (value)
+        1 + sizeVarInt(0) + 1
+    } else {
+        if (data->type == 21) {
+            // Pose VarInt
+            1 + sizeVarInt(21) + sizeVarInt(data->value)
+        } else {
+            -1
+        }
+    }
+}
+
+// Returns total serialised byte count of a metadata array, or -1 on unknown type.
+int sizeEntityMetadata(EntityData *metadata, int length) {
+    int go(int i, int total) {
+        if (i >= length) {
+            total
+        } else {
+            int s = sizeEntityData(metadata + i);
+            if (s == -1) { -1 } else { go(i + 1, total + s) }
+        }
+    }
+    go(0, 0)
+}
+
+// Writes one EntityData entry to the socket.
+void writeEntityData(int client_fd, EntityData *data) {
+    writeByte(client_fd, data->index);
+    writeVarInt(client_fd, data->type);
+    if (data->type == 0) {
+        writeByte(client_fd, data->value);
+    } else {
+        if (data->type == 21) {
+            writeVarInt(client_fd, data->value);
+        }
+    }
+}
+
+// ---- S→C packets ----
+
+// S→C Status Response (server list ping)
+// Header: {"version":{"name":"1.21.8","protocol":772},"description":{"text":"
+// Footer: "}}
+// header_len = 67, footer_len = 3
+void sc_statusResponse(int client_fd) {
+    int header_len = 67;
+    int footer_len = 3;
+    int string_len = header_len + footer_len + motd_len;
+    writeVarInt(client_fd, 1 + string_len + sizeVarInt(string_len));
+    writeByte(client_fd, 0x00);
+    writeVarInt(client_fd, string_len);
+    // Write header bytes individually (flap has no escaped-quote string literals)
+    // {"version":{"name":"1.21.8","protocol":772},"description":{"text":"
+    writeByte(client_fd, 123);  // {
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 118);  // v
+    writeByte(client_fd, 101);  // e
+    writeByte(client_fd, 114);  // r
+    writeByte(client_fd, 115);  // s
+    writeByte(client_fd, 105);  // i
+    writeByte(client_fd, 111);  // o
+    writeByte(client_fd, 110);  // n
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 58);   // :
+    writeByte(client_fd, 123);  // {
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 110);  // n
+    writeByte(client_fd, 97);   // a
+    writeByte(client_fd, 109);  // m
+    writeByte(client_fd, 101);  // e
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 58);   // :
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 49);   // 1
+    writeByte(client_fd, 46);   // .
+    writeByte(client_fd, 50);   // 2
+    writeByte(client_fd, 49);   // 1
+    writeByte(client_fd, 46);   // .
+    writeByte(client_fd, 56);   // 8
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 44);   // ,
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 112);  // p
+    writeByte(client_fd, 114);  // r
+    writeByte(client_fd, 111);  // o
+    writeByte(client_fd, 116);  // t
+    writeByte(client_fd, 111);  // o
+    writeByte(client_fd, 99);   // c
+    writeByte(client_fd, 111);  // o
+    writeByte(client_fd, 108);  // l
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 58);   // :
+    writeByte(client_fd, 55);   // 7
+    writeByte(client_fd, 55);   // 7
+    writeByte(client_fd, 50);   // 2
+    writeByte(client_fd, 125);  // }
+    writeByte(client_fd, 44);   // ,
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 100);  // d
+    writeByte(client_fd, 101);  // e
+    writeByte(client_fd, 115);  // s
+    writeByte(client_fd, 99);   // c
+    writeByte(client_fd, 114);  // r
+    writeByte(client_fd, 105);  // i
+    writeByte(client_fd, 112);  // p
+    writeByte(client_fd, 116);  // t
+    writeByte(client_fd, 105);  // i
+    writeByte(client_fd, 111);  // o
+    writeByte(client_fd, 110);  // n
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 58);   // :
+    writeByte(client_fd, 123);  // {
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 116);  // t
+    writeByte(client_fd, 101);  // e
+    writeByte(client_fd, 120);  // x
+    writeByte(client_fd, 116);  // t
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 58);   // :
+    writeByte(client_fd, 34);   // "
+    // Send MOTD
+    send_all(client_fd, motd, motd_len);
+    // Footer: "}}
+    writeByte(client_fd, 34);   // "
+    writeByte(client_fd, 125);  // }
+    writeByte(client_fd, 125);  // }
+}
+
+// S→C Login Success
+void sc_loginSuccess(int client_fd, char *uuid, char *name) {
+    int name_length = strlen(name);
+    writeVarInt(client_fd, 1 + 16 + sizeVarInt(name_length) + name_length + 1);
+    writeVarInt(client_fd, 0x02);
+    send_all(client_fd, uuid, 16);
+    writeVarInt(client_fd, name_length);
+    send_all(client_fd, name, name_length);
+    writeVarInt(client_fd, 0);
+}
+
+// S→C Clientbound Known Packs
+void sc_knownPacks(int client_fd) {
+    // Pre-encoded packet: length=24, one pack entry for "minecraft:core:1.21.8"
+    recv_buffer[0]  = (char)0x0e;
+    recv_buffer[1]  = (char)0x01;
+    recv_buffer[2]  = (char)0x09;
+    recv_buffer[3]  = (char)0x6d;
+    recv_buffer[4]  = (char)0x69;
+    recv_buffer[5]  = (char)0x6e;
+    recv_buffer[6]  = (char)0x65;
+    recv_buffer[7]  = (char)0x63;
+    recv_buffer[8]  = (char)0x72;
+    recv_buffer[9]  = (char)0x61;
+    recv_buffer[10] = (char)0x66;
+    recv_buffer[11] = (char)0x74;
+    recv_buffer[12] = (char)0x04;
+    recv_buffer[13] = (char)0x63;
+    recv_buffer[14] = (char)0x6f;
+    recv_buffer[15] = (char)0x72;
+    recv_buffer[16] = (char)0x65;
+    recv_buffer[17] = (char)0x06;
+    recv_buffer[18] = (char)0x31;
+    recv_buffer[19] = (char)0x2e;
+    recv_buffer[20] = (char)0x32;
+    recv_buffer[21] = (char)0x31;
+    recv_buffer[22] = (char)0x2e;
+    recv_buffer[23] = (char)0x38;
+    writeVarInt(client_fd, 24);
+    send_all(client_fd, recv_buffer, 24);
+}
+
+// S→C Clientbound Plugin Message
+void sc_sendPluginMessage(int client_fd, char *channel, int channel_len, char *data, int data_len) {
+    writeVarInt(client_fd, 1 + sizeVarInt(channel_len) + channel_len + sizeVarInt(data_len) + data_len);
+    writeByte(client_fd, 0x01);
+    writeVarInt(client_fd, channel_len);
+    send_all(client_fd, channel, channel_len);
+    writeVarInt(client_fd, data_len);
+    send_all(client_fd, data, data_len);
+}
+
+// S→C Finish Configuration
+void sc_finishConfiguration(int client_fd) {
+    writeVarInt(client_fd, 1);
+    writeVarInt(client_fd, 0x03);
+}
+
+// S→C Login (play)
+void sc_loginPlay(int client_fd) {
+    writeVarInt(client_fd, 47 + sizeVarInt(MAX_PLAYERS) + sizeVarInt(VIEW_DISTANCE) * 2);
+    writeByte(client_fd, 0x2B);
+    writeUint32(client_fd, client_fd);  // entity id
+    writeByte(client_fd, 0);            // hardcore = false
+    writeVarInt(client_fd, 1);          // dimension count
+    writeVarInt(client_fd, 9);
+    send_all(client_fd, dim_overworld, 9);
+    writeVarInt(client_fd, MAX_PLAYERS);
+    writeVarInt(client_fd, VIEW_DISTANCE);
+    writeVarInt(client_fd, VIEW_DISTANCE);
+    writeByte(client_fd, 0);  // reduced debug info
+    writeByte(client_fd, 1);  // respawn screen
+    writeByte(client_fd, 0);  // limited crafting
+    writeVarInt(client_fd, 0);  // dimension id
+    writeVarInt(client_fd, 9);
+    send_all(client_fd, dim_overworld, 9);
+    writeUint64(client_fd, 0x0123456789ABCDEF);  // hashed seed
+    writeByte(client_fd, GAMEMODE);
+    writeByte(client_fd, 0xFF);  // previous gamemode
+    writeByte(client_fd, 0);     // is debug
+    writeByte(client_fd, 0);     // is flat
+    writeByte(client_fd, 0);     // has death location
+    writeVarInt(client_fd, 0);   // portal cooldown
+    writeVarInt(client_fd, 63);  // sea level
+    writeByte(client_fd, 0);     // secure chat
+}
+
+// S→C Synchronize Player Position
+// x, y, z are integer block coordinates; yaw/pitch are raw float32 bit patterns.
+void sc_synchronizePlayerPosition(int client_fd, int x, int y, int z, int yaw, int pitch) {
+    writeVarInt(client_fd, 61 + sizeVarInt(-1));
+    writeByte(client_fd, 0x41);
+    writeVarInt(client_fd, -1);  // teleport ID
+    writeDouble(client_fd, x);
+    writeDouble(client_fd, y);
+    writeDouble(client_fd, z);
+    writeDouble(client_fd, 0);   // velocity x
+    writeDouble(client_fd, 0);   // velocity y
+    writeDouble(client_fd, 0);   // velocity z
+    writeFloat(client_fd, yaw);
+    writeFloat(client_fd, pitch);
+    writeUint32(client_fd, 0);   // flags
+}
+
+// S→C Set Default Spawn Position
+void sc_setDefaultSpawnPosition(int client_fd, int x, int y, int z) {
+    writeVarInt(client_fd, sizeVarInt(0x5A) + 12);
+    writeVarInt(client_fd, 0x5A);
+    // Pack as: ((x & 0x3FFFFFF) << 38) + ((z & 0x3FFFFFF) << 12) + (y & 0xFFF)
+    // Use arithmetic since flap has no |
+    writeUint64(client_fd, ((x & 0x3FFFFFF) << 38) + ((z & 0x3FFFFFF) << 12) + (y & 0xFFF));
+    writeFloat(client_fd, 0);    // angle = 0.0f
+}
+
+// S→C Player Abilities (clientbound)
+void sc_playerAbilities(int client_fd, int flags) {
+    writeVarInt(client_fd, 10);
+    writeByte(client_fd, 0x39);
+    writeByte(client_fd, flags);
+    writeUint32(client_fd, 0x3D4CCCCD);  // 0.05f bit pattern
+    writeUint32(client_fd, 0x3DCCCCCD);  // 0.1f bit pattern
+}
+
+// S→C Update Time
+void sc_updateTime(int client_fd, int ticks) {
+    writeVarInt(client_fd, 18);
+    writeVarInt(client_fd, 0x6A);
+    int world_age = get_program_time() / 50000;
+    writeUint64(client_fd, world_age);
+    writeUint64(client_fd, ticks);
+    writeByte(client_fd, 1);  // time of day stops = false (1 = do tick)
+}
+
+// S→C Game Event 13 (Start waiting for level chunks)
+void sc_startWaitingForChunks(int client_fd) {
+    writeVarInt(client_fd, 6);
+    writeByte(client_fd, 0x22);
+    writeByte(client_fd, 13);
+    writeUint32(client_fd, 0);
+}
+
+// S→C Set Center Chunk
+void sc_setCenterChunk(int client_fd, int x, int z) {
+    writeVarInt(client_fd, 1 + sizeVarInt(x) + sizeVarInt(z));
+    writeByte(client_fd, 0x57);
+    writeVarInt(client_fd, x);
+    writeVarInt(client_fd, z);
+}
+
+// S→C Block Update
+void sc_blockUpdate(int client_fd, int x, int y, int z, int block) {
+    writeVarInt(client_fd, 9 + sizeVarInt((int)block_palette[block]));
+    writeByte(client_fd, 0x08);
+    writeUint64(client_fd, ((x & 0x3FFFFFF) << 38) + ((z & 0x3FFFFFF) << 12) + (y & 0xFFF));
+    writeVarInt(client_fd, (int)block_palette[block]);
+}
+
+// S→C Chunk Data and Update Light
+void sc_chunkDataAndUpdateLight(int client_fd, int cx, int cz) {
+    int nbp_size = network_block_palette_size;
+    int chunk_data_size = (4101 + sizeVarInt(256) + nbp_size) * 20 + 6 * 12;
+    int light_data_size = 14 + (sizeVarInt(2048) + 2048) * 26;
+
+    writeVarInt(client_fd, 11 + sizeVarInt(chunk_data_size) + chunk_data_size + light_data_size);
+    writeByte(client_fd, 0x27);
+
+    writeUint32(client_fd, cx);
+    writeUint32(client_fd, cz);
+    writeVarInt(client_fd, 0);
+    writeVarInt(client_fd, chunk_data_size);
+
+    int x = cx * 16;
+    int z = cz * 16;
+
+    // 4 below-ground chunk sections (bedrock-filled)
+    for (int i = 0; i < 4; i = i + 1) {
+        writeUint16(client_fd, 4096);
+        writeByte(client_fd, 0);
+        writeVarInt(client_fd, 85);
+        writeByte(client_fd, 0);
+        writeByte(client_fd, 0);
+    }
+
+    // 20 terrain chunk sections
+    for (int i = 0; i < 20; i = i + 1) {
+        int y = i * 16;
+        writeUint16(client_fd, 4096);
+        writeByte(client_fd, 8);
+        writeVarInt(client_fd, 256);
+        send_all(client_fd, network_block_palette, nbp_size);
+        int biome = buildChunkSection(x, y, z);
+        send_all(client_fd, chunk_section, 4096);
+        writeByte(client_fd, 0);
+        writeByte(client_fd, biome);
+    }
+
+    // 8 above-terrain sections (air)
+    for (int i = 0; i < 8; i = i + 1) {
+        writeUint16(client_fd, 4096);
+        writeByte(client_fd, 0);
+        writeVarInt(client_fd, 0);
+        writeByte(client_fd, 0);
+        writeByte(client_fd, 0);
+    }
+
+    writeVarInt(client_fd, 0);
+
+    // light data
+    writeVarInt(client_fd, 1);
+    writeUint64(client_fd, 0x3FFFFFF);
+    writeVarInt(client_fd, 0);
+    writeVarInt(client_fd, 0);
+    writeVarInt(client_fd, 0);
+
+    // sky light arrays
+    writeVarInt(client_fd, 26);
+    for (int j = 0; j < 2048; j = j + 1) { chunk_section[j] = (char)0xFF; }
+    for (int j = 2048; j < 4096; j = j + 1) { chunk_section[j] = (char)0; }
+    for (int i = 0; i < 8; i = i + 1) {
+        writeVarInt(client_fd, 2048);
+        send_all(client_fd, chunk_section + 2048, 2048);
+    }
+    for (int i = 0; i < 18; i = i + 1) {
+        writeVarInt(client_fd, 2048);
+        send_all(client_fd, chunk_section, 2048);
+    }
+    writeVarInt(client_fd, 0);
+
+    for (int i = 0; i < block_changes_count; i = i + 1) {
+        if (block_changes[i].block != B_torch) { } else {
+            if (block_changes[i].x < x || block_changes[i].x >= x + 16) { } else {
+                if (block_changes[i].z < z || block_changes[i].z >= z + 16) { } else {
+                    sc_blockUpdate(client_fd, block_changes[i].x, block_changes[i].y, block_changes[i].z, block_changes[i].block);
+                }
+            }
+        }
+    }
+}
+
+// S→C Clientbound Keep Alive (play)
+void sc_keepAlive(int client_fd) {
+    writeVarInt(client_fd, 9);
+    writeByte(client_fd, 0x26);
+    writeUint64(client_fd, 0);
+}
+
+// S→C Set Container Slot
+void sc_setContainerSlot(int client_fd, int window_id, int slot, int count, int item) {
+    writeVarInt(client_fd,
+        1 + sizeVarInt(window_id) + 1 + 2 +
+        sizeVarInt(count) +
+        if (count > 0) { sizeVarInt(item) + 2 } else { 0 }
+    );
+    writeByte(client_fd, 0x14);
+    writeVarInt(client_fd, window_id);
+    writeVarInt(client_fd, 0);          // state id
+    writeUint16(client_fd, slot);
+    writeVarInt(client_fd, count);
+    if (count > 0) {
+        writeVarInt(client_fd, item);
+        writeVarInt(client_fd, 0);
+        writeVarInt(client_fd, 0);
+    }
+}
+
+// S→C Acknowledge Block Change
+void sc_acknowledgeBlockChange(int client_fd, int sequence) {
+    writeVarInt(client_fd, 1 + sizeVarInt(sequence));
+    writeByte(client_fd, 0x04);
+    writeVarInt(client_fd, sequence);
+}
+
+// S→C Open Screen
+void sc_openScreen(int client_fd, int window, char *title, int length) {
+    writeVarInt(client_fd, 1 + 2 * sizeVarInt(window) + 1 + 2 + length);
+    writeByte(client_fd, 0x34);
+    writeVarInt(client_fd, window);
+    writeVarInt(client_fd, window);
+    writeByte(client_fd, 8);           // string NBT tag
+    writeUint16(client_fd, length);
+    send_all(client_fd, title, length);
+}
+
+// S→C Set Cursor Item
+void sc_setCursorItem(int client_fd, int item, int count) {
+    writeVarInt(client_fd, 1 + sizeVarInt(count) + if (count != 0) { sizeVarInt(item) + 2 } else { 0 });
+    writeByte(client_fd, 0x59);
+    writeVarInt(client_fd, count);
+    if (count != 0) {
+        writeVarInt(client_fd, item);
+        writeByte(client_fd, 0);
+        writeByte(client_fd, 0);
+    }
+}
+
+// S→C Set Held Item (clientbound)
+void sc_setHeldItem(int client_fd, int slot) {
+    writeVarInt(client_fd, sizeVarInt(0x62) + 1);
+    writeVarInt(client_fd, 0x62);
+    writeByte(client_fd, slot);
+}
+
+// S→C Player Info Update – Add Player action
+void sc_playerInfoUpdateAddPlayer(int client_fd, PlayerData *player) {
+    int name_len = strlen(player->name);
+    writeVarInt(client_fd, 21 + name_len);
+    writeByte(client_fd, 0x3F);
+    writeByte(client_fd, 0x01);   // EnumSet: Add Player
+    writeByte(client_fd, 1);      // player count
+    send_all(client_fd, player->uuid, 16);
+    writeByte(client_fd, name_len);
+    send_all(client_fd, player->name, name_len);
+    writeByte(client_fd, 0);      // no properties
+}
+
+// S→C Spawn Entity
+void sc_spawnEntity(int client_fd, int id, char *uuid, int type, int x, int y, int z, int yaw, int pitch) {
+    writeVarInt(client_fd, 51 + sizeVarInt(id) + sizeVarInt(type));
+    writeByte(client_fd, 0x01);
+    writeVarInt(client_fd, id);
+    send_all(client_fd, uuid, 16);
+    writeVarInt(client_fd, type);
+    writeDouble(client_fd, x);
+    writeDouble(client_fd, y);
+    writeDouble(client_fd, z);
+    writeByte(client_fd, pitch);
+    writeByte(client_fd, yaw);
+    writeByte(client_fd, yaw);
+    writeByte(client_fd, 0);     // data
+    writeUint16(client_fd, 0);
+    writeUint16(client_fd, 0);
+    writeUint16(client_fd, 0);
+}
+
+// S→C Set Entity Metadata
+void sc_setEntityMetadata(int client_fd, int id, EntityData *metadata, int length) {
+    int entity_metadata_size = sizeEntityMetadata(metadata, length);
+    if (entity_metadata_size != -1) {
+        writeVarInt(client_fd, 2 + sizeVarInt(id) + entity_metadata_size);
+        writeByte(client_fd, 0x5C);
+        writeVarInt(client_fd, id);
+        for (int i = 0; i < length; i = i + 1) {
+            writeEntityData(client_fd, metadata + i);
+        }
+        writeByte(client_fd, 0xFF);  // end marker
+    }
+}
+
+// S→C Spawn Entity (from PlayerData)
+void sc_spawnEntityPlayer(int client_fd, PlayerData *player) {
+    int px = if (player->x > 0) { player->x } else { player->x - 1 };
+    int pz = if (player->z > 0) { player->z } else { player->z - 1 };
+    sc_spawnEntity(client_fd, player->client_fd, player->uuid, 149, px, player->y, pz, player->yaw, player->pitch);
+}
+
+// S→C Entity Animation
+void sc_entityAnimation(int client_fd, int id, int animation) {
+    writeVarInt(client_fd, 2 + sizeVarInt(id));
+    writeByte(client_fd, 0x02);
+    writeVarInt(client_fd, id);
+    writeByte(client_fd, animation);
+}
+
+// S→C Teleport Entity
+void sc_teleportEntity(int client_fd, int id, int x, int y, int z, int yaw, int pitch) {
+    writeVarInt(client_fd, 58 + sizeVarInt(id));
+    writeByte(client_fd, 0x1F);
+    writeVarInt(client_fd, id);
+    writeDouble(client_fd, x);
+    writeDouble(client_fd, y);
+    writeDouble(client_fd, z);
+    writeUint64(client_fd, 0);  // velocity
+    writeUint64(client_fd, 0);
+    writeUint64(client_fd, 0);
+    writeFloat(client_fd, yaw);
+    writeFloat(client_fd, pitch);
+    writeByte(client_fd, 1);    // on ground
+}
+
+// S→C Set Head Rotation
+void sc_setHeadRotation(int client_fd, int id, int yaw) {
+    writeByte(client_fd, 2 + sizeVarInt(id));
+    writeByte(client_fd, 0x4C);
+    writeVarInt(client_fd, id);
+    writeByte(client_fd, yaw);
+}
+
+// S→C Update Entity Rotation
+void sc_updateEntityRotation(int client_fd, int id, int yaw, int pitch) {
+    writeByte(client_fd, 4 + sizeVarInt(id));
+    writeByte(client_fd, 0x31);
+    writeVarInt(client_fd, id);
+    writeByte(client_fd, yaw);
+    writeByte(client_fd, pitch);
+    writeByte(client_fd, 1);    // on ground
+}
+
+// S→C Damage Event
+void sc_damageEvent(int client_fd, int entity_id, int type) {
+    writeVarInt(client_fd, 4 + sizeVarInt(entity_id) + sizeVarInt(type));
+    writeByte(client_fd, 0x19);
+    writeVarInt(client_fd, entity_id);
+    writeVarInt(client_fd, type);
+    writeByte(client_fd, 0);
+    writeByte(client_fd, 0);
+    writeByte(client_fd, 0);  // has source = false
+}
+
+// S→C Set Health
+// health and food are 0-20 ints; saturation is 0-1000 (200=0.0, 700=1.0).
+void sc_setHealth(int client_fd, int health, int food, int saturation) {
+    writeVarInt(client_fd, 9 + sizeVarInt(food));
+    writeByte(client_fd, 0x61);
+    writeFloat(client_fd, health);
+    writeVarInt(client_fd, food);
+
+    // TODO: this is sus
+    // saturation as float: (saturation - 200) / 500
+    // For integer saturation values, encode_float32 is approximate.
+    // Simple path: send 0.0f when saturation <= 200, else encode_float32((sat-200)/500 step)
+    // Actually we want to send (sat-200)/500.0 — use a pre-divided integer approximation.
+    // Since saturation range 200-700 maps to 0.0-1.0, divide by 500 before encoding.
+    // For the common case saturation==200, just send 0.
+    int sat_int = saturation - 200;
+    int sat = if (sat_int <= 0) { 0 } else { sat_int / 500 };
+    writeFloat(client_fd, sat);
+}
+
+// S→C Respawn
+void sc_respawn(int client_fd) {
+    writeVarInt(client_fd, 28);
+    writeByte(client_fd, 0x4B);
+    writeVarInt(client_fd, 0);   // dimension id
+    writeVarInt(client_fd, 9);
+    send_all(client_fd, dim_overworld, 9);
+    writeUint64(client_fd, 0x0123456789ABCDEF);
+    writeByte(client_fd, GAMEMODE);
+    writeByte(client_fd, 0xFF);
+    writeByte(client_fd, 0);
+    writeByte(client_fd, 0);
+    writeByte(client_fd, 0);
+    writeVarInt(client_fd, 0);
+    writeVarInt(client_fd, 63);
+    writeByte(client_fd, 0);
+}
+
+// S→C System Chat
+void sc_systemChat(int client_fd, char *message, int len) {
+    writeVarInt(client_fd, 5 + len);
+    writeByte(client_fd, 0x72);
+    writeByte(client_fd, 8);        // string NBT tag
+    writeUint16(client_fd, len);
+    send_all(client_fd, message, len);
+    writeByte(client_fd, 0);        // not action bar
+}
+
+// S→C Entity Event
+void sc_entityEvent(int client_fd, int entity_id, int status) {
+    writeVarInt(client_fd, 6);
+    writeByte(client_fd, 0x1E);
+    writeUint32(client_fd, entity_id);
+    writeByte(client_fd, status);
+}
+
+// S→C Remove Entities (single entity per packet)
+void sc_removeEntity(int client_fd, int entity_id) {
+    writeVarInt(client_fd, 2 + sizeVarInt(entity_id));
+    writeByte(client_fd, 0x46);
+    writeByte(client_fd, 1);
+    writeVarInt(client_fd, entity_id);
+}
+
+// S→C Pickup Item (take_item_entity)
+void sc_pickupItem(int client_fd, int collected, int collector, int count) {
+    writeVarInt(client_fd, 1 + sizeVarInt(collected) + sizeVarInt(collector) + sizeVarInt(count));
+    writeByte(client_fd, 0x75);
+    writeVarInt(client_fd, collected);
+    writeVarInt(client_fd, collector);
+    writeVarInt(client_fd, count);
+}
+
+// S→C Registry Data + Update Tags (configuration phase)
+// Sends pre-encoded binary blobs generated by build_registries.js.
+void sc_registries(int client_fd) {
+    if (registries_bin_size > 0) {
+        send_all(client_fd, registries_bin, registries_bin_size);
+    }
+    if (tags_bin_size > 0) {
+        send_all(client_fd, tags_bin, tags_bin_size);
+    }
+}

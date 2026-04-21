@@ -1,0 +1,1523 @@
+// Game logic procedures — player management, world interaction, server tick.
+#include "../../std/"
+#include "packets_send.flap"
+#include "serialize.flap"
+
+// ---- Client state management ----
+
+// client_states[i] = fd, client_states[i+1] = state (pairs, step by 2)
+
+void setClientState(int client_fd, int new_state) {
+    int found1 = 0;
+    for (int j = 0; j < MAX_PLAYERS * 2; j = j + 2) {
+        if (client_states[j] == client_fd) {
+            found1 = 1;
+            client_states[j + 1] = new_state;
+        }
+    }
+    if (found1 == 0) {
+        for (int j = 0; j < MAX_PLAYERS * 2; j = j + 2) {
+            if (client_states[j] == -1 && found1 == 0) {
+                client_states[j] = client_fd;
+                client_states[j + 1] = new_state;
+                found1 = 1;
+            }
+        }
+    }
+}
+
+int getClientState(int client_fd) {
+    int result = STATE_NONE;
+    for (int i = 0; i < MAX_PLAYERS * 2; i = i + 2) {
+        if (client_states[i] == client_fd && result == STATE_NONE) {
+            result = client_states[i + 1];
+        }
+    }
+    result
+}
+
+int getClientIndex(int client_fd) {
+    int result = -1;
+    for (int i = 0; i < MAX_PLAYERS * 2; i = i + 2) {
+        if (client_states[i] == client_fd && result == -1) {
+            result = i;
+        }
+    }
+    result
+}
+
+// ---- Player data management ----
+
+void resetPlayerData(PlayerData *player) {
+    player->health = 20;
+    player->hunger = 20;
+    player->saturation = 2500;
+    player->x = 8;
+    player->z = 8;
+    player->y = 80;
+    player->flags = player->flags + if ((player->flags & 0x02) == 0) { 0x02 } else { 0 };
+    player->grounded_y = 0;
+    for (int i = 0; i < 41; i = i + 1) {
+        player->inventory_items[i] = 0;
+        player->inventory_count[i] = 0;
+    }
+    for (int i = 0; i < 9; i = i + 1) {
+        player->craft_items[i] = 0;
+        player->craft_count[i] = 0;
+    }
+    player->flags = player->flags - (player->flags & 0x80);
+}
+
+// Returns 0 on success, 1 on failure (no space)
+int reservePlayerData(int client_fd, char *uuid, char *name) {
+    int result = 1;
+    // First pass: check for UUID match (returning player)
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        if (result == 1) {
+            // Compare UUIDs byte by byte
+            int match = 1;
+            for (int k = 0; k < 16; k = k + 1) {
+                if (player_data[i].uuid[k] != uuid[k]) { match = 0; }
+            }
+            if (match == 1) {
+                player_data[i].client_fd = client_fd;
+                memcpy_char(player_data[i].name, name, 16);
+                player_data[i].flags = player_data[i].flags + if ((player_data[i].flags & 0x20) == 0) { 0x20 } else { 0 };
+                player_data[i].flagval_16 = 0;
+                for (int j = 0; j < VISITED_HISTORY; j = j + 1) {
+                    player_data[i].visited_x[j] = 32767;
+                    player_data[i].visited_z[j] = 32767;
+                }
+                result = 0;
+            }
+        }
+    }
+    if (result == 1) {
+        // Second pass: find empty slot
+        for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+            if (result == 1) {
+                int empty = 1;
+                for (int k = 0; k < 16; k = k + 1) {
+                    if (player_data[i].uuid[k] != (char)0) { empty = 0; }
+                }
+                if (empty == 1) {
+                    if (player_data_count >= MAX_PLAYERS) {
+                        result = 1;
+                    } else {
+                        player_data[i].client_fd = client_fd;
+                        player_data[i].flags = player_data[i].flags + if ((player_data[i].flags & 0x20) == 0) { 0x20 } else { 0 };
+                        player_data[i].flagval_16 = 0;
+                        memcpy_char(player_data[i].uuid, uuid, 16);
+                        memcpy_char(player_data[i].name, name, 16);
+                        resetPlayerData(player_data + i);
+                        player_data_count = player_data_count + 1;
+                        result = 0;
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+// Returns player pointer or NULL (0) if not found
+PlayerData *getPlayerData(int client_fd) {
+    PlayerData *result = (PlayerData *)0;
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        if (player_data[i].client_fd == client_fd && result == (PlayerData *)0) {
+            result = player_data + i;
+        }
+    }
+    result
+}
+
+// Returns pointer to player with matching name in buffer[start..end], or 0 (NULL)
+PlayerData *getPlayerByName(int start_offset, int end_offset, char *buffer) {
+    PlayerData *result = (PlayerData *)0;
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        if (player_data[i].client_fd == -1) { } else {
+            if (result == (PlayerData *)0) {
+                            int match = 1;
+                for (int j = start_offset; j < end_offset && j < 256; j = j + 1) {
+                    if (buffer[j] == ' ') {
+                        // stop
+                    } else {
+                        if (player_data[i].name[j - start_offset] != buffer[j]) { match = 0; }
+                    }
+                }
+                if (match == 1) { result = player_data + i; }
+            }
+        }
+    }
+    result
+}
+
+// ---- Disconnect / join ----
+
+void handlePlayerDisconnect(int client_fd) {
+    // Find player and broadcast leave message
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        if (player_data[i].client_fd == client_fd) {
+            player_data[i].client_fd = -1;
+            int name_len = strlen(player_data[i].name);
+            memcpy_char(recv_buffer, player_data[i].name, name_len);
+            memcpy_char(recv_buffer + name_len, str_left_game, 14);
+            for (int j = 0; j < MAX_PLAYERS; j = j + 1) {
+                if (player_data[j].client_fd != client_fd && player_data[j].client_fd != -1) {
+                    if ((player_data[j].flags & 0x20) == 0) {
+                        sc_systemChat(player_data[j].client_fd, recv_buffer, 14 + name_len);
+                        sc_removeEntity(player_data[j].client_fd, client_fd);
+                    }
+                }
+            }
+        }
+    }
+    // Clear client state entry
+    for (int i = 0; i < MAX_PLAYERS * 2; i = i + 2) {
+        if (client_states[i] == client_fd) {
+            client_states[i] = -1;
+        }
+    }
+}
+
+void handlePlayerJoin(PlayerData *player) {
+    int name_len = strlen(player->name);
+    memcpy_char(recv_buffer, player->name, name_len);
+    memcpy_char(recv_buffer + name_len, str_joined_game, 16);
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        if (player_data[i].client_fd != -1) {
+            sc_systemChat(player_data[i].client_fd, recv_buffer, 16 + name_len);
+            sc_playerInfoUpdateAddPlayer(player_data[i].client_fd, player);
+            if (player_data[i].client_fd != player->client_fd) {
+                sc_spawnEntityPlayer(player_data[i].client_fd, player);
+            }
+        }
+    }
+    player->flags = player->flags - (player->flags & 0x20);
+    player->flagval_16 = 0;
+}
+
+void disconnectClient(int client_fd) {
+    if (client_fd == -1) { } else {
+        client_count = client_count - 1;
+        setClientState(client_fd, STATE_NONE);
+        handlePlayerDisconnect(client_fd);
+        syscall(3, client_fd, 0, 0, 0, 0, 0);  // close(2) syscall
+    }
+}
+
+// ---- Slot conversion ----
+
+int serverSlotToClientSlot(int window_id, int slot) {
+    if (window_id == 0) {
+        if (slot < 9) { slot + 36 }
+        else if (slot >= 9 && slot <= 35) {
+            slot
+        } else if (slot == 40) {
+            45
+        } else if (slot >= 36 && slot <= 39) {
+            44 - slot
+        } else if (slot >= 41 && slot <= 44) {
+            slot - 40
+        } else {
+            255
+        }
+    } else {
+        if (window_id == 12) {
+            if (slot >= 41 && slot <= 49) { slot - 40 }
+            else { serverSlotToClientSlot(0, slot - 1) }
+        } else {
+            if (window_id == 14) {
+                if (slot >= 41 && slot <= 43) { slot - 41 }
+                else { serverSlotToClientSlot(0, slot + 6) }
+            } else {
+                255
+            }
+        }
+    }
+}
+
+int clientSlotToServerSlot(int window_id, int slot) {
+    if (window_id == 0) {
+        if (slot >= 36 && slot <= 44) { slot - 36 }
+        else if (slot >= 9 && slot <= 35) {
+            slot
+        } else if (slot == 45) {
+            40
+        } else if (slot >= 5 && slot <= 8) {
+            44 - slot
+        } else if (slot == 1) {
+            41
+        } else if (slot == 2) {
+            42
+        } else if (slot == 3) {
+            44
+        } else if (slot == 4) {
+            45
+        } else {
+            255
+        }
+    } else {
+        if (window_id == 12) {
+            if (slot >= 1 && slot <= 9) { 40 + slot }
+            else {
+                if (slot >= 10 && slot <= 45) { clientSlotToServerSlot(0, slot - 1) }
+                else { 255 }
+            }
+        } else {
+            if (window_id == 14) {
+                if (slot <= 2) { 41 + slot }
+                else {
+                    if (slot >= 3 && slot <= 38) { clientSlotToServerSlot(0, slot + 6) }
+                    else { 255 }
+                }
+            } else {
+                255
+            }
+        }
+    }
+}
+
+// ---- Inventory ----
+
+int isCompostItem(int item) {
+    if (item == I_oak_leaves || item == I_short_grass || item == I_wheat_seeds ||
+        item == I_oak_sapling || item == I_moss_carpet) { 184070026 }
+    else if (item == I_cactus || item == I_sugar_cane) { 306783378 }
+    else if (item == I_apple || item == I_lily_pad) { 398818392 }
+    else { 0 }
+}
+
+int getItemStackSize(int item) {
+    bool is_tool =
+        item == I_wooden_pickaxe || item == I_stone_pickaxe || item == I_iron_pickaxe ||
+        item == I_golden_pickaxe || item == I_diamond_pickaxe || item == I_netherite_pickaxe ||
+        item == I_wooden_axe || item == I_stone_axe || item == I_iron_axe ||
+        item == I_golden_axe || item == I_diamond_axe || item == I_netherite_axe ||
+        item == I_wooden_shovel || item == I_stone_shovel || item == I_iron_shovel ||
+        item == I_golden_shovel || item == I_diamond_shovel || item == I_netherite_shovel ||
+        item == I_wooden_sword || item == I_stone_sword || item == I_iron_sword ||
+        item == I_golden_sword || item == I_diamond_sword || item == I_netherite_sword ||
+        item == I_wooden_hoe || item == I_stone_hoe || item == I_iron_hoe ||
+        item == I_golden_hoe || item == I_diamond_hoe || item == I_netherite_hoe ||
+        item == I_shears;
+
+    if (is_tool) { 1 }
+    else if (item == I_snowball) { 16 }
+    else { 64 }
+}
+
+int getItemDefensePoints(int item) {
+    if (item == I_leather_helmet) { 1 }
+    else if (item == I_golden_helmet || item == I_iron_helmet) { 1 }
+    else if (item == I_diamond_helmet || item == I_netherite_helmet) { 3 }
+    else if (item == I_leather_chestplate) { 3 }
+    else if (item == I_golden_chestplate) { 5 }
+    else if (item == I_iron_chestplate) { 6 }
+    else if (item == I_diamond_chestplate || item == I_netherite_chestplate) { 8 }
+    else if (item == I_leather_leggings) { 2 }
+    else if (item == I_golden_leggings) { 3 }
+    else if (item == I_iron_leggings) { 5 }
+    else if (item == I_diamond_leggings || item == I_netherite_leggings) { 6 }
+    else if (item == I_leather_boots) { 1 }
+    else if (item == I_golden_boots || item == I_iron_boots) { 2 }
+    else if (item == I_diamond_boots || item == I_netherite_boots) { 3 }
+    else { 0 }
+}
+
+int getPlayerDefensePoints(PlayerData *player) {
+    getItemDefensePoints(player->inventory_items[39]) +
+    getItemDefensePoints(player->inventory_items[38]) +
+    getItemDefensePoints(player->inventory_items[37]) +
+    getItemDefensePoints(player->inventory_items[36])
+}
+
+int getArmorItemSlot(int item) {
+    bool is_helmet = item == I_leather_helmet || item == I_golden_helmet ||
+        item == I_iron_helmet || item == I_diamond_helmet || item == I_netherite_helmet;
+    bool is_chest = item == I_leather_chestplate || item == I_golden_chestplate ||
+        item == I_iron_chestplate || item == I_diamond_chestplate || item == I_netherite_chestplate;
+    bool is_legs = item == I_leather_leggings || item == I_golden_leggings ||
+        item == I_iron_leggings || item == I_diamond_leggings || item == I_netherite_leggings;
+    bool is_boots = item == I_leather_boots || item == I_golden_boots ||
+        item == I_iron_boots || item == I_diamond_boots || item == I_netherite_boots;
+
+    if (is_helmet) { 39 }
+    else if (is_chest) { 38 }
+    else if (is_legs) { 37 }
+    else if (is_boots) { 36 }
+    else { 255 }
+}
+
+
+int givePlayerItem(PlayerData *player, int item, int count) {
+    if (item == 0 || count == 0) { 0 }
+    else {
+        int slot = 255;
+        int stack_size = getItemStackSize(item);
+        // First pass: find a slot with the same item that has room
+        for (int i = 0; i < 41; i = i + 1) {
+            if (player->inventory_items[i] == item && player->inventory_count[i] <= stack_size - count && slot == 255) {
+                slot = i;
+            }
+        }
+        // Second pass: find empty slot
+        if (slot == 255) {
+            for (int i = 0; i < 41; i = i + 1) {
+                if (player->inventory_count[i] == 0 && slot == 255) {
+                    slot = i;
+                }
+            }
+        }
+        if (slot >= 36) { 1 }
+        else {
+            player->inventory_items[slot] = item;
+            player->inventory_count[slot] = player->inventory_count[slot] + count;
+            sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, slot), player->inventory_count[slot], item);
+            0
+        }
+    }
+}
+
+// ---- Player spawn ----
+
+void spawnPlayer(PlayerData *player) {
+    int spawn_x = 8;
+    int spawn_y = 80;
+    int spawn_z = 8;
+    int spawn_yaw = 0;
+    int spawn_pitch = 0;
+
+    if ((player->flags & 0x02) != 0) {
+        spawn_y = getHeightAt(8, 8) + 1;
+        player->y = spawn_y;
+        player->flags = player->flags - (player->flags & 0x02);
+    } else {
+        spawn_x = player->x;
+        spawn_y = player->y;
+        spawn_z = player->z;
+        spawn_yaw = player->yaw * 180 / 127;
+        spawn_pitch = player->pitch * 90 / 127;
+    }
+
+    sc_synchronizePlayerPosition(player->client_fd, spawn_x, spawn_y, spawn_z, spawn_yaw, spawn_pitch);
+
+    for (int i = 0; i < 9; i = i + 1) {
+        player->craft_items[i] = 0;
+        player->craft_count[i] = 0;
+    }
+    player->flags = player->flags - (player->flags & 0x80);
+
+    for (int i = 0; i < 41; i = i + 1) {
+        sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, i), player->inventory_count[i], player->inventory_items[i]);
+    }
+    sc_setHeldItem(player->client_fd, player->hotbar);
+    sc_setHealth(player->client_fd, player->health, player->hunger, player->saturation);
+    sc_updateTime(player->client_fd, world_time);
+
+    int cx = div_floor(player->x, 16);
+    int cz = div_floor(player->z, 16);
+
+    sc_setDefaultSpawnPosition(player->client_fd, 8, 80, 8);
+    sc_startWaitingForChunks(player->client_fd);
+    sc_setCenterChunk(player->client_fd, cx, cz);
+
+    sc_chunkDataAndUpdateLight(player->client_fd, cx, cz);
+    for (int di = -VIEW_DISTANCE; di <= VIEW_DISTANCE; di = di + 1) {
+        for (int dj = -VIEW_DISTANCE; dj <= VIEW_DISTANCE; dj = dj + 1) {
+            if (di != 0 || dj != 0) {
+                sc_chunkDataAndUpdateLight(player->client_fd, cx + di, cz + dj);
+            }
+        }
+    }
+    sc_synchronizePlayerPosition(player->client_fd, spawn_x, spawn_y, spawn_z, spawn_yaw, spawn_pitch);
+}
+
+// ---- Entity metadata broadcast ----
+
+void broadcastPlayerMetadata(PlayerData *player) {
+    int sneaking = if ((player->flags & 0x04) != 0) { 1 } else { 0 };
+    int sprinting = if ((player->flags & 0x08) != 0) { 1 } else { 0 };
+    int entity_bit_mask = 0;
+    if (sneaking != 0) { entity_bit_mask = entity_bit_mask + 0x02; }
+    if (sprinting != 0) { entity_bit_mask = entity_bit_mask + 0x08; }
+    int pose = if (sneaking != 0) { 5 } else { 0 };
+
+    EntityData *metadata = malloc(sizeof<EntityData> * 2);
+    metadata[0].index = 0;
+    metadata[0].type = 0;
+    metadata[0].value = entity_bit_mask;
+    metadata[1].index = 6;
+    metadata[1].type = 21;
+    metadata[1].value = pose;
+
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        PlayerData *other = player_data + i;
+        int cfd = other->client_fd;
+        if (cfd != -1 && cfd != player->client_fd && (other->flags & 0x20) == 0) {
+            sc_setEntityMetadata(cfd, player->client_fd, metadata, 2);
+        }
+    }
+    free(metadata);
+}
+
+void broadcastMobMetadata(int client_fd, int entity_id) {
+    int mob_index = -entity_id - 2;
+    if (mob_index >= 0 && mob_index < MAX_MOBS) {
+        MobData *mob = mob_data + mob_index;
+        if (mob->type == 106) {
+            if (((mob->data >> 5) & 1) != 0) {
+                EntityData *metadata = malloc(sizeof<EntityData>);
+                metadata[0].index = 17;
+                metadata[0].type = 0;
+                metadata[0].value = 0x10;
+                if (client_fd == -1) {
+                    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+                        PlayerData *p = player_data + i;
+                        if (p->client_fd != -1 && (p->flags & 0x20) == 0) {
+                            sc_setEntityMetadata(p->client_fd, entity_id, metadata, 1);
+                        }
+                    }
+                } else {
+                    sc_setEntityMetadata(client_fd, entity_id, metadata, 1);
+                }
+                free(metadata);
+            }
+        }
+    }
+}
+
+// ---- Block change helpers ----
+
+// Returns block at (x,y,z) from block_changes array, or 0xFF if not found.
+int getBlockChange(int x, int y, int z) {
+    int result = 0xFF;
+    for (int i = 0; i < block_changes_count; i = i + 1) {
+        if (block_changes[i].block != 0xFF && result == 0xFF) {
+            if (block_changes[i].x == x && block_changes[i].y == y && block_changes[i].z == z) {
+                result = block_changes[i].block;
+            }
+        }
+    }
+    result
+}
+
+void failBlockChange(int x, int y, int z, int block) {
+    int before = getBlockAt(x, y, z);
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        if (player_data[i].client_fd != -1 && (player_data[i].flags & 0x20) == 0) {
+            sc_blockUpdate(player_data[i].client_fd, x, y, z, before);
+            sc_systemChat(player_data[i].client_fd, str_block_limit, 67);
+        }
+    }
+}
+
+int makeBlockChange(int x, int y, int z, int block) {
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        if (player_data[i].client_fd != -1 && (player_data[i].flags & 0x20) == 0) {
+            sc_blockUpdate(player_data[i].client_fd, x, y, z, block);
+        }
+    }
+
+    int anchor_x = div_floor(x, CHUNK_SIZE);
+    int anchor_z = div_floor(z, CHUNK_SIZE);
+    int hash = getChunkHash(anchor_x, anchor_z);
+    int biome = getChunkBiome(anchor_x, anchor_z);
+
+    // Inline ChunkAnchor for getTerrainAt
+    ChunkAnchor *a = malloc(sizeof<ChunkAnchor>);
+    a->x = anchor_x;
+    a->z = anchor_z;
+    a->hash = hash;
+    a->biome = biome;
+    bool is_base = block == getTerrainAt(x, y, z, *a);
+    free(a);
+
+    int first_gap = block_changes_count;
+    // Prioritize replacing entries with matching coordinates
+    bool replaced = false;
+    for (int i = 0; !replaced && i < block_changes_count; i = i + 1) {
+        if (block_changes[i].block == 0xFF) {
+            if (first_gap == block_changes_count) {
+                first_gap = i;
+            }
+        } else if (block_changes[i].x == x && block_changes[i].y == y && block_changes[i].z == z) {
+            if (is_base) {
+                block_changes[i].block = 0xFF;
+            } else {
+                block_changes[i].block = block;
+            }
+            replaced = true;
+        }
+    }
+
+    if (replaced) { 0 }
+    else {
+        if (is_base) { 0 }
+        else {
+            if (first_gap == MAX_BLOCK_CHANGES) {
+                failBlockChange(x, y, z, block);
+                1
+            } else {
+                block_changes[first_gap].x = x;
+                block_changes[first_gap].y = y;
+                block_changes[first_gap].z = z;
+                block_changes[first_gap].block = block;
+                if (first_gap == block_changes_count) {
+                    block_changes_count = block_changes_count + 1;
+                }
+                0
+            }
+        }
+    }
+}
+
+// ---- Mining helpers ----
+
+int getMiningResult(int held_item, int block) {
+    if (block == B_oak_leaves) {
+        if (held_item == I_shears) { I_oak_leaves }
+        else {
+            int r = fast_rand();
+            if (r < 21474836) { I_apple }
+            else if (r < 85899345) { I_stick }
+            else if (r < 214748364) { I_oak_sapling }
+            else { 0 }
+        }
+    } else {
+        // Stone/pickaxe-required blocks
+        bool needs_pick =
+            block == B_stone || block == B_cobblestone || block == B_stone_slab ||
+            block == B_cobblestone_slab || block == B_sandstone || block == B_furnace ||
+            block == B_coal_ore || block == B_iron_ore || block == B_iron_block ||
+            block == B_gold_block || block == B_diamond_block || block == B_redstone_block ||
+            block == B_coal_block;
+        bool needs_iron_pick = block == B_gold_ore || block == B_redstone_ore || block == B_diamond_ore;
+        bool needs_shovel = block == B_snow;
+
+        if (needs_pick) {
+            bool has_pick =
+                held_item == I_wooden_pickaxe || held_item == I_stone_pickaxe ||
+                held_item == I_iron_pickaxe || held_item == I_golden_pickaxe ||
+                held_item == I_diamond_pickaxe || held_item == I_netherite_pickaxe;
+
+            if (has_pick) { B_to_I[block] } else { 0 }
+        } else if (needs_iron_pick) {
+            bool has_iron_pick =
+                held_item == I_iron_pickaxe || held_item == I_golden_pickaxe ||
+                held_item == I_diamond_pickaxe || held_item == I_netherite_pickaxe;
+
+            if (has_iron_pick) { B_to_I[block] } else { 0 }
+        } else if (needs_shovel) {
+            bool has_shovel =
+                held_item == I_wooden_shovel || held_item == I_stone_shovel ||
+                held_item == I_iron_shovel || held_item == I_golden_shovel ||
+                held_item == I_diamond_shovel || held_item == I_netherite_shovel;
+
+            if (has_shovel) { B_to_I[block] } else { 0 }
+        } else {
+            B_to_I[block]
+        }
+    }
+}
+
+void bumpToolDurability(PlayerData *player) {
+    int held_item = player->inventory_items[player->hotbar];
+    int r = fast_rand() & 0xFFFF_FFFF;
+    bool breaks =
+        ((held_item == I_wooden_pickaxe || held_item == I_wooden_axe || held_item == I_wooden_shovel) && r < 72796055) ||
+        ((held_item == I_stone_pickaxe || held_item == I_stone_axe || held_item == I_stone_shovel) && r < 32786009) ||
+        ((held_item == I_iron_pickaxe || held_item == I_iron_axe || held_item == I_iron_shovel) && r < 17179869) ||
+        ((held_item == I_golden_pickaxe || held_item == I_golden_axe || held_item == I_golden_shovel) && r < 134217728) ||
+        ((held_item == I_diamond_pickaxe || held_item == I_diamond_axe || held_item == I_diamond_shovel) && r < 2751420) ||
+        ((held_item == I_netherite_pickaxe || held_item == I_netherite_axe || held_item == I_netherite_shovel) && r < 2114705) ||
+        (held_item == I_shears && r < 18046081);
+
+    if (breaks) {
+        player->inventory_items[player->hotbar] = 0;
+        player->inventory_count[player->hotbar] = 0;
+        sc_entityEvent(player->client_fd, player->client_fd, 47);
+        sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, player->hotbar), 0, 0);
+    }
+}
+
+bool isInstantlyMined(PlayerData *player, int block) {
+    int held_item = player->inventory_items[player->hotbar];
+    if (block == B_snow || block == B_snow_block) {
+        held_item == I_stone_shovel || held_item == I_iron_shovel ||
+            held_item == I_diamond_shovel || held_item == I_netherite_shovel ||
+            held_item == I_golden_shovel
+    } else if (block == B_oak_leaves) {
+        held_item == I_shears
+    } else {
+        block == B_dead_bush || block == B_short_grass || block == B_torch
+        || block == B_lily_pad || block == B_oak_sapling
+    }
+}
+
+bool isColumnBlock(int block) {
+    block == B_snow || block == B_moss_carpet || block == B_cactus
+    || block == B_short_grass || block == B_dead_bush || block == B_sand
+    || block == B_torch || block == B_oak_sapling
+}
+
+bool isPassableBlock(int block) {
+    if (block == B_air) {
+        true
+    } else if ((block >= B_water && block < B_water + 8) ||
+            (block >= B_lava && block < B_lava + 4)) {
+        true
+    } else if (block == B_snow || block == B_moss_carpet || block == B_short_grass ||
+            block == B_dead_bush || block == B_torch) {
+        true
+    } else {
+        false
+    }
+}
+
+bool isPassableSpawnBlock(int block) {
+    if ((block >= B_water && block < B_water + 8) ||
+        (block >= B_lava && block < B_lava + 4)) {
+        false
+    } else {
+        isPassableBlock(block)
+    }
+}
+
+bool isReplaceableBlock(int block) {
+    if (block == B_air) {
+        true
+    } else if ((block >= B_water && block < B_water + 8) ||
+            (block >= B_lava && block < B_lava + 4)) {
+        true
+    } else if (block == B_short_grass || block == B_snow) {
+        true
+    } else {
+        false
+    }
+}
+
+bool isReplaceableFluid(int block, int level, int fluid) {
+    if (block >= fluid && block - fluid < 8) {
+        block - fluid > level
+    } else {
+        isReplaceableBlock(block)
+    }
+}
+
+
+// ---- Eating ----
+
+int handlePlayerEating(PlayerData *player, int just_check) {
+    if (player->hunger >= 20) { 0 }
+    else {
+        int held_item = player->inventory_items[player->hotbar];
+        int held_count = player->inventory_count[player->hotbar];
+        if (held_item == 0 || held_count == 0) { 0 }
+        else {
+            int food = 0;
+            int saturation = 0;
+            if (held_item == I_chicken) { food = 2; saturation = 600; }
+            else { if (held_item == I_beef) { food = 3; saturation = 900; }
+            else { if (held_item == I_porkchop) { food = 3; saturation = 300; }
+            else { if (held_item == I_mutton) { food = 2; saturation = 600; }
+            else { if (held_item == I_cooked_chicken) { food = 6; saturation = 3600; }
+            else { if (held_item == I_cooked_beef) { food = 8; saturation = 6400; }
+            else { if (held_item == I_cooked_porkchop) { food = 8; saturation = 6400; }
+            else { if (held_item == I_cooked_mutton) { food = 6; saturation = 4800; }
+            else { if (held_item == I_rotten_flesh) { food = 4; saturation = 0; }
+            else { if (held_item == I_apple) { food = 4; saturation = 1200; }
+            } } } } } } } } }
+            if (just_check != 0) {
+                if (food != 0) { 1 } else { 0 }
+            } else {
+                if (food == 0) { 0 }
+                else {
+                    player->saturation = player->saturation + saturation;
+                    player->hunger = player->hunger + food;
+                    if (player->hunger > 20) { player->hunger = 20; }
+                    player->inventory_count[player->hotbar] = player->inventory_count[player->hotbar] - 1;
+                    if (player->inventory_count[player->hotbar] == 0) {
+                        player->inventory_items[player->hotbar] = 0;
+                    }
+                    sc_entityEvent(player->client_fd, player->client_fd, 9);
+                    sc_setHealth(player->client_fd, player->health, player->hunger, player->saturation);
+                    sc_setContainerSlot(
+                        player->client_fd, 0,
+                        serverSlotToClientSlot(0, player->hotbar),
+                        player->inventory_count[player->hotbar],
+                        player->inventory_items[player->hotbar]
+                    );
+                    1
+                }
+            }
+        }
+    }
+}
+
+// ---- Fluid movement (mutual recursion via nested function) ----
+
+void checkFluidUpdate(int x, int y, int z, int block) {
+    void handleFluidMovement(int fx, int fy, int fz, int fluid, int fblock) {
+        int level = fblock - fluid;
+        int adj0 = getBlockAt(fx + 1, fy, fz);
+        int adj1 = getBlockAt(fx - 1, fy, fz);
+        int adj2 = getBlockAt(fx, fy, fz + 1);
+        int adj3 = getBlockAt(fx, fy, fz - 1);
+        if (level != 0) {
+            bool connected = adj0 == fblock - 1 || adj1 == fblock - 1 || adj2 == fblock - 1 || adj3 == fblock - 1;
+            if (!connected) {
+                makeBlockChange(fx, fy, fz, B_air);
+                checkFluidUpdate(fx + 1, fy, fz, adj0);
+                checkFluidUpdate(fx - 1, fy, fz, adj1);
+                checkFluidUpdate(fx, fy, fz + 1, adj2);
+                checkFluidUpdate(fx, fy, fz - 1, adj3);
+            } else {
+                int block_below = getBlockAt(fx, fy - 1, fz);
+                if (isReplaceableBlock(block_below)) {
+                    makeBlockChange(fx, fy - 1, fz, fluid);
+                    handleFluidMovement(fx, fy - 1, fz, fluid, fluid);
+                } else if ((level == 3 && fluid == B_lava) || level == 7) {
+                    // NO-OP
+                } else {
+                    if (isReplaceableFluid(adj0, level, fluid)) {
+                        makeBlockChange(fx + 1, fy, fz, fblock + 1);
+                        handleFluidMovement(fx + 1, fy, fz, fluid, fblock + 1);
+                    }
+                    if (isReplaceableFluid(adj1, level, fluid)) {
+                        makeBlockChange(fx - 1, fy, fz, fblock + 1);
+                        handleFluidMovement(fx - 1, fy, fz, fluid, fblock + 1);
+                    }
+                    if (isReplaceableFluid(adj2, level, fluid)) {
+                        makeBlockChange(fx, fy, fz + 1, fblock + 1);
+                        handleFluidMovement(fx, fy, fz + 1, fluid, fblock + 1);
+                    }
+                    if (isReplaceableFluid(adj3, level, fluid)) {
+                        makeBlockChange(fx, fy, fz - 1, fblock + 1);
+                        handleFluidMovement(fx, fy, fz - 1, fluid, fblock + 1);
+                    }
+                }
+            }
+        } else {
+            int block_below = getBlockAt(fx, fy - 1, fz);
+            if (isReplaceableBlock(block_below)) {
+                makeBlockChange(fx, fy - 1, fz, fluid);
+                handleFluidMovement(fx, fy - 1, fz, fluid, fluid);
+            } else if ((level == 3 && fluid == B_lava) || level == 7) {
+                // NO-OP
+            } else {
+                if (isReplaceableFluid(adj0, level, fluid)) {
+                    makeBlockChange(fx + 1, fy, fz, fblock + 1);
+                    handleFluidMovement(fx + 1, fy, fz, fluid, fblock + 1);
+                }
+                if (isReplaceableFluid(adj1, level, fluid)) {
+                    makeBlockChange(fx - 1, fy, fz, fblock + 1);
+                    handleFluidMovement(fx - 1, fy, fz, fluid, fblock + 1);
+                }
+                if (isReplaceableFluid(adj2, level, fluid)) {
+                    makeBlockChange(fx, fy, fz + 1, fblock + 1);
+                    handleFluidMovement(fx, fy, fz + 1, fluid, fblock + 1);
+                }
+                if (isReplaceableFluid(adj3, level, fluid)) {
+                    makeBlockChange(fx, fy, fz - 1, fblock + 1);
+                    handleFluidMovement(fx, fy, fz - 1, fluid, fblock + 1);
+                }
+            }
+        }
+    }
+    if (block >= B_water && block < B_water + 8) {
+        handleFluidMovement(x, y, z, B_water, block);
+    } else if (block >= B_lava && block < B_lava + 4) {
+        handleFluidMovement(x, y, z, B_lava, block);
+    }
+}
+
+// ---- Player action handlers ----
+
+void handlePlayerAction(PlayerData *player, int action, int x, int y, int z) {
+    if (action == 3 || action == 4) {
+        sc_setContainerSlot(
+            player->client_fd, 0,
+            serverSlotToClientSlot(0, player->hotbar),
+            player->inventory_count[player->hotbar],
+            player->inventory_items[player->hotbar]
+        );
+    } else {
+        if (action == 5) {
+            player->flagval_16 = 0;
+            player->flags = player->flags - (player->flags & 0x10);
+        }
+        if (action == 0 || action == 2) {
+            if (action == 0 && GAMEMODE == 1) {
+                makeBlockChange(x, y, z, 0);
+            } else {
+                int block = getBlockAt(x, y, z);
+                if (action == 0 && !isInstantlyMined(player, block)) { } else {
+                    if (makeBlockChange(x, y, z, 0) == 0) {
+                        int held_item = player->inventory_items[player->hotbar];
+                        int item = getMiningResult(held_item, block);
+                        bumpToolDurability(player);
+                        if (item != 0) { givePlayerItem(player, item, 1); }
+                        // Column block cascade
+                        int block_above = getBlockAt(x, y + 1, z);
+                        int y_offset = 1;
+                        void go(int yoff, int blk_above) {
+                            if (isColumnBlock(blk_above)) {
+                                makeBlockChange(x, y + yoff, z, 0);
+                                int drop = getMiningResult(0, blk_above);
+                                if (drop != 0) { givePlayerItem(player, drop, 1); }
+                                go(yoff + 1, getBlockAt(x, y + yoff + 1, z));
+                            }
+                        }
+                        go(1, block_above);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// ---- Structure placement ----
+
+void setBlockIfReplaceable(int x, int y, int z, int block) {
+    int target = getBlockAt(x, y, z);
+    bool replaceable = if (target == B_oak_leaves) {
+        true
+    } else {
+        isReplaceableBlock(target)
+    };
+
+    if (replaceable) {
+        makeBlockChange(x, y, z, block);
+    }
+}
+
+void placeTreeStructure(int x, int y, int z) {
+    int r = fast_rand();
+    int height = 4 + (r % 3);
+
+    makeBlockChange(x, y - 1, z, B_dirt);
+    makeBlockChange(x, y, z, B_oak_log);
+
+    for (int i = 1; i < height; i = i + 1) {
+        setBlockIfReplaceable(x, y + i, z, B_oak_log);
+    }
+
+    int t = 2;
+    for (int i = -2; i <= 2; i = i + 1) {
+        for (int j = -2; j <= 2; j = j + 1) {
+            setBlockIfReplaceable(x + i, y + height - 3, z + j, B_oak_leaves);
+            int is_corner = if ((i == 2 || i == -2) && (j == 2 || j == -2)) { 1 } else { 0 };
+            if (is_corner != 0) {
+                t = t + 1;
+                if (((r >> t) & 1) != 0) { } else {
+                    setBlockIfReplaceable(x + i, y + height - 2, z + j, B_oak_leaves);
+                }
+            } else {
+                setBlockIfReplaceable(x + i, y + height - 2, z + j, B_oak_leaves);
+            }
+        }
+    }
+    for (int i = -1; i <= 1; i = i + 1) {
+        for (int j = -1; j <= 1; j = j + 1) {
+            setBlockIfReplaceable(x + i, y + height - 1, z + j, B_oak_leaves);
+            int is_corner = if ((i == 1 || i == -1) && (j == 1 || j == -1)) { 1 } else { 0 };
+            if (is_corner != 0) {
+                t = t + 1;
+                if (((r >> t) & 1) != 0) { } else {
+                    setBlockIfReplaceable(x + i, y + height, z + j, B_oak_leaves);
+                }
+            } else {
+                setBlockIfReplaceable(x + i, y + height, z + j, B_oak_leaves);
+            }
+        }
+    }
+}
+
+
+void handlePlayerUseItem(PlayerData *player, int x, int y, int z, int face) {
+    int target = if (face == 255) { 0 } else { getBlockAt(x, y, z) };
+    int count = player->inventory_count[player->hotbar];
+    int item = player->inventory_items[player->hotbar];
+
+    // Container interactions (not sneaking)
+    if ((player->flags & 0x04) == 0 && face != 255) {
+        if (target == B_crafting_table) {
+            sc_openScreen(player->client_fd, 12, str_crafting, 8);
+        } else if (target == B_furnace) {
+            sc_openScreen(player->client_fd, 14, str_furnace, 7);
+        } else if (target == B_composter && count != 0) {
+            int compost_chance = isCompostItem(item);
+            if (compost_chance != 0) {
+                player->inventory_count[player->hotbar] = player->inventory_count[player->hotbar] - 1;
+                if (player->inventory_count[player->hotbar] == 0) {
+                    player->inventory_items[player->hotbar] = 0;
+                }
+                sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, player->hotbar), player->inventory_count[player->hotbar], player->inventory_items[player->hotbar]);
+                if (fast_rand() < compost_chance) {
+                    givePlayerItem(player, I_bone_meal, 1);
+                }
+            }
+        // Container block interaction ends here (no chests in this port)
+        } else if (count == 0) { }
+        // Fall through to item use below
+        else if (item == I_bone_meal) {
+            int target_below = getBlockAt(x, y - 1, z);
+            if (target == B_oak_sapling) {
+                player->inventory_count[player->hotbar] = player->inventory_count[player->hotbar] - 1;
+                if (player->inventory_count[player->hotbar] == 0) {
+                    player->inventory_items[player->hotbar] = 0;
+                }
+                sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, player->hotbar), player->inventory_count[player->hotbar], player->inventory_items[player->hotbar]);
+                if (target_below == B_dirt || target_below == B_grass_block ||
+                    target_below == B_snowy_grass_block || target_below == B_mud) {
+                    if ((fast_rand() & 3) == 0) { placeTreeStructure(x, y, z); }
+                }
+            }
+        } else if (handlePlayerEating(player, 1) != 0) {
+            player->flagval_16 = 0;
+            player->flags = player->flags + if ((player->flags & 0x10) == 0) { 0x10 } else { 0 };
+        } else if (getItemDefensePoints(item) != 0) {
+            if (face == 255) {
+                int slot = getArmorItemSlot(item);
+                int prev_item = player->inventory_items[slot];
+                player->inventory_items[slot] = item;
+                player->inventory_count[slot] = 1;
+                player->inventory_items[player->hotbar] = prev_item;
+                player->inventory_count[player->hotbar] = 1;
+                sc_setContainerSlot(player->client_fd, -2, serverSlotToClientSlot(0, slot), 1, item);
+                sc_setContainerSlot(player->client_fd, -2, serverSlotToClientSlot(0, player->hotbar), 1, prev_item);
+            }
+        } else {
+            // Block placement
+            int block_id = I_to_B(item);
+            if (block_id != 0) {
+                int px = x;
+                int py = y;
+                int pz = z;
+
+                if (face == 0) { py = py - 1; }
+                else if (face == 1) { py = py + 1; }
+                else if (face == 2) { pz = pz - 1; }
+                else if (face == 3) { pz = pz + 1; }
+                else if (face == 4) { px = px - 1; }
+                else if (face == 5) { px = px + 1; }
+
+                bool in_player_way =
+                    !isPassableBlock(block_id) &&
+                    px == player->x &&
+                    (py == player->y || py == player->y + 1) &&
+                    pz == player->z;
+
+                if (!in_player_way &&
+                    isReplaceableBlock(getBlockAt(px, py, pz)) &&
+                    (!isColumnBlock(block_id) || getBlockAt(px, py - 1, pz) != B_air)) {
+                    if (makeBlockChange(px, py, pz, block_id) == 0) {
+                        player->inventory_count[player->hotbar] = player->inventory_count[player->hotbar] - 1;
+                        if (player->inventory_count[player->hotbar] == 0) {
+                            player->inventory_items[player->hotbar] = 0;
+                        }
+                    }
+                }
+                sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, player->hotbar), player->inventory_count[player->hotbar], player->inventory_items[player->hotbar]);
+            }
+        }
+    } else {
+        // Sneaking or no face — only item use / block placement (no container open)
+        if (count == 0) { } else {
+            if (item == I_bone_meal && face != 255) {
+                int target_below = getBlockAt(x, y - 1, z);
+                if (target == B_oak_sapling) {
+                    player->inventory_count[player->hotbar] = player->inventory_count[player->hotbar] - 1;
+                    if (player->inventory_count[player->hotbar] == 0) {
+                        player->inventory_items[player->hotbar] = 0;
+                    }
+                    sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, player->hotbar), player->inventory_count[player->hotbar], player->inventory_items[player->hotbar]);
+                    if (target_below == B_dirt || target_below == B_grass_block ||
+                        target_below == B_snowy_grass_block || target_below == B_mud) {
+                        if ((fast_rand() & 3) == 0) { placeTreeStructure(x, y, z); }
+                    }
+                }
+            } else if (handlePlayerEating(player, 1) != 0) {
+                player->flagval_16 = 0;
+                player->flags = player->flags + if ((player->flags & 0x10) == 0) { 0x10 } else { 0 };
+            } else if (getItemDefensePoints(item) != 0 && face == 255) {
+                int slot = getArmorItemSlot(item);
+                int prev_item = player->inventory_items[slot];
+                player->inventory_items[slot] = item;
+                player->inventory_count[slot] = 1;
+                player->inventory_items[player->hotbar] = prev_item;
+                player->inventory_count[player->hotbar] = 1;
+                sc_setContainerSlot(player->client_fd, -2, serverSlotToClientSlot(0, slot), 1, item);
+                sc_setContainerSlot(player->client_fd, -2, serverSlotToClientSlot(0, player->hotbar), 1, prev_item);
+            } else if (face != 255) {
+                int block_id = I_to_B(item);
+                if (block_id != 0) {
+                    int px = x;
+                    int py = y;
+                    int pz = z;
+
+                    if (face == 0) { py = py - 1; }
+                    else if (face == 1) { py = py + 1; }
+                    else if (face == 2) { pz = pz - 1; }
+                    else if (face == 3) { pz = pz + 1; }
+                    else if (face == 4) { px = px - 1; }
+                    else if (face == 5) { px = px + 1; }
+
+                    bool in_player_way =
+                        !isPassableBlock(block_id) &&
+                        px == player->x &&
+                        (py == player->y || py == player->y + 1) &&
+                        pz == player->z;
+
+                    if (!in_player_way &&
+                        isReplaceableBlock(getBlockAt(px, py, pz)) &&
+                        (!isColumnBlock(block_id) || getBlockAt(px, py - 1, pz) != B_air)) {
+                        if (makeBlockChange(px, py, pz, block_id) == 0) {
+                            player->inventory_count[player->hotbar] = player->inventory_count[player->hotbar] - 1;
+                            if (player->inventory_count[player->hotbar] == 0) {
+                                player->inventory_items[player->hotbar] = 0;
+                            }
+                        }
+                    }
+                    sc_setContainerSlot(player->client_fd, 0, serverSlotToClientSlot(0, player->hotbar), player->inventory_count[player->hotbar], player->inventory_items[player->hotbar]);
+                }
+            }
+        }
+    }
+}
+
+// ---- Mob management ----
+
+void spawnMob(int type, int x, int y, int z, int health) {
+    int done = 0;
+    for (int i = 0; i < MAX_MOBS; i = i + 1) {
+        if (mob_data[i].type == 0 && done == 0) {
+            done = 1;
+            mob_data[i].type = type;
+            mob_data[i].x = x;
+            mob_data[i].y = y;
+            mob_data[i].z = z;
+            mob_data[i].data = health & 31;
+
+            // Build UUID from fast_rand + mob index
+            char *uuid = malloc(16);
+            int r = fast_rand();
+            uuid[0] = (char)(r & 0xFF);
+            uuid[1] = (char)((r >> 8) & 0xFF);
+            uuid[2] = (char)((r >> 16) & 0xFF);
+            uuid[3] = (char)((r >> 24) & 0xFF);
+            uuid[4] = (char)(i & 0xFF);
+            uuid[5] = (char)((i >> 8) & 0xFF);
+            uuid[6] = (char)((i >> 16) & 0xFF);
+            uuid[7] = (char)((i >> 24) & 0xFF);
+            uuid[8] = (char)0;
+            uuid[9] = (char)0;
+            uuid[10] = (char)0;
+            uuid[11] = (char)0;
+            uuid[12] = (char)0;
+            uuid[13] = (char)0;
+            uuid[14] = (char)0;
+            uuid[15] = (char)0;
+
+            for (int j = 0; j < MAX_PLAYERS; j = j + 1) {
+                if (player_data[j].client_fd != -1) {
+                    sc_spawnEntity(
+                        player_data[j].client_fd,
+                        -2 - i, uuid, type,
+                        x, y, z,
+                        (player_data[j].yaw + 127) & 255, 0
+                    );
+                }
+            }
+            free(uuid);
+        }
+    }
+}
+
+void interactEntity(int entity_id, int interactor_id) {
+    PlayerData *player = getPlayerData(interactor_id);
+    if (player != (PlayerData *)0) {
+        int mob_index = -entity_id - 2;
+        if (mob_index >= 0 && mob_index < MAX_MOBS) {
+            MobData *mob = mob_data + mob_index;
+            if (mob->type == 106) {  // Sheep
+                if (player->inventory_items[player->hotbar] == I_shears) {
+                    if (((mob->data >> 5) & 1) != 0) { } else {
+                        mob->data = mob->data + 32;  // set sheared bit (bit 5)
+                        bumpToolDurability(player);
+                        int item_count = 1 + (fast_rand() & 1);
+                        givePlayerItem(player, I_white_wool, item_count);
+                        for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+                            PlayerData *op = player_data + i;
+                            if (op->client_fd != -1 && (op->flags & 0x20) == 0) {
+                                sc_entityAnimation(op->client_fd, interactor_id, 0);
+                            }
+                        }
+                        broadcastMobMetadata(-1, entity_id);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void hurtEntity(int entity_id, int attacker_id, int damage_type, int damage) {
+    int effective_damage = damage;
+
+    if (attacker_id > 0) {
+        PlayerData *player = getPlayerData(attacker_id);
+        if (player != (PlayerData *)0) {
+            if ((player->flags & 0x01) != 0) { attacker_id = -999; } else {
+                int held_item = player->inventory_items[player->hotbar];
+
+                if (held_item == I_wooden_sword || held_item == I_golden_sword) { effective_damage = effective_damage * 4; }
+                else if (held_item == I_stone_sword) { effective_damage = effective_damage * 5; }
+                else if (held_item == I_iron_sword) { effective_damage = effective_damage * 6; }
+                else if (held_item == I_diamond_sword) { effective_damage = effective_damage * 7; }
+                else if (held_item == I_netherite_sword) { effective_damage = effective_damage * 8; }
+
+                player->flags = player->flags + if ((player->flags & 0x01) == 0) { 0x01 } else { 0 };
+                player->flagval_8 = 0;
+            }
+        }
+    }
+
+    if (attacker_id == -999) { } else {
+        int entity_died = 0;
+
+        if (entity_id > 0) {
+            PlayerData *player = getPlayerData(entity_id);
+            if (player != (PlayerData *)0) {
+                if (player->health != 0) {
+                    int defense = getPlayerDefensePoints(player);
+                    int edamage = effective_damage * (256 - defense * 10) / 256;
+                    if (player->health <= edamage) {
+                        player->health = 0;
+                        entity_died = 1;
+                        int name_len = strlen(player->name);
+                        memcpy_char(recv_buffer, player->name, name_len);
+                        if (damage_type == D_fall && damage > 8) {
+                            memcpy_char(recv_buffer + name_len, str_death_fall_high, 23);
+                            recv_buffer[name_len + 23] = (char)0;
+                        } else if (damage_type == D_fall) {
+                            memcpy_char(recv_buffer + name_len, str_death_fall, 24);
+                            recv_buffer[name_len + 24] = (char)0;
+                        } else if (damage_type == D_lava) {
+                            memcpy_char(recv_buffer + name_len, str_death_lava, 22);
+                            recv_buffer[name_len + 22] = (char)0;
+                        } else if (attacker_id < -1) {
+                            memcpy_char(recv_buffer + name_len, str_death_mob, 19);
+                            recv_buffer[name_len + 19] = (char)0;
+                        } else if (attacker_id > 0) {
+                            PlayerData *atk = getPlayerData(attacker_id);
+                            if (atk != (PlayerData *)0) {
+                                memcpy_char(recv_buffer + name_len, str_death_player, 14);
+                                int atk_len = strlen(atk->name);
+                                memcpy_char(recv_buffer + name_len + 14, atk->name, atk_len);
+                                recv_buffer[name_len + 14 + atk_len] = (char)0;
+                            }
+                        } else if (damage_type == D_cactus) {
+                            memcpy_char(recv_buffer + name_len, str_death_cactus, 21);
+                            recv_buffer[name_len + 21] = (char)0;
+                        } else {
+                            memcpy_char(recv_buffer + name_len, str_death_generic, 5);
+                            recv_buffer[name_len + 5] = (char)0;
+                        }
+                    } else {
+                        player->health = player->health - edamage;
+                    }
+                    sc_setHealth(entity_id, player->health, player->hunger, player->saturation);
+                }
+            }
+        } else {
+            int mob_index = -entity_id - 2;
+            if (mob_index >= 0 && mob_index < MAX_MOBS) {
+                MobData *mob = mob_data + mob_index;
+                int mob_health = mob->data & 31;
+                if (mob_health != 0) {
+                    mob->data = (mob->data - (mob->data & 0xC0)) + 0xC0;  // set panic timer = 3
+                    if (mob_health <= effective_damage) {
+                        mob->data = mob->data - mob_health;
+                        mob->y = 0;
+                        entity_died = 1;
+                        if (attacker_id > 0) {
+                            PlayerData *player = getPlayerData(attacker_id);
+                            if (player != (PlayerData *)0) {
+                                if (mob->type == 25) { givePlayerItem(player, I_chicken, 1); }
+                                else if (mob->type == 28) { givePlayerItem(player, I_beef, 1 + (fast_rand() % 3)); }
+                                else if (mob->type == 95) { givePlayerItem(player, I_porkchop, 1 + (fast_rand() % 3)); }
+                                else if (mob->type == 106) { givePlayerItem(player, I_mutton, 1 + (fast_rand() & 1)); }
+                                else if (mob->type == 145) { givePlayerItem(player, I_rotten_flesh, fast_rand() % 3); }
+                            }
+                        }
+                    } else {
+                        mob->data = mob->data - effective_damage;
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+            int cfd = player_data[i].client_fd;
+            if (cfd != -1) {
+                sc_damageEvent(cfd, entity_id, damage_type);
+                if (entity_died != 0) {
+                    sc_entityEvent(cfd, entity_id, 3);
+                    if (entity_id >= 0) {
+                        sc_systemChat(cfd, recv_buffer, strlen(recv_buffer));
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---- Server tick ----
+
+// Stub: no-op (disk serialisation is handled by serialize.flap, or skipped)
+void writeDataToDiskOnInterval() { }
+
+void handleServerTick(int time_since_last_tick) {
+    world_time = (world_time + time_since_last_tick / 50000) % 24000;
+    server_ticks = server_ticks + 1;
+
+    for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
+        PlayerData *player = player_data + i;
+        if (player->client_fd != -1) {
+            if ((player->flags & 0x20) != 0) {
+                player->flagval_16 = player->flagval_16 + 1;
+                if (player->flagval_16 > 3 * TICKS_PER_SECOND) {
+                    handlePlayerJoin(player);
+                }
+            } else {
+                // Reset attack cooldown
+                if ((player->flags & 0x01) != 0) {
+                    if (player->flagval_8 >= (6 * TICKS_PER_SECOND / 10)) {
+                        player->flags = player->flags - (player->flags & 0x01);
+                        player->flagval_8 = 0;
+                    } else {
+                        player->flagval_8 = player->flagval_8 + 1;
+                    }
+                }
+                // Handle eating animation
+                if ((player->flags & 0x10) != 0) {
+                    if (player->flagval_16 >= (16 * TICKS_PER_SECOND / 10)) {
+                        handlePlayerEating(player, 0);
+                        player->flags = player->flags - (player->flags & 0x10);
+                        player->flagval_16 = 0;
+                    } else {
+                        player->flagval_16 = player->flagval_16 + 1;
+                    }
+                }
+                // Reset movement cooldown each tick
+                player->flags = player->flags - (player->flags & 0x40);
+
+                // Once-per-second events
+                if (server_ticks % TICKS_PER_SECOND == 0) {
+                    sc_keepAlive(player->client_fd);
+                    sc_updateTime(player->client_fd, world_time);
+                    // Lava damage
+                    int pblock = getBlockAt(player->x, player->y, player->z);
+                    if (pblock >= B_lava && pblock < B_lava + 4) {
+                        hurtEntity(player->client_fd, -1, D_lava, 8);
+                    }
+                    // Healing from saturation
+                    if (player->health < 20 && player->health != 0 && player->hunger >= 18) {
+                        if (player->saturation >= 600) {
+                            player->saturation = player->saturation - 600;
+                            player->health = player->health + 1;
+                        } else {
+                            player->hunger = player->hunger - 1;
+                            player->health = player->health + 1;
+                        }
+                        sc_setHealth(player->client_fd, player->health, player->hunger, player->saturation);
+                    }
+                }
+            }
+        }
+    }
+
+    writeDataToDiskOnInterval();
+
+    if (rng_seed == 0) { rng_seed = world_seed; }
+
+    // Mob tick
+    for (int i = 0; i < MAX_MOBS; i = i + 1) {
+        if (mob_data[i].type != 0) {
+            int entity_id = -2 - i;
+            if ((mob_data[i].data & 31) == 0) {
+                // Dead mob: wait then remove
+                if (mob_data[i].y < TICKS_PER_SECOND) {
+                    mob_data[i].y = mob_data[i].y + 1;
+                } else {
+                    mob_data[i].type = 0;
+                    for (int j = 0; j < MAX_PLAYERS; j = j + 1) {
+                        if (player_data[j].client_fd != -1) {
+                            sc_entityEvent(player_data[j].client_fd, entity_id, 60);
+                            sc_removeEntity(player_data[j].client_fd, entity_id);
+                        }
+                    }
+                }
+            } else {
+                int passive = if (mob_data[i].type == 25 || mob_data[i].type == 28 ||
+                    mob_data[i].type == 95 || mob_data[i].type == 106) { 1 } else { 0 };
+                int panic = (mob_data[i].data >> 6) & 3;
+
+                // Burn hostile mobs in sunlight
+                if (passive == 0 && (world_time < 13000 || world_time > 23460) && mob_data[i].y > 48) {
+                    hurtEntity(entity_id, -1, D_on_fire, 2);
+                }
+
+                int r = fast_rand();
+                int do_tick = 0;
+
+                if (passive == 1) {
+                    if (panic != 0) {
+                        if (TICKS_PER_SECOND >= 4) {
+                            int ticks_per_panic = TICKS_PER_SECOND / 4;
+                            if (server_ticks % ticks_per_panic == 0) { do_tick = 1; }
+                        } else {
+                            do_tick = 1;
+                        }
+                        if (server_ticks % TICKS_PER_SECOND == 0) {
+                            mob_data[i].data = mob_data[i].data - 64;  // decrement panic timer
+                        }
+                    } else if (r % (4 * TICKS_PER_SECOND) == 0) {
+                        do_tick = 1;
+                    }
+                } else if (server_ticks % TICKS_PER_SECOND == 0) {
+                    do_tick = 1;
+                }
+
+                if (do_tick != 0) {
+                    // Find closest player
+                    PlayerData *closest = player_data;
+                    int closest_dist = 2147483647;
+                    for (int j = 0; j < MAX_PLAYERS; j = j + 1) {
+                        if (player_data[j].client_fd != -1) {
+                            int dx = mob_data[i].x - player_data[j].x;
+                            int dz = mob_data[i].z - player_data[j].z;
+                            int dist = if (dx < 0) { -dx } else { dx } + if (dz < 0) { -dz } else { dz };
+                            if (dist < closest_dist) {
+                                closest_dist = dist;
+                                closest = player_data + j;
+                            }
+                        }
+                    }
+
+                    if (closest_dist > MOB_DESPAWN_DISTANCE) {
+                        mob_data[i].type = 0;
+                    } else {
+                        int old_x = mob_data[i].x;
+                        int old_y = mob_data[i].y;
+                        int old_z = mob_data[i].z;
+                        int new_x = old_x;
+                        int new_y = old_y;
+                        int new_z = old_z;
+                        int yaw = 0;
+
+                        if (passive == 1) {
+                            if (((r >> 2) & 1) != 0) {
+                                if (((r >> 1) & 1) != 0) { new_x = new_x + 1; yaw = 192; }
+                                else { new_x = new_x - 1; yaw = 64; }
+                            } else {
+                                if (((r >> 1) & 1) != 0) { new_z = new_z + 1; yaw = 0; }
+                                else { new_z = new_z - 1; yaw = 128; }
+                            }
+                        } else {
+                            int dy = old_y - closest->y;
+                            int abs_dy = if (dy < 0) { -dy } else { dy };
+                            if (closest_dist < 3 && abs_dy < 2) {
+                                hurtEntity(closest->client_fd, entity_id, D_generic, 6);
+                                do_tick = 0;  // skip movement
+                            } else if (closest->x < old_x) {
+                                new_x = new_x - 1; yaw = 64;
+                                if (closest->z < old_z) { new_z = new_z - 1; yaw = yaw + 32; }
+                                else { if (closest->z > old_z) { new_z = new_z + 1; yaw = yaw - 32; } }
+                            } else if (closest->x > old_x) {
+                                new_x = new_x + 1; yaw = 192;
+                                if (closest->z < old_z) { new_z = new_z - 1; yaw = yaw - 32; }
+                                else { if (closest->z > old_z) { new_z = new_z + 1; yaw = yaw + 32; } }
+                            } else {
+                                if (closest->z < old_z) { new_z = new_z - 1; yaw = 128; }
+                                else { if (closest->z > old_z) { new_z = new_z + 1; yaw = 0; } }
+                            }
+                        }
+
+                        if (do_tick != 0) {
+                            // Validate X movement
+                            if (new_x != old_x) {
+                                if (!isPassableBlock(getBlockAt(new_x, new_y + 1, old_z)) ||
+                                    (!isPassableBlock(getBlockAt(new_x, new_y, old_z)) &&
+                                     !isPassableBlock(getBlockAt(new_x, new_y + 2, old_z)))) {
+                                    new_x = old_x;
+                                }
+                            }
+                            // Validate Z movement
+                            if (new_z != old_z) {
+                                if (!isPassableBlock(getBlockAt(old_x, new_y + 1, new_z)) ||
+                                    (!isPassableBlock(getBlockAt(old_x, new_y, new_z)) &&
+                                     !isPassableBlock(getBlockAt(old_x, new_y + 2, new_z)))) {
+                                    new_z = old_z;
+                                }
+                            }
+                            // Validate diagonal
+                            if (new_x != old_x && new_z != old_z) {
+                                int blk = getBlockAt(new_x, new_y, new_z);
+                                int blk_a = getBlockAt(new_x, new_y + 1, new_z);
+                                if (!isPassableBlock(blk_a) ||
+                                    (!isPassableBlock(blk) && !isPassableBlock(getBlockAt(new_x, new_y + 2, new_z)))) {
+                                    int dist_x = if (old_x - closest->x < 0) { closest->x - old_x } else { old_x - closest->x };
+                                    int dist_z = if (old_z - closest->z < 0) { closest->z - old_z } else { old_z - closest->z };
+                                    if (dist_x < dist_z) { new_z = old_z; } else { new_x = old_x; }
+                                }
+                            }
+
+                            int fblock = getBlockAt(new_x, new_y, new_z);
+                            if (!isPassableBlock(fblock)) { new_y = new_y + 1; }
+                            else if (isPassableBlock(getBlockAt(new_x, new_y - 1, new_z))) {
+                                new_y = new_y - 1;
+                            }
+
+                            if (new_x != mob_data[i].x || new_z != old_z || new_y != old_y) {
+                                // Check mob collisions
+                                int colliding = 0;
+                                for (int j = 0; j < MAX_MOBS; j = j + 1) {
+                                    if (j != i && mob_data[j].type != 0) {
+                                        int mdy = mob_data[j].y - new_y;
+                                        int abs_mdy = if (mdy < 0) { -mdy } else { mdy };
+                                        if (mob_data[j].x == new_x && mob_data[j].z == new_z && abs_mdy < 2) {
+                                            colliding = 1;
+                                        }
+                                    }
+                                }
+
+                                if (colliding == 0) {
+                                    int fblk = getBlockAt(new_x, new_y, new_z);
+                                    int fblk_a = getBlockAt(new_x, new_y + 1, new_z);
+                                    if ((fblk >= B_lava && fblk < B_lava + 4) ||
+                                        (fblk_a >= B_lava && fblk_a < B_lava + 4)) {
+                                        hurtEntity(entity_id, -1, D_lava, 8);
+                                    }
+                                    mob_data[i].x = new_x;
+                                    mob_data[i].y = new_y;
+                                    mob_data[i].z = new_z;
+                                    yaw = yaw + ((r >> 7) & 31) - 16;
+                                    for (int j = 0; j < MAX_PLAYERS; j = j + 1) {
+                                        if (player_data[j].client_fd != -1) {
+                                            sc_teleportEntity(player_data[j].client_fd, entity_id,
+                                                new_x, new_y, new_z, yaw * 360 / 256, 0);
+                                            sc_setHeadRotation(player_data[j].client_fd, entity_id, yaw);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

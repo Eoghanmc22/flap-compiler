@@ -1,0 +1,375 @@
+// Terrain generation for Minecraft 1.21.8.
+// Also defines getBlockChange and getBlockAt (moved here to break the
+// circular dependency with procedures.flap).
+#include "../../std/"
+#include "tools.flap"
+#include "registries.flap"
+
+// ---- Chunk hash and biome ----
+
+int getChunkHash(int x, int z) {
+    // splitmix64((x & 0xFFFF) + ((z & 0xFFFF) << 16) + ((world_seed & 0xFFFF_FFFF) << 32))
+
+    int x = splitmix64(x);
+    int z = splitmix64(z);
+    splitmix64(x * x + z + world_seed)
+}
+
+int getChunkBiome(int x, int z) {
+    int bx = x + BIOME_RADIUS;
+    int bz = z + BIOME_RADIUS;
+    int dx = BIOME_RADIUS - mod_abs(bx, BIOME_SIZE);
+    int dz = BIOME_RADIUS - mod_abs(bz, BIOME_SIZE);
+    if (dx * dx + dz * dz > BIOME_RADIUS * BIOME_RADIUS) { W_beach }
+    else {
+        int biome_x = div_floor(bx, BIOME_SIZE);
+        int biome_z = div_floor(bz, BIOME_SIZE);
+        int index = abs((biome_x & 3) + ((biome_z * 4) & 15));
+        (world_seed >> (index * 2)) & 3
+    }
+}
+
+// ---- Height calculation ----
+
+int getCornerHeight(int hash, int biome) {
+    int height = TERRAIN_BASE_HEIGHT;
+    if (biome == W_mangrove_swamp) {
+        int h = height + (hash % 3) + ((hash >> 4) % 3) + ((hash >> 8) % 3) + ((hash >> 12) % 3);
+        if (h < 64) { h - ((hash >> 24) & 3) } else { h }
+    } else if (biome == W_plains) {
+        height + (hash & 3) + ((hash >> 4) & 3) + ((hash >> 8) & 3) + ((hash >> 12) & 3)
+    } else if (biome == W_desert) {
+        height + 4 + (hash & 3) + ((hash >> 4) & 3)
+    } else if (biome == W_beach) {
+        62 - ((hash & 3) + ((hash >> 4) & 3) + ((hash >> 8) & 3))
+    } else if (biome == W_snowy_plains) {
+        height + (hash & 7) + ((hash >> 4) & 7)
+    } else {
+        height
+    }
+}
+
+int interpolate(int a, int b, int c, int d, int x, int z) {
+    int top    = a * (CHUNK_SIZE - x) + b * x;
+    int bottom = c * (CHUNK_SIZE - x) + d * x;
+    (top * (CHUNK_SIZE - z) + bottom * z) / (CHUNK_SIZE * CHUNK_SIZE)
+}
+
+// Returns height at chunk-relative (rx, rz) using an anchor grid pointer.
+// anchor_ptr[0..4] must cover the 2x2 minichunk corners at +X and +Z.
+// With CHUNK_SIZE=8: indices 0,1,3,4 span the two-by-two corner set.
+int getHeightAtFromAnchors(int rx, int rz, ChunkAnchor *anchor_ptr) {
+    int do_interp() {
+        interpolate(
+            getCornerHeight(anchor_ptr[0].hash, anchor_ptr[0].biome),
+            getCornerHeight(anchor_ptr[1].hash, anchor_ptr[1].biome),
+            getCornerHeight(anchor_ptr[3].hash, anchor_ptr[3].biome),
+            getCornerHeight(anchor_ptr[4].hash, anchor_ptr[4].biome),
+            rx, rz
+        )
+    }
+    if (rx == 0 && rz == 0) {
+        int h = getCornerHeight(anchor_ptr[0].hash, anchor_ptr[0].biome);
+        if (h > 67) { h - 1 } else { do_interp() }
+    } else {
+        do_interp()
+    }
+}
+
+int getHeightAtFromHash(int rx, int rz, int ax, int az, int chunk_hash, int biome) {
+    int do_interp() {
+        interpolate(
+            getCornerHeight(chunk_hash, biome),
+            getCornerHeight(getChunkHash(ax + 1, az),     getChunkBiome(ax + 1, az)),
+            getCornerHeight(getChunkHash(ax, az + 1),     getChunkBiome(ax, az + 1)),
+            getCornerHeight(getChunkHash(ax + 1, az + 1), getChunkBiome(ax + 1, az + 1)),
+            rx, rz
+        )
+    }
+    if (rx == 0 && rz == 0) {
+        int h = getCornerHeight(chunk_hash, biome);
+        if (h > 67) { h - 1 } else { do_interp() }
+    } else {
+        do_interp()
+    }
+}
+
+int getHeightAt(int x, int z) {
+    int ax = div_floor(x, CHUNK_SIZE);
+    int az = div_floor(z, CHUNK_SIZE);
+    int rx = mod_abs(x, CHUNK_SIZE);
+    int rz = mod_abs(z, CHUNK_SIZE);
+    getHeightAtFromHash(rx, rz, ax, az, getChunkHash(ax, az), getChunkBiome(ax, az))
+}
+
+// ---- Feature placement ----
+
+ChunkFeature getFeatureFromAnchor(ChunkAnchor anchor) {
+    int feature_position = anchor.hash % (CHUNK_SIZE * CHUNK_SIZE);
+    int fx = feature_position % CHUNK_SIZE;
+    int fz = feature_position / CHUNK_SIZE;
+    int skip = if (anchor.biome != W_mangrove_swamp) {
+        if (fx < 3 || fx > CHUNK_SIZE - 3) { 1 }
+        else if (fz < 3 || fz > CHUNK_SIZE - 3) { 1 }
+        else { 0 }
+    } else { 0 };
+    if (skip != 0) {
+        struct { x = fx; y = 255; z = fz; variant = 0; }
+    } else {
+        int final_x = fx + anchor.x * CHUNK_SIZE;
+        int final_z = fz + anchor.z * CHUNK_SIZE;
+        int ht = getHeightAtFromHash(
+            mod_abs(final_x, CHUNK_SIZE), mod_abs(final_z, CHUNK_SIZE),
+            anchor.x, anchor.z, anchor.hash, anchor.biome
+        ) + 1;
+        int var = (anchor.hash >> (mod_abs(final_x, CHUNK_SIZE) + mod_abs(final_z, CHUNK_SIZE))) & 1;
+        struct { x = final_x; y = ht; z = final_z; variant = var; }
+    }
+}
+
+// ---- Block type at world coordinate ----
+
+// Returns the terrain block at (x,y,z) given precomputed anchor/feature/height.
+// Returns -1 to signal "no block from the feature section" (fall through to
+// base terrain), or a non-negative block state ID.
+int getTerrainAtFromCache(int x, int y, int z, int rx, int rz,
+                          ChunkAnchor anchor, ChunkFeature feature, int height) {
+    // Per-biome feature block logic.  -1 means "fall through to base terrain".
+    int plainsFeature() {
+        if (feature.y < 64) { -1 }
+        else {
+            int dx = if (x > feature.x) { x - feature.x } else { feature.x - x };
+            int dz = if (z > feature.z) { z - feature.z } else { feature.z - z };
+            if (x == feature.x && z == feature.z && y == feature.y - 1) {
+                B_dirt
+            } else if (x == feature.x && z == feature.z &&
+                       y >= feature.y && y < feature.y - feature.variant + 6) {
+                B_oak_log
+            } else if (dx < 3 && dz < 3 &&
+                       y > feature.y - feature.variant + 2 &&
+                       y < feature.y - feature.variant + 5) {
+                if (y == feature.y - feature.variant + 4 && dx == 2 && dz == 2) { -1 }
+                else { B_oak_leaves }
+            } else if (dx < 2 && dz < 2 &&
+                       y >= feature.y - feature.variant + 5 &&
+                       y <= feature.y - feature.variant + 6) {
+                if (y == feature.y - feature.variant + 6 && dx == 1 && dz == 1) { -1 }
+                else { B_oak_leaves }
+            } else if (y == height) {
+                B_grass_block
+            } else {
+                B_air
+            }
+        }
+    }
+
+    int desertFeature() {
+        if (x != feature.x || z != feature.z) { -1 }
+        else if (feature.variant == 0) {
+            if (y == height + 1) { B_dead_bush } else { -1 }
+        } else if (y > height) {
+            if ((height & 1) != 0 && y <= height + 3) { B_cactus }
+            else if (y <= height + 2) { B_cactus }
+            else { -1 }
+        } else { -1 }
+    }
+
+    int swampFeature() {
+        if (x == feature.x && z == feature.z && y == 64 && height < 63) {
+            B_lily_pad
+        } else if (y == height + 1) {
+            int dx = if (x > feature.x) { x - feature.x } else { feature.x - x };
+            int dz = if (z > feature.z) { z - feature.z } else { feature.z - z };
+            if (dx + dz < 4) { B_moss_carpet } else { -1 }
+        } else { -1 }
+    }
+
+    int snowyFeature() {
+        if (x == feature.x && z == feature.z && y == height + 1 && height >= 64) {
+            B_short_grass
+        } else { -1 }
+    }
+
+    int fb = if (y >= 64 && y >= height && feature.y != 255) {
+        if (anchor.biome == W_plains)          { plainsFeature() }
+        else if (anchor.biome == W_desert)     { desertFeature() }
+        else if (anchor.biome == W_mangrove_swamp) { swampFeature() }
+        else if (anchor.biome == W_snowy_plains)   { snowyFeature() }
+        else { -1 }
+    } else { -1 };
+
+    if (fb >= 0) { fb }
+    else {
+        // Surface blocks
+        if (height >= 63 && y == height) {
+            if (anchor.biome == W_mangrove_swamp)  { B_mud }
+            else if (anchor.biome == W_snowy_plains) { B_snowy_grass_block }
+            else if (anchor.biome == W_desert)     { B_sand }
+            else if (anchor.biome == W_beach)      { B_sand }
+            else { B_grass_block }
+        } else if (anchor.biome == W_snowy_plains && height >= 63 && y == height + 1) {
+            B_snow
+        } else if (y <= height - 4) {
+            int gap = height - TERRAIN_BASE_HEIGHT;
+            if (y < CAVE_BASE_DEPTH + gap && y > CAVE_BASE_DEPTH - gap) {
+                B_air
+            } else {
+                // Replace xorshift ore hash with LCG-based equivalent
+                int ore_y = splitmix64(rx * 16 + rz) & 63;
+                if (y == ore_y) {
+                    int ore_p = (anchor.hash >> (ore_y % 24)) & 255;
+                    if (y < 15 && ore_p < 10)      { B_diamond_ore }
+                    else if (y < 15 && ore_p < 12) { B_gold_ore }
+                    else if (y < 15 && ore_p < 15) { B_redstone_ore }
+                    else if (y < 30 && ore_p < 3)  { B_gold_ore }
+                    else if (y < 30 && ore_p < 8)  { B_redstone_ore }
+                    else if (y < 54 && ore_p < 30) { B_iron_ore }
+                    else if (y < 54 && ore_p < 40) { B_copper_ore }
+                    else if (ore_p < 60)            { B_coal_ore }
+                    else if (y < 5)                 { B_lava }
+                    else                            { B_cobblestone }
+                } else { B_stone }
+            }
+        } else if (y <= height) {
+            if (anchor.biome == W_desert)                       { B_sandstone }
+            else if (anchor.biome == W_mangrove_swamp)          { B_mud }
+            else if (anchor.biome == W_beach && height > 64)    { B_sandstone }
+            else { B_dirt }
+        } else if (y == 63 && anchor.biome == W_snowy_plains) { B_ice }
+        else if (y < 64) { B_water }
+        else { B_air }
+    }
+}
+
+int getTerrainAt(int x, int y, int z, ChunkAnchor anchor) {
+    if (y > 80) { B_air }
+    else {
+        int rx = mod_abs(x, CHUNK_SIZE);
+        int rz = mod_abs(z, CHUNK_SIZE);
+        ChunkFeature feature = getFeatureFromAnchor(anchor);
+        int height = getHeightAtFromHash(rx, rz, anchor.x, anchor.z, anchor.hash, anchor.biome);
+        getTerrainAtFromCache(x, y, z, rx, rz, anchor, feature, height)
+    }
+}
+
+// Search the block-change log for a player-placed block at (x,y,z).
+// Returns the block ID, or 0xFF if no change exists.
+// Moved here from procedures.flap to break the circular include dependency.
+int getBlockChange(int x, int y, int z) {
+    int go(int i) {
+        if (i >= block_changes_count) { 0xFF }
+        else {
+            BlockChange *bc = block_changes + i;
+            if (bc->block == 0xFF) { go(i + 1) }
+            else if (bc->x == x && bc->y == y && bc->z == z) { bc->block }
+            else { go(i + 1) }
+        }
+    }
+    go(0)
+}
+
+int getBlockAt(int x, int y, int z) {
+    if (y < 0) { B_bedrock }
+    else {
+        int bc = getBlockChange(x, y, z);
+        if (bc != 0xFF) { bc }
+        else {
+            int ax = div_floor(x, CHUNK_SIZE);
+            int az = div_floor(z, CHUNK_SIZE);
+            ChunkAnchor anchor = struct {
+                x = ax;
+                z = az;
+                hash = getChunkHash(ax, az);
+                biome = getChunkBiome(ax, az);
+            };
+            getTerrainAt(x, y, z, anchor)
+        }
+    }
+}
+
+// ---- Chunk section builder ----
+
+// Fills chunk_section[4096] with block IDs for the 16x16x16 region whose
+// south-west-bottom corner is (cx, cy, cz).  Returns the biome at (cx,cz).
+int buildChunkSection(int cx, int cy, int cz) {
+    // Pass 1: fill chunk_anchors[9] and chunk_features[4]
+    int ai = 0;
+    int fi = 0;
+    for (int i = cz; i < cz + 16 + CHUNK_SIZE; i = i + CHUNK_SIZE) {
+        for (int j = cx; j < cx + 16 + CHUNK_SIZE; j = j + CHUNK_SIZE) {
+            // TODO: I think this can produce an out of bounds write
+            chunk_anchors[ai].x    = j / CHUNK_SIZE;
+            chunk_anchors[ai].z    = i / CHUNK_SIZE;
+            //chunk_anchors[ai].hash = getChunkHash(j / CHUNK_SIZE, i / CHUNK_SIZE);
+            chunk_anchors[ai].hash = getChunkHash(j / CHUNK_SIZE, i / CHUNK_SIZE);
+            chunk_anchors[ai].biome = getChunkBiome(j / CHUNK_SIZE, i / CHUNK_SIZE);
+            if (i != cz + 16 && j != cx + 16) {
+                chunk_features[fi] = getFeatureFromAnchor(chunk_anchors[ai]);
+                fi = fi + 1;
+            }
+            ai = ai + 1;
+        }
+    }
+
+    // Pass 2: precompute terrain height for every (j,i) in 0..15
+    // chunk_section_height is a flat 256-byte array indexed [rx * 16 + rz]
+    for (int i = 0; i < 16; i = i + 1) {
+        for (int j = 0; j < 16; j = j + 1) {
+            // TODO: I think this can produce an out of bounds idx
+            int aidx = (j / CHUNK_SIZE) + (i / CHUNK_SIZE) * 3;
+            chunk_section_height[j * 16 + i] =
+                (char)getHeightAtFromAnchors(j % CHUNK_SIZE, i % CHUNK_SIZE,
+                                             chunk_anchors + aidx);
+        }
+    }
+
+    // Pass 3: generate 4096 block IDs in big-endian-long order
+    // (every group of 8 is stored in reversed offset order to match protocol)
+    for (int j = 0; j < 4096; j = j + 8) {
+        int y       = j / 256 + cy;
+        int rz_val  = j / 16 % 16;
+        int rz_mod  = rz_val % CHUNK_SIZE;
+        int fidx    = (j % 16) / CHUNK_SIZE + (j / 16 % 16) / CHUNK_SIZE * 2;
+        int aidx    = (j % 16) / CHUNK_SIZE + (j / 16 % 16) / CHUNK_SIZE * 3;
+        void fillOffset(int offset) {
+            if (offset >= 0) {
+                int k  = j + offset;
+                int rx = k % 16;
+                chunk_section[j + 7 - offset] = (char)getTerrainAtFromCache(
+                    rx + cx, y, rz_val + cz,
+                    rx % CHUNK_SIZE, rz_mod,
+                    chunk_anchors[aidx], chunk_features[fidx],
+                    (int)chunk_section_height[rx * 16 + rz_val] & 0xFF
+                );
+                fillOffset(offset - 1)
+            }
+        }
+        fillOffset(7);
+    }
+
+    // Pass 4: overlay player-placed block changes
+    // Uses bit-reversal within each 8-block group to match the protocol layout:
+    //   address = dx + (dz<<4) + (dy<<8)
+    //   index   = (address & -8) + (7 - (address & 7))
+    void applyChanges(int i) {
+        if (i < block_changes_count) {
+            BlockChange *bc = block_changes + i;
+            if (bc->block != 0xFF && bc->block != B_torch) {
+                if (bc->x >= cx && bc->x < cx + 16 &&
+                    bc->y >= cy && bc->y < cy + 16 &&
+                    bc->z >= cz && bc->z < cz + 16) {
+                    int dx      = bc->x - cx;
+                    int dy      = bc->y - cy;
+                    int dz      = bc->z - cz;
+                    int address = dx + (dz << 4) + (dy << 8);
+                    int idx     = (address & -8) + (7 - (address & 7));
+                    chunk_section[idx] = (char)bc->block;
+                }
+            }
+            applyChanges(i + 1)
+        }
+    }
+    applyChanges(0);
+
+    chunk_anchors[0].biome
+}
