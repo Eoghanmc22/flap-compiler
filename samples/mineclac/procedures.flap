@@ -717,17 +717,18 @@ int handlePlayerEating(PlayerData *player, int just_check) {
         else {
             int food = 0;
             int saturation = 0;
+
             if (held_item == I_chicken) { food = 2; saturation = 600; }
-            else { if (held_item == I_beef) { food = 3; saturation = 900; }
-            else { if (held_item == I_porkchop) { food = 3; saturation = 300; }
-            else { if (held_item == I_mutton) { food = 2; saturation = 600; }
-            else { if (held_item == I_cooked_chicken) { food = 6; saturation = 3600; }
-            else { if (held_item == I_cooked_beef) { food = 8; saturation = 6400; }
-            else { if (held_item == I_cooked_porkchop) { food = 8; saturation = 6400; }
-            else { if (held_item == I_cooked_mutton) { food = 6; saturation = 4800; }
-            else { if (held_item == I_rotten_flesh) { food = 4; saturation = 0; }
-            else { if (held_item == I_apple) { food = 4; saturation = 1200; }
-            } } } } } } } } }
+            else if (held_item == I_beef) { food = 3; saturation = 900; }
+            else if (held_item == I_porkchop) { food = 3; saturation = 300; }
+            else if (held_item == I_mutton) { food = 2; saturation = 600; }
+            else if (held_item == I_cooked_chicken) { food = 6; saturation = 3600; }
+            else if (held_item == I_cooked_beef) { food = 8; saturation = 6400; }
+            else if (held_item == I_cooked_porkchop) { food = 8; saturation = 6400; }
+            else if (held_item == I_cooked_mutton) { food = 6; saturation = 4800; }
+            else if (held_item == I_rotten_flesh) { food = 4; saturation = 0; }
+            else if (held_item == I_apple) { food = 4; saturation = 1200; }
+
             if (just_check != 0) {
                 if (food != 0) { 1 } else { 0 }
             } else {
@@ -1435,14 +1436,14 @@ void handleServerTick(int time_since_last_tick) {
                             } else if (closest->x < old_x) {
                                 new_x = new_x - 1; yaw = 64;
                                 if (closest->z < old_z) { new_z = new_z - 1; yaw = yaw + 32; }
-                                else { if (closest->z > old_z) { new_z = new_z + 1; yaw = yaw - 32; } }
+                                else if (closest->z > old_z) { new_z = new_z + 1; yaw = yaw - 32; }
                             } else if (closest->x > old_x) {
                                 new_x = new_x + 1; yaw = 192;
                                 if (closest->z < old_z) { new_z = new_z - 1; yaw = yaw - 32; }
-                                else { if (closest->z > old_z) { new_z = new_z + 1; yaw = yaw + 32; } }
+                                else if (closest->z > old_z) { new_z = new_z + 1; yaw = yaw + 32; }
                             } else {
                                 if (closest->z < old_z) { new_z = new_z - 1; yaw = 128; }
-                                else { if (closest->z > old_z) { new_z = new_z + 1; yaw = 0; } }
+                                else if (closest->z > old_z) { new_z = new_z + 1; yaw = 0; }
                             }
                         }
 

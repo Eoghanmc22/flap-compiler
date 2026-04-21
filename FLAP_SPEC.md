@@ -673,7 +673,7 @@ int clamp(int v, int lo, int hi) {
 ```flap
 // Flap
 int clamp(int v, int lo, int hi) {
-    if (v < lo) { lo } else { if (v > hi) { hi } else { v } }
+    if (v < lo) { lo } else if (v > hi) { hi } else { v }
 }
 ```
 
@@ -693,8 +693,8 @@ for (int i = 0; i < n; i++) {
 // Flap — use a recursive helper
 int find(int *arr, int n, int target, int i) {
     if (i >= n)          { -1 }
-    else { if (arr[i] == target) { i }
-    else { find(arr, n, target, i + 1) } }
+    else if (arr[i] == target) { i }
+    else { find(arr, n, target, i + 1) }
 }
 int found = find(arr, n, target, 0);
 ```

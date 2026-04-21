@@ -234,7 +234,7 @@ void cs_swingArm(int client_fd) {
     PlayerData *player = getPlayerData(client_fd);
     if (player != (PlayerData *)0) {
         int hand = readVarInt(client_fd);
-        int animation = if (hand == 0) { 0 } else { if (hand == 1) { 2 } else { 255 } };
+        int animation = if (hand == 0) { 0 } else if (hand == 1) { 2 } else { 255 };
         if (animation != 255) {
             for (int i = 0; i < MAX_PLAYERS; i = i + 1) {
                 PlayerData *op = player_data + i;
@@ -347,7 +347,7 @@ void cs_interact(int client_fd) {
     if (type != 1) { recv_all(client_fd, recv_buffer, 1, 0); }   // hand
     recv_all(client_fd, recv_buffer, 1, 0);                       // sneaking
     if (type == 0) { interactEntity(entity_id, client_fd); }
-    else { if (type == 1) { hurtEntity(entity_id, client_fd, D_generic, 1); } }
+    else if (type == 1) { hurtEntity(entity_id, client_fd, D_generic, 1); }
 }
 
 // C→S Player Input
@@ -625,9 +625,9 @@ void handlePacket(int client_fd, int length, int packet_id, int state) {
                                         if ((world_time < 13000 || world_time > 23460) && mob_y > 48) {
                                             int mob_choice = (r >> 12) & 3;
                                             if (mob_choice == 0) { spawnMob(25, mob_x, mob_y, mob_z, 4); }
-                                            else { if (mob_choice == 1) { spawnMob(28, mob_x, mob_y, mob_z, 10); }
-                                            else { if (mob_choice == 2) { spawnMob(95, mob_x, mob_y, mob_z, 10); }
-                                            else { spawnMob(106, mob_x, mob_y, mob_z, 8); } } }
+                                            else if (mob_choice == 1) { spawnMob(28, mob_x, mob_y, mob_z, 10); }
+                                            else if (mob_choice == 2) { spawnMob(95, mob_x, mob_y, mob_z, 10); }
+                                            else { spawnMob(106, mob_x, mob_y, mob_z, 8); }
                                         } else {
                                             spawnMob(145, mob_x, mob_y, mob_z, 20);
                                         }
