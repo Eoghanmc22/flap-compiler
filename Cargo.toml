@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clac-lang = "=0.2.0-alpha"
+clac-lang = "=0.2.0-beta"
 clap = { version = "4.5.48", features = ["derive"] }
 lazy_static = "1.5.0"
 lsp-server = "0.7.9"
