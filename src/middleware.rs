@@ -1022,6 +1022,13 @@ fn walk_expr<'a, 'b>(
             op_span: _,
         } => {
             let clac_op = match op {
+                PrefixOp::Invert => {
+                    let value = walk_expr(ctx, operand)?;
+
+                    ClacOp::Inv {
+                        value: value.into_data_ref(ctx)?,
+                    }
+                }
                 PrefixOp::Negate => {
                     let value = walk_expr(ctx, operand)?;
 

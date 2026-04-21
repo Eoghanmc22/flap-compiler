@@ -48,6 +48,7 @@ typedef = { "typedef" ~ var_type ~ ident ~ ";" }
 add      = { "+" }
 subtract = { "-" }
 negate   = { "-" }
+invert   = { "~" }
 multiply = { "*" }
 divide   = { "/" }
 modulo   = { "%" }
@@ -81,7 +82,7 @@ array_idx    = { "[" ~ expression ~ "]" }
 addrs_of     = { "&" }
 
 binary_op  = _{ add | subtract | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
-prefix_op  = _{ negate | logical_not | dereference | cast | addrs_of }
+prefix_op  = _{ negate | invert | logical_not | dereference | cast | addrs_of }
 postfix_op = _{ member | member_deref | array_idx }
 atom       = _{ array_expr | struct_expr | if_statement | sizeof_packed_builtin | sizeof_builtin | line_builtin | function_call | value | ident | ("(" ~ expression ~ ")") }
 expression =  { prefix_op* ~ atom ~ postfix_op* ~ (binary_op ~ prefix_op* ~ atom ~ postfix_op*)* }

@@ -153,6 +153,9 @@ pub enum ClacOp<'a> {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
+    Inv {
+        value: DataReference<'a>,
+    },
     Neg {
         value: DataReference<'a>,
     },
@@ -214,6 +217,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
             ClacOp::Ge { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             ClacOp::Eq { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             ClacOp::Ne { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::Inv { value } => ctx.bring_up_references([value], 1),
             ClacOp::Neg { value } => ctx.bring_up_references([value], 1),
             ClacOp::Not { value } => ctx.bring_up_references([value], 1),
             ClacOp::LAnd { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
@@ -313,6 +317,12 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 out.consume_silent(ClacToken::Number(0))?;
 
                 Type::Bool
+            }
+            ClacOp::Inv { .. } => {
+                out.consume(ClacToken::Number(-1))?;
+                out.consume(ClacToken::Swap)?;
+                out.consume(ClacToken::Sub)?;
+                Type::Int
             }
             ClacOp::Neg { .. } => {
                 out.consume(ClacToken::Number(0))?;

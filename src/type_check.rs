@@ -566,6 +566,7 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                     PrefixOp::Dereference
                     | PrefixOp::AddressOf
                     | PrefixOp::Negate
+                    | PrefixOp::Invert
                     | PrefixOp::LNot => {
                         // Eval arg in read only
                         let (result, _frame) = ctx.define_scope(
@@ -582,7 +583,9 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *operand_type = DeferedType::ResolvedType(operand_type_computed.clone());
 
                 let (valid_types, return_type) = match op {
-                    PrefixOp::Negate => (matches!(operand_type_computed, Type::Int), Type::Int),
+                    PrefixOp::Negate | PrefixOp::Invert => {
+                        (matches!(operand_type_computed, Type::Int), Type::Int)
+                    }
                     PrefixOp::LNot => (matches!(operand_type_computed, Type::Bool), Type::Bool),
                     PrefixOp::Cast(to) => {
                         if operand_type_computed.width(ctx)? == to.width(ctx)? {

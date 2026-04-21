@@ -416,6 +416,7 @@ pub enum PrefixOp<'a> {
     Dereference,
     AddressOf,
     Negate,
+    Invert,
     LNot,
 }
 
@@ -426,6 +427,7 @@ impl Display for PrefixOp<'_> {
             PrefixOp::Dereference => write!(f, "*"),
             PrefixOp::AddressOf => write!(f, "&"),
             PrefixOp::Negate => write!(f, "-"),
+            PrefixOp::Invert => write!(f, "~"),
             PrefixOp::LNot => write!(f, "!"),
         }
     }

@@ -37,7 +37,7 @@ lazy_static::lazy_static! {
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))             // + -
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))  // * / %
             .op(Op::prefix(cast))
-            .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate) | Op::prefix(addrs_of))               // ! - (unary)
+            .op(Op::prefix(dereference) | Op::prefix(logical_not) | Op::prefix(negate) | Op::prefix(invert) | Op::prefix(addrs_of))               // ! - (unary)
             // Highest precedence
             .op(Op::postfix(member) | Op::postfix(member_deref) | Op::postfix(array_idx))
     };
@@ -108,6 +108,7 @@ fn rule_renamer(rule: &Rule) -> String {
         Rule::add => "+",
         Rule::subtract => "-",
         Rule::negate => "-",
+        Rule::invert => "~",
         Rule::multiply => "*",
         Rule::divide => "/",
         Rule::modulo => "%",
@@ -1049,6 +1050,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 Rule::dereference => PrefixOp::Dereference,
                 Rule::addrs_of => PrefixOp::AddressOf,
                 Rule::negate => PrefixOp::Negate,
+                Rule::invert => PrefixOp::Invert,
                 Rule::logical_not => PrefixOp::LNot,
                 rule => {
                     return Err(PestError::new_from_span(
@@ -1058,6 +1060,7 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                                 Rule::dereference,
                                 Rule::addrs_of,
                                 Rule::negate,
+                                Rule::invert,
                                 Rule::logical_not,
                             ],
                             negatives: vec![rule],
