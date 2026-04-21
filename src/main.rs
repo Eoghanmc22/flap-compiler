@@ -152,7 +152,7 @@ fn main() -> Result<()> {
         }
         Commands::Repl => {
             let mut state = ClacState::new(1_000_000_000)?;
-            clac_lang::repl(&mut state, false)?;
+            state.repl(false)?;
         }
         Commands::Run { file, config, .. } => {
             let mut state = ClacState::new(1_000_000_000)?;
