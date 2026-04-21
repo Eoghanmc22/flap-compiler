@@ -1,0 +1,42 @@
+#include "malloc.flap"
+
+int maskInt(int x){
+    x & 0x5555555555555555
+}
+
+int bwand(int a, int b){
+    int oddA = maskInt(a);
+    int oddB = maskInt(b);
+    int evenA = maskInt(a >> 1);
+    int evenB = maskInt(b >> 1);
+
+    int oddRes = oddA + oddB; // every even bit set if previous odd bit has a & b
+    oddRes = oddRes >> 1; // odd bits back in right place
+    oddRes = maskInt(oddRes); // remove extra data
+    int evenRes = evenA + evenB;
+    evenRes = evenRes >> 1;
+    evenRes = maskInt(evenRes);
+    evenRes = evenRes << 1;
+
+    oddRes + evenRes
+}
+
+int bwxor(int a, int b){
+    int oddA = maskInt(a);
+    int oddB = maskInt(b);
+    int evenA = maskInt(a >> 1);
+    int evenB = maskInt(b >> 1);
+
+    int oddRes = oddA + oddB; // every odd bit set if that bit in a, b had a ^ b
+    oddRes = maskInt(oddRes); // remove extra data
+    int evenRes = evenA + evenB;
+    evenRes = maskInt(evenRes);
+    evenRes = evenRes << 1;
+
+    oddRes + evenRes
+}
+
+int bwor(int a, int b){
+    ~bwand(~a, ~b)
+}
+

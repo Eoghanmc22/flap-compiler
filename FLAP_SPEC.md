@@ -208,7 +208,7 @@ lengths.
 | Level | Operators |
 |-------|-----------|
 | Postfix | `expr.field`, `expr->field`, `expr[i]`, `f(args)` |
-| Prefix | `-expr`, `!expr`, `*expr`, `&expr`, `(Type)expr` |
+| Prefix | `~expr`, `-expr`, `!expr`, `*expr`, `&expr`, `(Type)expr` |
 | Multiplicative | `*`, `/`, `%` |
 | Additive | `+`, `-` |
 | Shift | `<<`, `>>` |
@@ -630,6 +630,7 @@ Or include individual modules:
 | `buf.flap` | Byte buffer for wayland |
 | `env.flap` | `parse_args` |
 | `constants.flap` | System constants (`O_RDONLY`, `PROT_READ`, …) |
+| `bitwise.flap` | `bwand`, `bwxor`, `bwor` |
 
 ---
 
@@ -830,25 +831,11 @@ Use bitwise masking where unsigned behaviour is needed: `val & 0xFF`,
 
 ### 13.14a Missing bitwise operators
 
-Flap has `&` (bitwise AND) and `<<`/`>>` (shifts) but **not**:
+Flap has `&` (bitwise AND, rhs must be comptime known), `~` (bitwise NOT), and `<<`/`>>` (shifts) but **not**:
 - `|` — bitwise OR
 - `^` — bitwise XOR
-- `~` — bitwise NOT
 
-<!-- Work around bitwise OR with helper functions or De Morgan restructuring. -->
-<!-- Bitwise NOT (`~x`) can be expressed as `x ^ 0xFFFF_FFFF` — but since `^` is -->
-<!-- also absent, the common alternative is a helper: -->
-<!---->
-<!-- ```flap -->
-<!-- int bitwise_or(int a, int b) { -->
-<!--     // OR via: a | b == ~(~a & ~b) — but without ~ or ^, use addition trick -->
-<!--     // for non-overlapping bits:  a + b  (only safe if bits don't overlap) -->
-<!--     // For general OR, implement via loop over bits using & and << -->
-<!-- } -->
-<!-- ``` -->
-<!---->
-<!-- In practice, restructure C code that uses `|` for flag composition into -->
-<!-- separate `if` checks or boolean logic where possible. -->
+General bitwise AND, as well as bitwise OR and bitwise XOR are implemented in software in `std/bitwise.flap`.
 
 **XOR of runtime values** is entirely impossible in flap — neither `^` nor
 any workaround using `&` works when both operands are non-const. Replace
