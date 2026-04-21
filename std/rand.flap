@@ -15,7 +15,7 @@ void init_rng() {
 }
 
 int lcg(int x) {
-  x * (-0x2ECBDABC217D106B) + (-0x78A22B1A1BC639D9)
+  x * 0xD1342543DE82EF95 + 0x875DD4E5E439C627
 }
 
 int rand() {

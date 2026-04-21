@@ -17,7 +17,7 @@ use crate::{
         FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Program,
         Punctuation, SizeOfMode, Statement, Type, Typedef, Value,
     },
-    codegen::clac::ClacValue,
+    codegen::clac::{ClacValue, ClacValueUnsigned},
     error::ParserError,
 };
 
@@ -1143,10 +1143,10 @@ fn parse_function_call<'a>(pair: Pair<'a, Rule>, file_name: &'a str) -> Result<F
 }
 
 fn parse_number<'a>(pair: Pair<'a, Rule>) -> Result<ClacValue> {
-    let res = parse_int::parse(pair.as_str());
+    let res = parse_int::parse::<ClacValueUnsigned>(pair.as_str());
 
     match res {
-        Ok(val) => Ok(val),
+        Ok(val) => Ok(val as ClacValue),
         Err(err) => Err(PestError::new_from_span(
             ErrorVariant::CustomError {
                 message: format!("Failed to parse number `{}`, due to {err}", pair.as_str()),

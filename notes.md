@@ -20,5 +20,3 @@
 - make `#include "std"` work regardless of pwd
 - support code blocks/block expressions
 - add `#[no_captures]`
-- Allow having the highest bit set in a int literal
-- Syntax for bitwise invert
