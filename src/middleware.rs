@@ -3,10 +3,10 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedCaptures,
-        DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IfCase,
-        IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, SizeOfMode, Statement, Stride,
-        Type, Value,
+        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedAddress,
+        DeferedCaptures, DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef,
+        FunctionSignature, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Punctuation,
+        SizeOfMode, Statement, Stride, Type, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -14,11 +14,39 @@ use crate::{
         ir::{ClacOp, DataReference},
     },
     error::{MiddlewareError, SpannedErrorExt},
+    type_check,
 };
 
 type Result<'a, T, E = MiddlewareError<'a>> = std::result::Result<T, E>;
 
-pub fn walk_block<'a, 'b>(
+pub fn walk_block_top_level<'a, 'b>(
+    ctx: &mut CodegenCtx<'a, 'b>,
+    block: &Block<'a>,
+) -> Result<'a, MaybeTailCall<'a>> {
+    let last_global = ctx.type_checker.allocate_address(&Type::Void)?;
+    if last_global != type_check::GLOBAL_ARENA_START {
+        walk_function_call(
+            ctx,
+            &FunctionCall {
+                function: "map_global",
+                parameters: vec![
+                    Expr::Value(
+                        Value::Int(type_check::GLOBAL_ARENA_START),
+                        AnnotatedSpan::builtin(),
+                    ),
+                    Expr::Value(
+                        Value::Int(last_global - type_check::GLOBAL_ARENA_START),
+                        AnnotatedSpan::builtin(),
+                    ),
+                ],
+                span: AnnotatedSpan::builtin(),
+            },
+        )?;
+    }
+
+    walk_block(ctx, block)
+}
+fn walk_block<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     block: &Block<'a>,
 ) -> Result<'a, MaybeTailCall<'a>> {
@@ -683,7 +711,21 @@ fn walk_expr<'a, 'b>(
     expr: &Expr<'a>,
 ) -> Result<'a, ExpressionOutput<'a>> {
     match expr {
-        Expr::SizeOfType(inner_type, mode, span) => {
+        Expr::Global(inner_type, address, _span) => {
+            let DeferedAddress::ResolvedAddress(address) = address else {
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
+            };
+
+            Ok(DataReference::Value(
+                Value::Cast(
+                    Type::Pointer((*inner_type).clone().into()),
+                    Value::Int(*address).into(),
+                ),
+                None,
+            )
+            .into())
+        }
+        Expr::SizeOfType(inner_type, mode, _span) => {
             let scale = match mode {
                 SizeOfMode::Native => ClacValue::BITS as ClacValue / 8,
                 SizeOfMode::Packed => match inner_type.resolve_once(ctx.type_checker)? {
@@ -708,7 +750,7 @@ fn walk_expr<'a, 'b>(
             )
             .into())
         }
-        Expr::SizeOfExpr(_inner_expr, defered_type, mode, span) => {
+        Expr::SizeOfExpr(_inner_expr, defered_type, mode, _span) => {
             let DeferedType::ResolvedType(inner_type) = defered_type else {
                 return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
@@ -1375,7 +1417,7 @@ fn walk_expr<'a, 'b>(
                                 parameters: vec![Expr::SizeOfExpr(
                                     expr.clone(),
                                     defered_type.clone(),
-                                    SizeOfMode::Packed,
+                                    SizeOfMode::Native,
                                     *span,
                                 )],
                                 span: *span,

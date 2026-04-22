@@ -12,10 +12,10 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedCaptures,
-        DeferedType, DeferedVersion, Directive, Expr, FunctionAttribute, FunctionCall, FunctionDef,
-        FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Program,
-        Punctuation, SizeOfMode, Statement, Type, Typedef, Value,
+        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedAddress,
+        DeferedCaptures, DeferedType, DeferedVersion, Directive, Expr, FunctionAttribute,
+        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop,
+        PostfixOp, PrefixOp, Program, Punctuation, SizeOfMode, Statement, Type, Typedef, Value,
     },
     codegen::clac::{ClacValue, ClacValueUnsigned},
     error::ParserError,
@@ -143,6 +143,7 @@ fn rule_renamer(rule: &Rule) -> String {
         Rule::function_parameters => "function parameters",
         Rule::function_call => "function call",
         Rule::sizeof_builtin => "sizeof",
+        Rule::global_builtin => "global",
         Rule::box_builtin => "box",
         Rule::sizeof_packed_builtin => "sizeof_packed",
         Rule::line_builtin => "__LINE__",
@@ -844,6 +845,11 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 Rule::function_call => {
                     Ok(Expr::FunctionCall(parse_function_call(primary, file_name)?))
                 }
+                Rule::global_builtin => Ok(Expr::Global(
+                    parse_type(primary.into_inner().next().unwrap(), file_name)?.into(),
+                    DeferedAddress::UnresolvedAddress,
+                    span,
+                )),
                 Rule::box_builtin => Ok(Expr::Box(
                     parse_expr(primary.into_inner(), file_name)?.into(),
                     DeferedType::UnresolvedType,

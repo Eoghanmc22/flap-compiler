@@ -320,6 +320,7 @@ pub enum Expr<'a> {
         op_span: AnnotatedSpan<'a>,
     },
     FunctionCall(FunctionCall<'a>),
+    Global(Type<'a>, DeferedAddress, AnnotatedSpan<'a>),
     SizeOfType(Type<'a>, SizeOfMode, AnnotatedSpan<'a>),
     SizeOfExpr(
         Box<Expr<'a>>,
@@ -344,6 +345,7 @@ impl<'a> AstSpan<'a> for Expr<'a> {
             | Expr::PrefixOp { span, .. }
             | Expr::PostfixOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
+            | Expr::Global(_, _, span)
             | Expr::SizeOfType(_, _, span)
             | Expr::SizeOfExpr(_, _, _, span)
             | Expr::Box(_, _, span)
@@ -395,6 +397,9 @@ impl<'a> AstSpan<'a> for Expr<'a> {
                 }
                 Expr::FunctionCall(function_call) => {
                     yield function_call;
+                }
+                Expr::Global(the_type, ..) => {
+                    yield the_type;
                 }
                 Expr::SizeOfType(the_type, ..) => {
                     yield the_type;
@@ -881,6 +886,7 @@ impl Display for VariableVersion {
         write!(f, "v{}", self.0)
     }
 }
+
 #[derive(Debug, Clone, Copy, Default)]
 pub enum DeferedVersion {
     ResolvedVersion(VariableVersion),
@@ -897,6 +903,26 @@ impl DeferedVersion {
     }
 
     pub fn unwrap(&self) -> VariableVersion {
+        self.to_option().unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum DeferedAddress {
+    ResolvedAddress(ClacValue),
+    #[default]
+    UnresolvedAddress,
+}
+
+impl DeferedAddress {
+    pub fn to_option(&self) -> Option<ClacValue> {
+        match self {
+            DeferedAddress::ResolvedAddress(variable_version) => Some(*variable_version),
+            DeferedAddress::UnresolvedAddress => None,
+        }
+    }
+
+    pub fn unwrap(&self) -> ClacValue {
         self.to_option().unwrap()
     }
 }

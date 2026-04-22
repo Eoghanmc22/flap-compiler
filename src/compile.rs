@@ -319,7 +319,7 @@ pub fn compile(ctx: &CompileContext) -> Result<'_, ClacProgram> {
         .map_err(CompileError::TypeCheck)?;
 
     let mut codegen = CodegenCtx::new(&type_checker);
-    let tail_expr = middleware::walk_block(&mut codegen, &program)?;
+    let tail_expr = middleware::walk_block_top_level(&mut codegen, &program)?;
     let tail_data_ref = tail_expr.into_data_ref(&mut codegen)?;
     codegen.bring_up_references(&[tail_data_ref], return_type.width(&type_checker)?)?;
 

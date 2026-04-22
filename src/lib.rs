@@ -3,6 +3,7 @@
 #![feature(coroutines)]
 #![feature(iter_from_coroutine)]
 #![feature(error_generic_member_access)]
+#![feature(int_roundings)]
 
 pub mod ast;
 pub mod codegen;

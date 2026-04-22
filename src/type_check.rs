@@ -4,22 +4,26 @@ use std::{
     fmt::{self, Debug, Display},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicI64, AtomicU64, Ordering},
     },
 };
 
 use crate::{
     ast::{
         AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, CaptureKind, Captures,
-        ConstDef, DeferedCaptures, DeferedType, DeferedVersion, Expr, FunctionAttribute,
-        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop,
-        PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value, VariableVersion,
+        ConstDef, DeferedAddress, DeferedCaptures, DeferedType, DeferedVersion, Expr,
+        FunctionAttribute, FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr,
+        LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value,
+        VariableVersion,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
     error::{SpannedErrorExt as _, TypeError},
 };
 
 type Result<'a, T, E = TypeError<'a>> = std::result::Result<T, E>;
+
+pub const GLOBAL_ARENA_START: ClacValue = 0x67670000;
+pub const PAGE_SIZE: ClacValue = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VariableKind {
@@ -67,6 +71,7 @@ pub struct TypeChecker<'a> {
     pub scope_stack: Vec<TypeCheckerFrame<'a>>,
     pub typedefs: HashMap<IdentRef<'a>, (Type<'a>, AnnotatedSpan<'a>)>,
     version_counter: Arc<AtomicU64>,
+    address_counter: Arc<AtomicI64>,
     break_point: Option<usize>,
 }
 
@@ -93,6 +98,7 @@ impl Default for TypeChecker<'_> {
             scope_stack: Vec::default(),
             typedefs: HashMap::default(),
             version_counter: Arc::default(),
+            address_counter: Arc::new(AtomicI64::new(GLOBAL_ARENA_START)),
             break_point: None,
         };
 
@@ -204,6 +210,11 @@ impl<'a> TypeChecker<'a> {
 
     pub fn allocate_version(&self) -> VariableVersion {
         VariableVersion(self.version_counter.fetch_add(1, Ordering::Relaxed))
+    }
+
+    pub fn allocate_address(&self, var_type: &Type<'a>) -> Result<'a, ClacValue> {
+        let width = var_type.width(self)?.next_multiple_of(PAGE_SIZE);
+        Ok(self.address_counter.fetch_add(width, Ordering::SeqCst))
     }
 
     pub fn define_variable(
@@ -378,6 +389,11 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                 *defered_type = DeferedType::ResolvedType(resolved_type?);
 
                 Ok(Type::Int)
+            }
+            Expr::Global(global_type, address, _) => {
+                *address = DeferedAddress::ResolvedAddress(ctx.allocate_address(global_type)?);
+
+                Ok(Type::Pointer(global_type.clone().into()))
             }
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)

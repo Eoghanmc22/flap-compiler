@@ -84,7 +84,7 @@ addrs_of     = { "&" }
 binary_op  = _{ add | subtract | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
 prefix_op  = _{ negate | invert | logical_not | dereference | cast | addrs_of }
 postfix_op = _{ member | member_deref | array_idx }
-atom       = _{ array_expr | struct_expr | if_statement | sizeof_packed_builtin | sizeof_builtin | line_builtin | box_builtin | function_call | value | ident | ("(" ~ expression ~ ")") }
+atom       = _{ array_expr | struct_expr | if_statement | sizeof_packed_builtin | sizeof_builtin | line_builtin | box_builtin | global_builtin | function_call | value | ident | ("(" ~ expression ~ ")") }
 expression =  { prefix_op* ~ atom ~ postfix_op* ~ (binary_op ~ prefix_op* ~ atom ~ postfix_op*)* }
 
 auto_type      = { "auto" }
@@ -96,6 +96,7 @@ assignment     = { expression ~ "=" ~ expression }
 function_parameters   = _{ (expression ~ ("," ~ expression)*)? }
 function_call         =  { ident ~ "(" ~ function_parameters ~ ")" }
 box_builtin        =  { "box" ~ "(" ~ expression ~ ")" }
+global_builtin        =  { "global" ~ "<" ~ var_type ~ ">" }
 sizeof_builtin        =  { "sizeof" ~ (("(" ~ expression ~ ")") | ("<" ~ var_type ~ ">")) }
 sizeof_packed_builtin =  { "sizeof_packed" ~ (("(" ~ expression ~ ")") | ("<" ~ var_type ~ ">")) }
 line_builtin          =  { "__LINE__" }
