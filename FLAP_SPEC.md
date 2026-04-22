@@ -81,6 +81,7 @@ digits, or `_`.
 struct  if      else    while   for     loop    defer
 const   auto    typedef include sizeof  sizeof_packed  __LINE__
 true    false   void    int     char    bool    NULL
+box     global
 ```
 
 ---
@@ -185,6 +186,41 @@ sizeof_packed(expr) // size in bytes, ignoring padding
 
 `sizeof_packed` is the primary way to get a byte count for string/buffer
 lengths.
+
+### `box` builtin
+
+```flap
+box(expr)           // Allocates expr on the heap and return a pointer to it
+```
+
+### `global` builtin
+
+```flap
+global(width_bytes)           // Returns a pointer to a place of size width_bytes, 
+global<Type>                  // Returns a pointer to a place large enough for Type in repr flap (ie the on stack repr)
+```
+
+Every call site gets a unique pointer, but unlike malloc a given call site will always return the same value.
+The global builtin is const compatible. It is useful for allocinting places to store shared global mutable state.
+Since the pointer returned by `global` is comptime known, it avoids the capturing overhead incured when
+emulating this behaivor by capturing a variable defined at top level.
+
+```flap
+void example() {
+    // Will print the same number each time this function is called
+    print((int) global(0)); 
+}
+
+// Will print a unique pointer
+print((int) global(0)); 
+
+// Will print a unique pointer
+print((int) global(0)); 
+
+// Will print same pointer twice
+example();
+example();
+```
 
 ---
 
@@ -529,6 +565,14 @@ void *v = p;                          // Player * → void * implicitly
 
 A cast is still required to *dereference* a `void *` (the pointee type must
 be stated explicitly).
+
+### Captures and Mutation
+
+Any variables that are captures by a block in flap are passed as an arguement to that block, and all of its parent blocks.
+This is because flap is internally implemented in a rather functional manner.
+More over, mutation is implemented by including the new values of captured mutated variables in the return type of that block.
+This means that capturing variables that are not comptime known and especially mutation have non-trivial overhead.
+Putting the `#[no_captures]` attribute on a function makes it a compile error for it to capture a variable.
 
 ---
 
