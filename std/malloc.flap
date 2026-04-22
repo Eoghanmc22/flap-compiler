@@ -5,6 +5,7 @@ typedef struct {
   int size;
 } malloc_block;
 
+#[lang]
 void *malloc(int size) {
   const int prot = PROT_READ + PROT_WRITE;
   const int flags = MAP_PRIVATE + MAP_ANONYMOUS;
@@ -19,12 +20,14 @@ void *malloc(int size) {
   block + 1
 }
 
+#[lang]
 void free(void *block) {
   malloc_block *block = (malloc_block *)block - 1;
 
   munmap(block, block->size);
 }
 
+#[lang]
 void *realloc(void *block, int size) {
   if (block != NULL) {
     if (size != 0) {

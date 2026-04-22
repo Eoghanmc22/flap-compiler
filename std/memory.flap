@@ -2,6 +2,7 @@
 
 const int PAGE_SIZE = 4096;
 
+#[lang]
 void map_global(void *at, int size) {
   const int prot = PROT_READ + PROT_WRITE;
   const int flags = MAP_PRIVATE + MAP_ANONYMOUS + MAP_FIXED_NOREPLACE;

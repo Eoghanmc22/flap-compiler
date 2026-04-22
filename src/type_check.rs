@@ -39,6 +39,13 @@ pub enum FrameKind {
     Phantom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord)]
+pub enum FunctionKind {
+    #[default]
+    Regular,
+    LangItem,
+}
+
 #[derive(Debug, Clone)]
 pub struct TypeCheckerFrame<'a> {
     pub variables: HashMap<IdentRef<'a>, VariableVersion>,
@@ -70,6 +77,7 @@ impl<'a> TypeCheckerFrame<'a> {
 pub struct TypeChecker<'a> {
     pub scope_stack: Vec<TypeCheckerFrame<'a>>,
     pub typedefs: HashMap<IdentRef<'a>, (Type<'a>, AnnotatedSpan<'a>)>,
+    pub lang_items: HashMap<IdentRef<'a>, (FunctionSignature<'a>, AnnotatedSpan<'a>)>,
     version_counter: Arc<AtomicU64>,
     address_counter: Arc<AtomicI64>,
     break_point: Option<usize>,
@@ -97,13 +105,20 @@ impl Default for TypeChecker<'_> {
         let mut type_checker = Self {
             scope_stack: Vec::default(),
             typedefs: HashMap::default(),
+            lang_items: HashMap::default(),
             version_counter: Arc::default(),
             address_counter: Arc::new(AtomicI64::new(GLOBAL_ARENA_START)),
             break_point: None,
         };
 
         for (ident, (_code, mut sig)) in clac_builtins() {
-            type_checker.define_function(ident, &mut sig, AnnotatedSpan::builtin(), |_| {});
+            type_checker.define_function(
+                ident,
+                &mut sig,
+                AnnotatedSpan::builtin(),
+                FunctionKind::Regular,
+                |_| {},
+            );
         }
 
         type_checker.push_scope_frame(FrameKind::Regular, CaptureKind::Read);
@@ -155,13 +170,14 @@ impl<'a> TypeChecker<'a> {
         ident: IdentRef<'a>,
         signature: &mut FunctionSignature<'a>,
         span: AnnotatedSpan<'a>,
+        kind: FunctionKind,
         mut scope: F,
     ) -> (T, TypeCheckerFrame<'a>) {
         self.top_scope_frame()
             .functions
             .insert(ident, (signature.clone(), span));
 
-        self.define_scope(
+        let res = self.define_scope(
             |ctx| {
                 for arguement in &mut signature.arguements {
                     let Arguement {
@@ -192,7 +208,13 @@ impl<'a> TypeChecker<'a> {
             },
             FrameKind::Regular,
             CaptureKind::Read,
-        )
+        );
+
+        if let FunctionKind::LangItem = kind {
+            self.lang_items.insert(ident, (signature.clone(), span));
+        }
+
+        res
     }
 
     pub fn define_scope<T, F: FnOnce(&mut Self) -> T>(
@@ -929,8 +951,14 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
+        let kind = if self.attributes.contains(&FunctionAttribute::LangItem) {
+            FunctionKind::LangItem
+        } else {
+            FunctionKind::Regular
+        };
+
         let (actual_return_type, frame) =
-            ctx.define_function(self.function, &mut self.signature, self.span, |ctx| {
+            ctx.define_function(self.function, &mut self.signature, self.span, kind, |ctx| {
                 self.contents.check_and_resolve_types(ctx)
             });
 

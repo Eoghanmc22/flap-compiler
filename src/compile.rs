@@ -17,8 +17,8 @@ use crate::{
         CodegenCtx,
         clac::ClacProgram,
         post_process::{
-            AttributionPostProcessor, CheckNativeWidth, ExtractDefinitionsPostProcessor,
-            PostProcesser, SourceCodeCommentPostProcessor,
+            AllocateGlobals, AttributionPostProcessor, CheckNativeWidth,
+            ExtractDefinitionsPostProcessor, PostProcesser, SourceCodeCommentPostProcessor,
         },
     },
     error::{CompileError, SpannedErrorExt},
@@ -319,35 +319,41 @@ pub fn compile(ctx: &CompileContext) -> Result<'_, ClacProgram> {
         .map_err(CompileError::TypeCheck)?;
 
     let mut codegen = CodegenCtx::new(&type_checker);
-    let tail_expr = middleware::walk_block_top_level(&mut codegen, &program)?;
+    let tail_expr = middleware::walk_block(&mut codegen, &program)?;
     let tail_data_ref = tail_expr.into_data_ref(&mut codegen)?;
     codegen.bring_up_references(&[tail_data_ref], return_type.width(&type_checker)?)?;
 
     let mut program = codegen.into_tokens();
 
     {
+        // Emit a mmap to back globals made with the global builtin
+        AllocateGlobals {
+            type_checker: &type_checker,
+        }
+        .process(&mut program)?;
+
         // Code gen emits clac code with nested definitions which is not valid clac code
         // Flatten the definitions in this postprocessing step
         ExtractDefinitionsPostProcessor {
             tree_shaking: config.tree_shaking,
         }
-        .process(&mut program);
+        .process(&mut program)?;
 
         // Emit an assert that the runtime native width is the same as what the compiler expects
         if config.emit_native_width_assert {
-            CheckNativeWidth.process(&mut program);
+            CheckNativeWidth.process(&mut program)?;
         }
 
         // Emit a comment containing the programs source code
         if config.emit_source_code_comment {
             let source_code = &ctx.sources.get(&ctx.root).unwrap().contents;
 
-            SourceCodeCommentPostProcessor(source_code).process(&mut program);
+            SourceCodeCommentPostProcessor(source_code).process(&mut program)?;
         }
 
         // Emit a comment attributing the generated clac code to this compiler
         if config.emit_attribution_comment {
-            AttributionPostProcessor.process(&mut program);
+            AttributionPostProcessor.process(&mut program)?;
         }
     }
 

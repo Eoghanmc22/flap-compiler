@@ -14,39 +14,11 @@ use crate::{
         ir::{ClacOp, DataReference},
     },
     error::{MiddlewareError, SpannedErrorExt},
-    type_check,
 };
 
 type Result<'a, T, E = MiddlewareError<'a>> = std::result::Result<T, E>;
 
-pub fn walk_block_top_level<'a, 'b>(
-    ctx: &mut CodegenCtx<'a, 'b>,
-    block: &Block<'a>,
-) -> Result<'a, MaybeTailCall<'a>> {
-    let last_global = ctx.type_checker.allocate_address_type(&Type::Void)?;
-    if last_global != type_check::GLOBAL_ARENA_START {
-        walk_function_call(
-            ctx,
-            &FunctionCall {
-                function: "map_global",
-                parameters: vec![
-                    Expr::Value(
-                        Value::Int(type_check::GLOBAL_ARENA_START),
-                        AnnotatedSpan::builtin(),
-                    ),
-                    Expr::Value(
-                        Value::Int(last_global - type_check::GLOBAL_ARENA_START),
-                        AnnotatedSpan::builtin(),
-                    ),
-                ],
-                span: AnnotatedSpan::builtin(),
-            },
-        )?;
-    }
-
-    walk_block(ctx, block)
-}
-fn walk_block<'a, 'b>(
+pub fn walk_block<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     block: &Block<'a>,
 ) -> Result<'a, MaybeTailCall<'a>> {

@@ -336,6 +336,31 @@ impl<'a, 'b> CodegenCtx<'a, 'b> {
         MangledIdent(Arc::new(mangled))
     }
 
+    pub fn define_function_stub(
+        &mut self,
+        ident: IdentRef<'a>,
+        signature: FunctionSignature<'a>,
+        attributes: &HashSet<FunctionAttribute>,
+    ) -> Result<'a, DefinitionIdent<'a>> {
+        let def_ident = DefinitionIdent::Function(ident);
+
+        let mangled = if attributes.contains(&FunctionAttribute::NoMangle) {
+            MangledIdent(Arc::new(ident.to_string()))
+        } else {
+            return Err(CodegenError::CompilerBug(Backtrace::force_capture()));
+        };
+
+        let call = vec![ClacToken::Call {
+            mangled_ident: mangled.clone(),
+            stack_delta: signature.stack_delta(self.type_checker)?,
+        }];
+        self.top_scope_frame()
+            .definitions
+            .insert(StoredDefinitionIdent(def_ident), (call, signature.clone()));
+
+        Ok(def_ident)
+    }
+
     pub fn define_function<E, F: FnOnce(&mut Self) -> Result<'a, MaybeTailCall<'a>, E>>(
         &mut self,
         ident: IdentRef<'a>,

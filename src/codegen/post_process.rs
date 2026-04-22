@@ -1,12 +1,70 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    backtrace::Backtrace,
+    collections::{BTreeMap, HashMap, HashSet},
     mem,
 };
 
-use crate::codegen::clac::{ClacProgram, ClacToken, ClacValue, MangledIdent};
+use crate::{
+    ast::{AnnotatedSpan, FunctionAttribute, Value},
+    codegen::{
+        CodegenCtx,
+        clac::{ClacProgram, ClacToken, ClacValue, MangledIdent},
+        ir::DataReference,
+    },
+    error::{CodegenError, CompileError},
+    type_check::{self, TypeChecker},
+};
 
-pub trait PostProcesser {
-    fn process(&mut self, program: &mut ClacProgram);
+type Result<'a, T, E = CompileError<'a>> = core::result::Result<T, E>;
+
+pub trait PostProcesser<'a> {
+    fn process(&mut self, program: &mut ClacProgram) -> Result<'a, ()>;
+}
+
+pub struct AllocateGlobals<'a, 'b> {
+    pub type_checker: &'b TypeChecker<'a>,
+}
+
+impl<'a, 'b> PostProcesser<'a> for AllocateGlobals<'a, 'b> {
+    fn process(&mut self, program: &mut ClacProgram) -> Result<'a, ()> {
+        let last_global = self.type_checker.allocate_address(0);
+        if last_global == type_check::GLOBAL_ARENA_START {
+            return Ok(());
+        }
+
+        let Some((sig, _)) = self.type_checker.lang_items.get("map_global") else {
+            return Err(
+                CodegenError::UnknownFunction("map_global", Backtrace::force_capture()).into(),
+            );
+        };
+
+        let mut codegen = CodegenCtx::new(self.type_checker);
+
+        codegen.define_function_stub(
+            "map_global",
+            sig.clone(),
+            &HashSet::from([FunctionAttribute::NoMangle]),
+        )?;
+
+        codegen
+            .call_function_like(
+                "map_global",
+                vec![
+                    DataReference::Value(Value::Int(type_check::GLOBAL_ARENA_START), None),
+                    DataReference::Value(
+                        Value::Int(last_global - type_check::GLOBAL_ARENA_START),
+                        None,
+                    ),
+                ],
+                AnnotatedSpan::builtin(),
+            )?
+            .into_data_ref(&mut codegen)?;
+
+        let origional = mem::replace(program, codegen.into_tokens());
+        program.0.extend(origional.0);
+
+        Ok(())
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -14,8 +72,8 @@ pub struct ExtractDefinitionsPostProcessor {
     pub tree_shaking: bool,
 }
 
-impl PostProcesser for ExtractDefinitionsPostProcessor {
-    fn process(&mut self, program: &mut ClacProgram) {
+impl PostProcesser<'static> for ExtractDefinitionsPostProcessor {
+    fn process(&mut self, program: &mut ClacProgram) -> Result<'static, ()> {
         let mut original = mem::take(program).0;
 
         let mut definitions = HashMap::new();
@@ -115,14 +173,16 @@ impl PostProcesser for ExtractDefinitionsPostProcessor {
             program.0.push(ClacToken::Comment("Start Main".to_string()));
             program.0.extend_from_slice(&original);
         }
+
+        Ok(())
     }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct AttributionPostProcessor;
 
-impl PostProcesser for AttributionPostProcessor {
-    fn process(&mut self, program: &mut ClacProgram) {
+impl PostProcesser<'static> for AttributionPostProcessor {
+    fn process(&mut self, program: &mut ClacProgram) -> Result<'static, ()> {
         let original = mem::take(program).0;
 
         program.0.push(ClacToken::Comment(
@@ -130,14 +190,16 @@ impl PostProcesser for AttributionPostProcessor {
         ));
         program.0.push(ClacToken::NewLine);
         program.0.extend_from_slice(&original);
+
+        Ok(())
     }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct SourceCodeCommentPostProcessor<'a>(pub &'a str);
 
-impl PostProcesser for SourceCodeCommentPostProcessor<'_> {
-    fn process(&mut self, program: &mut ClacProgram) {
+impl PostProcesser<'static> for SourceCodeCommentPostProcessor<'_> {
+    fn process(&mut self, program: &mut ClacProgram) -> Result<'static, ()> {
         let original = mem::take(program).0;
 
         let mut comment = String::new();
@@ -162,14 +224,16 @@ impl PostProcesser for SourceCodeCommentPostProcessor<'_> {
 
         program.0.push(ClacToken::NewLine);
         program.0.extend_from_slice(&original);
+
+        Ok(())
     }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct CheckNativeWidth;
 
-impl PostProcesser for CheckNativeWidth {
-    fn process(&mut self, program: &mut ClacProgram) {
+impl PostProcesser<'static> for CheckNativeWidth {
+    fn process(&mut self, program: &mut ClacProgram) -> Result<'static, ()> {
         let original = mem::take(program).0;
 
         program.0.push(ClacToken::Comment(
@@ -192,5 +256,7 @@ impl PostProcesser for CheckNativeWidth {
         program.0.push(ClacToken::NewLine);
 
         program.0.extend_from_slice(&original);
+
+        Ok(())
     }
 }

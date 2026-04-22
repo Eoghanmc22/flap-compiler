@@ -1003,7 +1003,7 @@ impl<'a> AstSpan<'a> for FunctionCall<'a> {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum FunctionAttribute {
-    LangItem(String),
+    LangItem,
     NoMangle,
     NoCaptures,
     AllowUnderflow,

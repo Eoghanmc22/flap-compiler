@@ -383,9 +383,9 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                     attributes.insert(FunctionAttribute::NoCaptures);
                 }
                 Rule::lang_item => {
-                    attributes.insert(FunctionAttribute::LangItem(
-                        parse_string(pair.into_inner().next().unwrap())?.to_string(),
-                    ));
+                    attributes.insert(FunctionAttribute::LangItem);
+                    attributes.insert(FunctionAttribute::NoCaptures);
+                    attributes.insert(FunctionAttribute::NoMangle);
                 }
                 rule => {
                     return Err(PestError::new_from_span(

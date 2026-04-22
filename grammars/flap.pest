@@ -120,7 +120,7 @@ statement = _{ function_def | if_statement | defer_block | typedef | while_loop 
 
 no_mangle               =  { "no_mangle" }
 no_captures             =  { "no_captures" }
-lang_item               =  { "lang" ~ "(" ~ string ~ ")"  }
+lang_item               =  { "lang" }
 function_attr           =  { no_mangle | lang_item | no_captures }
 function_attrs          = _{ ("#" ~ "[" ~ function_attr ~ "]")* }
 function_parameters_def = _{ (var_type ~ ident ~ ("," ~ var_type ~ ident)*)? }
