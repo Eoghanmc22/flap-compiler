@@ -3,10 +3,10 @@ use tracing::trace;
 
 use crate::{
     ast::{
-        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedType,
-        DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IfCase, IfExpr,
-        LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, SizeOfMode, Statement, Stride, Type,
-        Value,
+        AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, ConstDef, DeferedCaptures,
+        DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef, FunctionSignature, IfCase,
+        IfExpr, LocalDef, Loop, PostfixOp, PrefixOp, Punctuation, SizeOfMode, Statement, Stride,
+        Type, Value,
     },
     codegen::{
         AnnotatedDataRef, CodegenCtx, MaybeTailCall, Offset,
@@ -721,13 +721,14 @@ fn walk_expr<'a, 'b>(
                         Stride::Byte => 1,
                         Stride::ZST => 0,
                     },
-                    _ => {
-                        return Err(MiddlewareError::NoPackedRepr {
-                            the_type: inner_type.clone(),
-                            backtrace: Backtrace::capture(),
-                        })
-                        .wrap_span(*span);
-                    }
+                    _ => ClacValue::BITS as ClacValue / 8,
+                    // _ => {
+                    //     return Err(MiddlewareError::NoPackedRepr {
+                    //         the_type: inner_type.clone(),
+                    //         backtrace: Backtrace::capture(),
+                    //     })
+                    //     .wrap_span(*span);
+                    // }
                 },
             };
 
@@ -1352,5 +1353,71 @@ fn walk_expr<'a, 'b>(
         }
         Expr::FunctionCall(func_call) => Ok(walk_function_call(ctx, func_call)?.into()),
         Expr::If(if_expr) => Ok(walk_if_expr(ctx, if_expr)?.into()),
+        Expr::Box(expr, defered_type, span) => {
+            let version = ctx.type_checker.allocate_version();
+
+            let DeferedType::ResolvedType(operand_type) = defered_type else {
+                return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
+            };
+
+            Ok(walk_expr(
+                ctx,
+                &Expr::Block(Block {
+                    statements: vec![
+                        Statement::Local(LocalDef {
+                            name: "<box_tmp>",
+                            var_type: DeferedType::ResolvedType(Type::Pointer(
+                                operand_type.clone().into(),
+                            )),
+                            version: DeferedVersion::ResolvedVersion(version),
+                            expr: Expr::FunctionCall(FunctionCall {
+                                function: "malloc",
+                                parameters: vec![Expr::SizeOfExpr(
+                                    expr.clone(),
+                                    defered_type.clone(),
+                                    SizeOfMode::Packed,
+                                    *span,
+                                )],
+                                span: *span,
+                            }),
+                            span: *span,
+                        }),
+                        Statement::Assignment(Assignment {
+                            target: Expr::PrefixOp {
+                                op: PrefixOp::Dereference,
+                                operand: Expr::Variable(
+                                    "<box_tmp>",
+                                    DeferedVersion::ResolvedVersion(version),
+                                    *span,
+                                )
+                                .into(),
+                                operand_type: DeferedType::ResolvedType(Type::Pointer(
+                                    operand_type.clone().into(),
+                                )),
+                                span: *span,
+                                op_span: *span,
+                            },
+                            expr: (**expr).clone(),
+                            span: *span,
+                            expr_span: expr.as_span(),
+                            target_type: DeferedType::ResolvedType(operand_type.clone()),
+                            expr_type: DeferedType::ResolvedType(operand_type.clone()),
+                        }),
+                        Statement::Expr(
+                            Expr::Variable(
+                                "<box_tmp>",
+                                DeferedVersion::ResolvedVersion(version),
+                                *span,
+                            ),
+                            Punctuation::Unpunctuated,
+                        ),
+                    ],
+                    captures: DeferedCaptures::UnresolvedCaptures,
+                    span: *span,
+                }),
+            )?
+            .into())
+        }
+        Expr::Block(block) => Ok(walk_block(ctx, block)?.into()),
     }
 }

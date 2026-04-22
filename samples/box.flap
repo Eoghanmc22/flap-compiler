@@ -1,0 +1,16 @@
+#include "../std"
+
+typedef struct {
+  int a;
+  int b;
+} funny;
+
+funny* it = box(struct {
+  a = 6;
+  b = 7;
+});
+
+print(it->a);
+print(it->b);
+
+free(it);

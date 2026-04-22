@@ -143,6 +143,7 @@ fn rule_renamer(rule: &Rule) -> String {
         Rule::function_parameters => "function parameters",
         Rule::function_call => "function call",
         Rule::sizeof_builtin => "sizeof",
+        Rule::box_builtin => "box",
         Rule::sizeof_packed_builtin => "sizeof_packed",
         Rule::line_builtin => "__LINE__",
         Rule::if_block => "if",
@@ -843,6 +844,11 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 Rule::function_call => {
                     Ok(Expr::FunctionCall(parse_function_call(primary, file_name)?))
                 }
+                Rule::box_builtin => Ok(Expr::Box(
+                    parse_expr(primary.into_inner(), file_name)?.into(),
+                    DeferedType::UnresolvedType,
+                    span,
+                )),
                 Rule::sizeof_builtin => {
                     let inner = primary.clone().into_inner().next().unwrap();
                     match inner.as_rule() {

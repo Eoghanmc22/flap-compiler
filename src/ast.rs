@@ -328,6 +328,8 @@ pub enum Expr<'a> {
         AnnotatedSpan<'a>,
     ),
     If(IfExpr<'a>),
+    Box(Box<Expr<'a>>, DeferedType<'a>, AnnotatedSpan<'a>),
+    Block(Block<'a>),
 }
 
 impl<'a> AstSpan<'a> for Expr<'a> {
@@ -344,7 +346,9 @@ impl<'a> AstSpan<'a> for Expr<'a> {
             | Expr::FunctionCall(FunctionCall { span, .. })
             | Expr::SizeOfType(_, _, span)
             | Expr::SizeOfExpr(_, _, _, span)
-            | Expr::If(IfExpr { span, .. }) => *span,
+            | Expr::Box(_, _, span)
+            | Expr::If(IfExpr { span, .. })
+            | Expr::Block(Block { span, .. }) => *span,
         }
     }
 
@@ -398,8 +402,14 @@ impl<'a> AstSpan<'a> for Expr<'a> {
                 Expr::SizeOfExpr(expr, ..) => {
                     yield &**expr;
                 }
+                Expr::Box(expr, ..) => {
+                    yield &**expr;
+                }
                 Expr::If(if_expr) => {
                     yield if_expr;
+                }
+                Expr::Block(block) => {
+                    yield block;
                 }
             },
         ))

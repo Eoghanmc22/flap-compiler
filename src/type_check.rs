@@ -782,6 +782,29 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 result
             }
+            Expr::Box(expr, defered_type, _span) => {
+                // Eval box arg in read only
+                let (result, _frame) = ctx.define_scope(
+                    |ctx| expr.check_and_resolve_types(ctx),
+                    FrameKind::Regular,
+                    CaptureKind::Read,
+                );
+
+                let result = result?;
+                *defered_type = DeferedType::ResolvedType(result.clone());
+
+                Ok(Type::Pointer(result.into()))
+            }
+            Expr::Block(block) => {
+                // Eval block in read only
+                let (result, _frame) = ctx.define_scope(
+                    |ctx| block.check_and_resolve_types(ctx),
+                    FrameKind::Regular,
+                    CaptureKind::Read,
+                );
+
+                result
+            }
         }
     }
 }
