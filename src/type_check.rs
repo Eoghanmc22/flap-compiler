@@ -11,9 +11,9 @@ use std::{
 use crate::{
     ast::{
         AnnotatedSpan, Arguement, Assignment, AstSpan, BinaryOp, Block, CaptureKind, Captures,
-        ConstDef, DeferedCaptures, DeferedType, DeferedVersion, Expr, FunctionCall, FunctionDef,
-        FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop, PostfixOp, PrefixOp,
-        Punctuation, Statement, Type, Typedef, Value, VariableVersion,
+        ConstDef, DeferedCaptures, DeferedType, DeferedVersion, Expr, FunctionAttribute,
+        FunctionCall, FunctionDef, FunctionSignature, IdentRef, IfCase, IfExpr, LocalDef, Loop,
+        PostfixOp, PrefixOp, Punctuation, Statement, Type, Typedef, Value, VariableVersion,
     },
     codegen::{builtins::clac_builtins, clac::ClacValue},
     error::{SpannedErrorExt as _, TypeError},
@@ -848,10 +848,21 @@ impl<'a> TypeCheck<'a> for FunctionDef<'a> {
 
         assert_eq!(ctx.capture_kind(), CaptureKind::Read);
 
-        let (actual_return_type, _frame) =
+        let (actual_return_type, frame) =
             ctx.define_function(self.function, &mut self.signature, self.span, |ctx| {
                 self.contents.check_and_resolve_types(ctx)
             });
+
+        if self.attributes.contains(&FunctionAttribute::NoCaptures) {
+            let captures = frame.get_captures();
+            if !captures.0.is_empty() {
+                return Err(TypeError::IllegalCaptures {
+                    function: self.clone(),
+                    captures,
+                    backtrace: Backtrace::capture(),
+                });
+            }
+        }
 
         let actual_return_type = actual_return_type?;
 

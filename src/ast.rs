@@ -964,6 +964,7 @@ impl<'a> AstSpan<'a> for FunctionCall<'a> {
 pub enum FunctionAttribute {
     LangItem(String),
     NoMangle,
+    NoCaptures,
     AllowUnderflow,
     Naked,
 }

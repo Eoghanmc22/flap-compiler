@@ -117,8 +117,9 @@ semicolon =  { ";" }
 statement = _{ function_def | if_statement | defer_block | typedef | while_loop | for_loop | forever | ((const_var | local_var | assignment | expression) ~ semicolon) }
 
 no_mangle               =  { "no_mangle" }
+no_captures             =  { "no_captures" }
 lang_item               =  { "lang" ~ "(" ~ string ~ ")"  }
-function_attr           =  { no_mangle | lang_item }
+function_attr           =  { no_mangle | lang_item | no_captures }
 function_attrs          = _{ ("#" ~ "[" ~ function_attr ~ "]")* }
 function_parameters_def = _{ (var_type ~ ident ~ ("," ~ var_type ~ ident)*)? }
 function_def            =  { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }

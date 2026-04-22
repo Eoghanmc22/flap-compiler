@@ -13,7 +13,7 @@ use pest::Span;
 use pest::error::InputLocation;
 use thiserror::Error;
 
-use crate::ast::{AstSpan, ComputedSpan};
+use crate::ast::{AstSpan, Captures, ComputedSpan, FunctionDef};
 use crate::type_check::TypeChecker;
 use crate::{
     ast::{
@@ -239,6 +239,12 @@ pub enum TypeError<'a> {
     FunctionNotInScope(IdentRef<'a>, Backtrace),
     #[error("Typedef {0} is not in scope")]
     TypedefNotInScope(IdentRef<'a>, Backtrace),
+    #[error("The function {} is no_captures, but it captures {:?}", function.function, captures)]
+    IllegalCaptures {
+        function: FunctionDef<'a>,
+        captures: Captures<'a>,
+        backtrace: Backtrace,
+    },
 
     #[error("All array elements must be of the same type")]
     ArrayElementsMismatch(Backtrace),
@@ -663,6 +669,7 @@ impl<'a> IntoSpans for TypeError<'a> {
             TypeError::VariableNotInScope(..) => "Variable Not In Scope",
             TypeError::FunctionNotInScope(..) => "Function Not In Scope",
             TypeError::TypedefNotInScope(..) => "Typedef Not In Scope",
+            TypeError::IllegalCaptures { .. } => "Function With #[no_captures] Takes Captures",
             TypeError::ArrayElementsMismatch(..) => "Array Elements Mismatch",
             TypeError::ArrayEmpty(..) => "Array Empty",
             TypeError::BinaryOpBadArgs { .. } => "Binary Op Bad Args",
@@ -702,6 +709,15 @@ impl<'a> IntoSpans for TypeError<'a> {
                     }
                 }
                 TypeError::TypedefMultipleDefined(..) => {}
+                TypeError::IllegalCaptures {
+                    function, captures, ..
+                } => {
+                    yield (Box::new(function.as_span()), None);
+
+                    for (_, (_, _, _, span)) in &captures.0 {
+                        yield (Box::new(*span), None);
+                    }
+                }
                 TypeError::VariableVersionNotInScope(..) => {}
                 TypeError::VariableNotInScope(..) => {}
                 TypeError::FunctionNotInScope(..) => {}

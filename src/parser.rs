@@ -158,7 +158,8 @@ fn rule_renamer(rule: &Rule) -> String {
         Rule::semicolon => ";",
         Rule::statement => "statememnt",
         Rule::no_mangle => "no_mangle",
-        Rule::lang_item => "lang item",
+        Rule::lang_item => "lang",
+        Rule::no_captures => "no_captures",
         Rule::function_attr => "function attribute",
         Rule::function_attrs => "function attributes",
         Rule::function_parameters_def => "function parameters",
@@ -376,6 +377,9 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                 Rule::no_mangle => {
                     attributes.insert(FunctionAttribute::NoMangle);
                 }
+                Rule::no_captures => {
+                    attributes.insert(FunctionAttribute::NoCaptures);
+                }
                 Rule::lang_item => {
                     attributes.insert(FunctionAttribute::LangItem(
                         parse_string(pair.into_inner().next().unwrap())?.to_string(),
@@ -384,7 +388,7 @@ fn parse_function_def<'a>(target: Pair<'a, Rule>, file_name: &'a str) -> Result<
                 rule => {
                     return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
-                            positives: vec![Rule::no_mangle],
+                            positives: vec![Rule::no_mangle, Rule::lang_item, Rule::no_captures],
                             negatives: vec![rule],
                         },
                         pair.as_span(),
