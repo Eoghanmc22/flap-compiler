@@ -101,10 +101,7 @@ gol_t gol_new() {
   }
 }
 
-const int *wayland_current_id_ptr = (int *)NEXT_GLOBAL;
-const char *NEXT_GLOBAL =
-    NEXT_GLOBAL + PAGE_SIZE; // roundup_page_size(sizeof<rng>);
-map_global(wayland_current_id_ptr, sizeof<int>);
+const int *wayland_current_id_ptr = global<int>;
 
 const int wayland_display_object_id = 1;
 const int wayland_wl_registry_event_global = 0;

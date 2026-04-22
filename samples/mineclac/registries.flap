@@ -75,10 +75,7 @@ const auto registries_bin_ARRAY = (char[904])[
 ];
 
 const int registries_bin_size = sizeof_packed(registries_bin_ARRAY);
-const char *registries_bin = (char *)NEXT_GLOBAL;
-const char *NEXT_GLOBAL =
-    NEXT_GLOBAL + PAGE_SIZE;
-map_global(registries_bin, registries_bin_size);
+const char *registries_bin = global(registries_bin_size);
 *registries_bin = registries_bin_ARRAY;
 
 
@@ -100,10 +97,7 @@ const auto tags_bin_ARRAY = (char[160])[
 ];
 
 const int tags_bin_size = sizeof_packed(tags_bin_ARRAY);
-const char *tags_bin = (char *)NEXT_GLOBAL;
-const char *NEXT_GLOBAL =
-    NEXT_GLOBAL + PAGE_SIZE;
-map_global(tags_bin, tags_bin_size);
+const char *tags_bin = global(tags_bin_size);
 *tags_bin = tags_bin_ARRAY;
 
 // Block palette
@@ -134,10 +128,8 @@ const auto block_palette_ARRAY = [
   11354, 11366, 11446
 ];
 
-const int *block_palette = (int *)NEXT_GLOBAL;
-const char *NEXT_GLOBAL =
-    NEXT_GLOBAL + PAGE_SIZE;
-map_global(block_palette, sizeof(block_palette_ARRAY));
+const int block_palette_size = sizeof(block_palette_ARRAY);
+const int *block_palette = global(block_palette_size);
 *block_palette = block_palette_ARRAY;
 
 // Block palette as VarInt buffer
@@ -183,10 +175,7 @@ const auto network_block_palette_ARRAY = (char[483])[
 ];
 
 const int network_block_palette_size = sizeof_packed(network_block_palette_ARRAY);
-const char *network_block_palette = (char *)NEXT_GLOBAL;
-const char *NEXT_GLOBAL =
-    NEXT_GLOBAL + PAGE_SIZE;
-map_global(network_block_palette, network_block_palette_size);
+const char *network_block_palette = global(network_block_palette_size);
 *network_block_palette = network_block_palette_ARRAY;
 
 // Block-to-item mapping
@@ -215,10 +204,7 @@ const auto B_to_I_ARRAY = [
     534,  535,  536,  537
 ];
 
-const int *B_to_I = (int *)NEXT_GLOBAL;
-const char *NEXT_GLOBAL =
-    NEXT_GLOBAL + PAGE_SIZE;
-map_global(B_to_I, sizeof(B_to_I_ARRAY));
+const int *B_to_I = global(sizeof(B_to_I_ARRAY));
 *B_to_I = B_to_I_ARRAY;
 
 // Item-to-block mapping

@@ -96,7 +96,7 @@ assignment     = { expression ~ "=" ~ expression }
 function_parameters   = _{ (expression ~ ("," ~ expression)*)? }
 function_call         =  { ident ~ "(" ~ function_parameters ~ ")" }
 box_builtin        =  { "box" ~ "(" ~ expression ~ ")" }
-global_builtin        =  { "global" ~ "<" ~ var_type ~ ">" }
+global_builtin        =  { "global" ~ (("(" ~ expression ~ ")") | ("<" ~ var_type ~ ">")) }
 sizeof_builtin        =  { "sizeof" ~ (("(" ~ expression ~ ")") | ("<" ~ var_type ~ ">")) }
 sizeof_packed_builtin =  { "sizeof_packed" ~ (("(" ~ expression ~ ")") | ("<" ~ var_type ~ ">")) }
 line_builtin          =  { "__LINE__" }

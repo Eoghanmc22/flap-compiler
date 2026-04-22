@@ -845,11 +845,34 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 Rule::function_call => {
                     Ok(Expr::FunctionCall(parse_function_call(primary, file_name)?))
                 }
-                Rule::global_builtin => Ok(Expr::Global(
-                    parse_type(primary.into_inner().next().unwrap(), file_name)?.into(),
-                    DeferedAddress::UnresolvedAddress,
-                    span,
-                )),
+                Rule::global_builtin => {
+                    // Ok(Expr::Global(
+                    //     parse_type(primary.into_inner().next().unwrap(), file_name)?.into(),
+                    //     DeferedAddress::UnresolvedAddress,
+                    //     span,
+                    // ))
+                    let inner = primary.clone().into_inner().next().unwrap();
+                    match inner.as_rule() {
+                        Rule::var_type => Ok(Expr::GlobalOfType(
+                            parse_type(primary.into_inner().next().unwrap(), file_name)?.into(),
+                            DeferedAddress::UnresolvedAddress,
+                            span,
+                        )),
+                        Rule::expression => Ok(Expr::GlobalOfExpr(
+                            parse_expr(primary.into_inner(), file_name)?.into(),
+                            span,
+                        )),
+                        rule => {
+                            return Err(PestError::new_from_span(
+                                ErrorVariant::ParsingError {
+                                    positives: vec![Rule::var_type, Rule::expression],
+                                    negatives: vec![rule],
+                                },
+                                inner.as_span(),
+                            ));
+                        }
+                    }
+                }
                 Rule::box_builtin => Ok(Expr::Box(
                     parse_expr(primary.into_inner(), file_name)?.into(),
                     DeferedType::UnresolvedType,

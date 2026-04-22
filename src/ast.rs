@@ -320,7 +320,8 @@ pub enum Expr<'a> {
         op_span: AnnotatedSpan<'a>,
     },
     FunctionCall(FunctionCall<'a>),
-    Global(Type<'a>, DeferedAddress, AnnotatedSpan<'a>),
+    GlobalOfType(Type<'a>, DeferedAddress, AnnotatedSpan<'a>),
+    GlobalOfExpr(Box<Expr<'a>>, AnnotatedSpan<'a>),
     SizeOfType(Type<'a>, SizeOfMode, AnnotatedSpan<'a>),
     SizeOfExpr(
         Box<Expr<'a>>,
@@ -345,7 +346,8 @@ impl<'a> AstSpan<'a> for Expr<'a> {
             | Expr::PrefixOp { span, .. }
             | Expr::PostfixOp { span, .. }
             | Expr::FunctionCall(FunctionCall { span, .. })
-            | Expr::Global(_, _, span)
+            | Expr::GlobalOfType(_, _, span)
+            | Expr::GlobalOfExpr(_, span)
             | Expr::SizeOfType(_, _, span)
             | Expr::SizeOfExpr(_, _, _, span)
             | Expr::Box(_, _, span)
@@ -398,8 +400,11 @@ impl<'a> AstSpan<'a> for Expr<'a> {
                 Expr::FunctionCall(function_call) => {
                     yield function_call;
                 }
-                Expr::Global(the_type, ..) => {
+                Expr::GlobalOfType(the_type, ..) => {
                     yield the_type;
+                }
+                Expr::GlobalOfExpr(expr, ..) => {
+                    yield &**expr;
                 }
                 Expr::SizeOfType(the_type, ..) => {
                     yield the_type;

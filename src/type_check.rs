@@ -212,9 +212,12 @@ impl<'a> TypeChecker<'a> {
         VariableVersion(self.version_counter.fetch_add(1, Ordering::Relaxed))
     }
 
-    pub fn allocate_address(&self, var_type: &Type<'a>) -> Result<'a, ClacValue> {
+    pub fn allocate_address(&self, width: ClacValue) -> ClacValue {
+        self.address_counter.fetch_add(width, Ordering::SeqCst)
+    }
+    pub fn allocate_address_type(&self, var_type: &Type<'a>) -> Result<'a, ClacValue> {
         let width = var_type.width(self)?.next_multiple_of(PAGE_SIZE);
-        Ok(self.address_counter.fetch_add(width, Ordering::SeqCst))
+        Ok(self.allocate_address(width))
     }
 
     pub fn define_variable(
@@ -390,10 +393,49 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
 
                 Ok(Type::Int)
             }
-            Expr::Global(global_type, address, _) => {
-                *address = DeferedAddress::ResolvedAddress(ctx.allocate_address(global_type)?);
+            Expr::GlobalOfType(global_type, address, _) => {
+                *address = DeferedAddress::ResolvedAddress(ctx.allocate_address_type(global_type)?);
 
                 Ok(Type::Pointer(global_type.clone().into()))
+            }
+            Expr::GlobalOfExpr(width_expr, span) => {
+                let (resolved_type, _frame) = ctx.define_scope(
+                    |ctx| width_expr.check_and_resolve_types(ctx),
+                    FrameKind::Phantom,
+                    CaptureKind::Read,
+                );
+
+                // Cant resolve width yet
+
+                let resolved_type = resolved_type?;
+                if !resolved_type.compatible_with(&Type::Int, ctx)? {
+                    return Err(TypeError::FunctionCallArgBadType {
+                        arg_expr: (**width_expr).clone(),
+                        function: FunctionCall {
+                            function: "global",
+                            parameters: vec![(**width_expr).clone()],
+                            span: *span,
+                        },
+                        signature: FunctionSignature {
+                            arguements: vec![Arguement {
+                                arg_type: Type::Int,
+                                arg_name: "width_bytes",
+                                version: DeferedVersion::UnresolvedVersion,
+                                span: AnnotatedSpan::builtin(),
+                            }],
+                            captures: DeferedCaptures::ResolvedCaptures(Captures::default()),
+                            return_type: Type::Pointer(Type::Void.into()),
+                            span: AnnotatedSpan::builtin(),
+                        },
+                        parm_name: "width_bytes",
+                        expected_type: Type::Int,
+                        provided_type: resolved_type,
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span(*span);
+                }
+
+                Ok(Type::Pointer(Type::Void.into()))
             }
             Expr::Value(value, span) => value
                 .check_and_resolve_types(ctx)

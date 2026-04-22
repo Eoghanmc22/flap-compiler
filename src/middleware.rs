@@ -23,7 +23,7 @@ pub fn walk_block_top_level<'a, 'b>(
     ctx: &mut CodegenCtx<'a, 'b>,
     block: &Block<'a>,
 ) -> Result<'a, MaybeTailCall<'a>> {
-    let last_global = ctx.type_checker.allocate_address(&Type::Void)?;
+    let last_global = ctx.type_checker.allocate_address_type(&Type::Void)?;
     if last_global != type_check::GLOBAL_ARENA_START {
         walk_function_call(
             ctx,
@@ -711,7 +711,7 @@ fn walk_expr<'a, 'b>(
     expr: &Expr<'a>,
 ) -> Result<'a, ExpressionOutput<'a>> {
     match expr {
-        Expr::Global(inner_type, address, _span) => {
+        Expr::GlobalOfType(inner_type, address, _span) => {
             let DeferedAddress::ResolvedAddress(address) = address else {
                 return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
@@ -725,7 +725,38 @@ fn walk_expr<'a, 'b>(
             )
             .into())
         }
-        Expr::SizeOfType(inner_type, mode, _span) => {
+        Expr::GlobalOfExpr(expr, span) => {
+            let expr_data_ref = walk_expr(ctx, expr)?.into_data_ref(ctx)?;
+            let expr_data_ref = ctx.dereference_data_ref(&expr_data_ref)?;
+            let expr_value = match expr_data_ref {
+                DataReference::Value(val, _) => val,
+                _ => {
+                    return Err(MiddlewareError::DynamicConstant {
+                        constant: ConstDef {
+                            name: "<global_width_bytes>",
+                            var_type: DeferedType::ResolvedType(Type::Int),
+                            version: DeferedVersion::UnresolvedVersion,
+                            expr: (**expr).clone(),
+                            span: *span,
+                        },
+                        backtrace: Backtrace::capture(),
+                    })
+                    .wrap_span_desc(
+                        *span,
+                        "The arguement to a global builtin must be a comptime int",
+                    );
+                }
+            };
+
+            let address = ctx.type_checker.allocate_address(expr_value.as_repr()[0]);
+
+            Ok(DataReference::Value(
+                Value::Cast(Type::Pointer(Type::Void.into()), Value::Int(address).into()),
+                None,
+            )
+            .into())
+        }
+        Expr::SizeOfType(inner_type, mode, span) => {
             let scale = match mode {
                 SizeOfMode::Native => ClacValue::BITS as ClacValue / 8,
                 SizeOfMode::Packed => match inner_type.resolve_once(ctx.type_checker)? {
@@ -750,7 +781,7 @@ fn walk_expr<'a, 'b>(
             )
             .into())
         }
-        Expr::SizeOfExpr(_inner_expr, defered_type, mode, _span) => {
+        Expr::SizeOfExpr(_inner_expr, defered_type, mode, span) => {
             let DeferedType::ResolvedType(inner_type) = defered_type else {
                 return Err(MiddlewareError::CompilerBug(Backtrace::force_capture()));
             };
@@ -763,14 +794,13 @@ fn walk_expr<'a, 'b>(
                         Stride::Byte => 1,
                         Stride::ZST => 0,
                     },
-                    _ => ClacValue::BITS as ClacValue / 8,
-                    // _ => {
-                    //     return Err(MiddlewareError::NoPackedRepr {
-                    //         the_type: inner_type.clone(),
-                    //         backtrace: Backtrace::capture(),
-                    //     })
-                    //     .wrap_span(*span);
-                    // }
+                    _ => {
+                        return Err(MiddlewareError::NoPackedRepr {
+                            the_type: inner_type.clone(),
+                            backtrace: Backtrace::capture(),
+                        })
+                        .wrap_span(*span);
+                    }
                 },
             };
 
