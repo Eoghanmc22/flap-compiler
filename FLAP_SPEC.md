@@ -203,7 +203,8 @@ global<Type>                  // Returns a pointer to a place large enough for T
 Every call site gets a unique pointer, but unlike malloc a given call site will always return the same value.
 The global builtin is const compatible. It is useful for allocinting places to store shared global mutable state.
 Since the pointer returned by `global` is comptime known, it avoids the capturing overhead incured when
-emulating this behaivor by capturing a variable defined at top level.
+emulating this behaivor by capturing a variable defined at top level. Pointers returned by this builtin will have
+at least 16 byte alignment.
 
 ```flap
 void example() {
