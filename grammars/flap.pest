@@ -1,4 +1,4 @@
-// TODO: Structs, Arrays, Tuples, Loops, Pointers
+// TODO: Tuples
 
 multiline_comment  = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 singleline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
@@ -117,7 +117,8 @@ semicolon =  { ";" }
 statement = _{ function_def | if_statement | defer_block | typedef | while_loop | for_loop | forever | ((const_var | local_var | assignment | expression) ~ semicolon) }
 
 no_mangle               =  { "no_mangle" }
-function_attr           =  { no_mangle }
+lang_item               =  { "lang" ~ "(" ~ string ~ ")"  }
+function_attr           =  { no_mangle | lang_item }
 function_attrs          = _{ ("#" ~ "[" ~ function_attr ~ "]")* }
 function_parameters_def = _{ (var_type ~ ident ~ ("," ~ var_type ~ ident)*)? }
 function_def            =  { function_attrs ~ var_type ~ ident ~ "(" ~ function_parameters_def ~ ")" ~ block }
