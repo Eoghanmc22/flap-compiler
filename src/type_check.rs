@@ -235,11 +235,11 @@ impl<'a> TypeChecker<'a> {
     }
 
     pub fn allocate_address(&self, width: ClacValue) -> ClacValue {
-        self.address_counter.fetch_add(width, Ordering::SeqCst)
+        self.address_counter
+            .fetch_add(width.next_multiple_of(16), Ordering::SeqCst)
     }
     pub fn allocate_address_type(&self, var_type: &Type<'a>) -> Result<'a, ClacValue> {
-        let width = var_type.width(self)?.next_multiple_of(PAGE_SIZE);
-        Ok(self.allocate_address(width))
+        Ok(self.allocate_address(var_type.width(self)?))
     }
 
     pub fn define_variable(
