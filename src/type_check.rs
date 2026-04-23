@@ -585,7 +585,9 @@ impl<'a> TypeCheck<'a> for Expr<'a> {
                             | BinaryOp::Pow
                             | BinaryOp::BShr
                             | BinaryOp::BShl
-                            | BinaryOp::BAnd,
+                            | BinaryOp::BAnd
+                            | BinaryOp::BOr
+                            | BinaryOp::BXor,
                             left @ (Type::Int | Type::Char),
                             right,
                         ) => (left.compatible_with(right, ctx)?, left.clone()),

@@ -30,6 +30,8 @@ lazy_static::lazy_static! {
             // Lowest precedence first
             .op(Op::infix(logical_or, Left))           // ||
             .op(Op::infix(logical_and, Left))          // &&
+            .op(Op::infix(bit_or, Left))
+            .op(Op::infix(bit_xor, Left))
             .op(Op::infix(bit_and, Left))
             .op(Op::infix(eq, Left) | Op::infix(ne, Left))                    // == !=
             .op(Op::infix(le, Left) | Op::infix(ge, Left) | Op::infix(lt, Left) | Op::infix(gt, Left))  // <= >= < >
@@ -124,6 +126,8 @@ fn rule_renamer(rule: &Rule) -> String {
         Rule::shr => ">>",
         Rule::shl => "<<",
         Rule::bit_and => "&",
+        Rule::bit_or => "|",
+        Rule::bit_xor => "^",
         Rule::dereference => "*",
         Rule::cast => "(type)",
         Rule::member => ".ident",
@@ -1038,6 +1042,8 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                 Rule::shr => BinaryOp::BShr,
                 Rule::shl => BinaryOp::BShl,
                 Rule::bit_and => BinaryOp::BAnd,
+                Rule::bit_or => BinaryOp::BOr,
+                Rule::bit_xor => BinaryOp::BXor,
                 rule => {
                     return Err(PestError::new_from_span(
                         ErrorVariant::ParsingError {
@@ -1058,6 +1064,8 @@ fn parse_expr<'a>(pairs: Pairs<'a, Rule>, file_name: &'a str) -> Result<Expr<'a>
                                 Rule::shr,
                                 Rule::shl,
                                 Rule::bit_and,
+                                Rule::bit_or,
+                                Rule::bit_xor,
                             ],
                             negatives: vec![rule],
                         },

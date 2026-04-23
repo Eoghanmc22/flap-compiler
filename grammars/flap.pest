@@ -72,6 +72,8 @@ logical_not = { "!" }
 shr     = { ">>" }
 shl     = { "<<" }
 bit_and = { "&" }
+bit_or = { "|" }
+bit_xor = { "^" }
 
 // Pointer Operators
 dereference  = { "*" }
@@ -81,7 +83,7 @@ member_deref = { "->" ~ ident }
 array_idx    = { "[" ~ expression ~ "]" }
 addrs_of     = { "&" }
 
-binary_op  = _{ add | subtract | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and }
+binary_op  = _{ add | subtract | multiply | divide | modulo | shr | shl | eq | ne | le | ge | lt | gt | logical_and | logical_or | bit_and | bit_or | bit_xor }
 prefix_op  = _{ negate | invert | logical_not | dereference | cast | addrs_of }
 postfix_op = _{ member | member_deref | array_idx }
 atom       = _{ array_expr | struct_expr | if_statement | sizeof_packed_builtin | sizeof_builtin | line_builtin | box_builtin | global_builtin | function_call | value | ident | ("(" ~ expression ~ ")") }

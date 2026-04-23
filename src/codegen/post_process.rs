@@ -32,6 +32,7 @@ impl<'a, 'b> PostProcesser<'a> for AllocateGlobals<'a, 'b> {
             return Ok(());
         }
 
+        // TODO: improve
         let Some((sig, _)) = self.type_checker.lang_items.get("map_global") else {
             return Err(
                 CodegenError::UnknownFunction("map_global", Backtrace::force_capture()).into(),

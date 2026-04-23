@@ -496,6 +496,8 @@ pub enum BinaryOp {
     BShl,
     BShr,
     BAnd,
+    BOr,
+    BXor,
 }
 
 impl Display for BinaryOp {
@@ -518,6 +520,8 @@ impl Display for BinaryOp {
             BinaryOp::BShl => write!(f, "<<"),
             BinaryOp::BShr => write!(f, ">>"),
             BinaryOp::BAnd => write!(f, "&"),
+            BinaryOp::BOr => write!(f, "|"),
+            BinaryOp::BXor => write!(f, "^"),
         }
     }
 }

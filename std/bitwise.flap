@@ -4,6 +4,7 @@ int maskInt(int x){
     x & 0x5555555555555555
 }
 
+#[lang]
 int bwand(int a, int b){
     int oddA = maskInt(a);
     int oddB = maskInt(b);
@@ -21,6 +22,7 @@ int bwand(int a, int b){
     oddRes + evenRes
 }
 
+#[lang]
 int bwxor(int a, int b){
     int oddA = maskInt(a);
     int oddB = maskInt(b);
@@ -36,6 +38,7 @@ int bwxor(int a, int b){
     oddRes + evenRes
 }
 
+#[lang]
 int bwor(int a, int b){
     ~bwand(~a, ~b)
 }

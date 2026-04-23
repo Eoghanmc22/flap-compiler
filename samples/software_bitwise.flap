@@ -1,0 +1,12 @@
+//#include "../std"
+
+int bb(int x) {x}
+
+int l = bb(67);
+int r = bb(42);
+
+// Software bitwise
+print(l ^ r);
+print(l | r);
+print(l & r);
+

@@ -182,6 +182,14 @@ pub enum ClacOp<'a> {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
+    BOr {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    BXor {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
     If {
         condition: DataReference<'a>,
         on_true: DefinitionIdent<'a>,
@@ -224,7 +232,17 @@ impl<'b, 'a: 'b> ClacOp<'a> {
             ClacOp::LOr { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             ClacOp::BShl { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             ClacOp::BShr { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
-            ClacOp::BAnd { lhs, rhs: _rhs } => ctx.bring_up_references([lhs], 1),
+            ClacOp::BAnd { lhs, rhs } => {
+                if rhs.as_clac_value().is_some() {
+                    ctx.bring_up_references([lhs], 1)
+                } else if lhs.as_clac_value().is_some() {
+                    ctx.bring_up_references([rhs], 1)
+                } else {
+                    ctx.bring_up_references([lhs, rhs], 2)
+                }
+            }
+            ClacOp::BOr { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::BXor { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             ClacOp::If { condition, .. } => ctx.bring_up_references([condition], 1),
             ClacOp::Call { name, parameters } => {
                 let (_mangled, def) = ctx.lookup_definition(*name).expect("Call valid definition");
@@ -423,106 +441,114 @@ impl<'b, 'a: 'b> ClacOp<'a> {
             }
             // TODO: this produces bad code, especially when ANDing with a number that is mosly 1s,
             // and loops for ever when rhs is -1
-            ClacOp::BAnd { rhs, .. } => {
-                let Some((rhs, _rhs_type)) = rhs.as_clac_value() else {
-                    return Err(CodegenError::UnimplementedFeature {
-                        msg: "Bit wise AND is only implemented for anding with a literal int, or an int that ends up getting inlined".into(),
-                        backtrace: Backtrace::capture()
-                    });
+            ClacOp::BAnd { lhs, rhs } => {
+                let mut unrolled_and = |literal: ClacValue| -> Result<()> {
+                    if literal == -1 {
+                        return Ok(());
+                    }
+
+                    let mut literal = literal as ClacValueUnsigned;
+
+                    out.consume(ClacToken::Number(0))?;
+
+                    let mut total_shift = 0;
+                    while literal.count_ones() > 0 {
+                        let trailing = literal.trailing_ones();
+                        let mod_factor = (2 as ClacValue).pow(trailing);
+                        let shift_factor = (2 as ClacValue).pow(total_shift);
+
+                        out.consume(ClacToken::Number(2))?;
+                        out.consume(ClacToken::Pick)?;
+                        if total_shift > 0 {
+                            // floor div correction
+                            out.consume(ClacToken::Number(1))?;
+                            out.consume(ClacToken::Pick)?;
+                            out.consume(ClacToken::Number(shift_factor))?;
+                            out.consume(ClacToken::Mod)?;
+                            out.consume(ClacToken::Number(shift_factor))?;
+                            out.consume(ClacToken::Add)?;
+                            out.consume(ClacToken::Number(shift_factor))?;
+                            out.consume(ClacToken::Mod)?;
+                            out.consume(ClacToken::Sub)?;
+
+                            out.consume(ClacToken::Number(shift_factor))?;
+                            out.consume(ClacToken::Div)?;
+                        }
+
+                        out.consume(ClacToken::Number(mod_factor))?;
+                        out.consume(ClacToken::Mod)?;
+                        out.consume(ClacToken::Number(mod_factor))?;
+                        out.consume(ClacToken::Add)?;
+                        out.consume(ClacToken::Number(mod_factor))?;
+                        out.consume(ClacToken::Mod)?;
+
+                        if total_shift > 0 {
+                            out.consume(ClacToken::Number(shift_factor))?;
+                            out.consume(ClacToken::Mul)?;
+                        }
+                        out.consume(ClacToken::Add)?;
+
+                        total_shift += trailing;
+                        literal >>= trailing;
+                        if literal != 0 {
+                            total_shift += literal.trailing_zeros();
+                            literal >>= literal.trailing_zeros();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    Ok(())
                 };
 
-                if rhs == -1 {
-                    return Ok(Type::Int);
-                }
+                match (lhs.as_clac_value(), rhs.as_clac_value()) {
+                    (Some((lhs, _)), _) => unrolled_and(lhs)?,
+                    (_, Some((rhs, _))) => unrolled_and(rhs)?,
+                    (None, None) => {
+                        // TODO: improve
+                        let (func_impl, _def) = out
+                            .ctx()
+                            .lookup_function_like_signature("bwand")
+                            .expect("Call valid definition");
+                        let func_impl = func_impl.to_vec();
 
-                let mut rhs = rhs as ClacValueUnsigned;
-
-                out.consume(ClacToken::Number(0))?;
-
-                let mut total_shift = 0;
-                while rhs.count_ones() > 0 {
-                    let trailing = rhs.trailing_ones();
-                    let mod_factor = (2 as ClacValue).pow(trailing);
-                    let shift_factor = (2 as ClacValue).pow(total_shift);
-
-                    out.consume(ClacToken::Number(2))?;
-                    out.consume(ClacToken::Pick)?;
-                    if total_shift > 0 {
-                        // floor div correction
-                        out.consume(ClacToken::Number(1))?;
-                        out.consume(ClacToken::Pick)?;
-                        out.consume(ClacToken::Number(shift_factor))?;
-                        out.consume(ClacToken::Mod)?;
-                        out.consume(ClacToken::Number(shift_factor))?;
-                        out.consume(ClacToken::Add)?;
-                        out.consume(ClacToken::Number(shift_factor))?;
-                        out.consume(ClacToken::Mod)?;
-                        out.consume(ClacToken::Sub)?;
-
-                        out.consume(ClacToken::Number(shift_factor))?;
-                        out.consume(ClacToken::Div)?;
-                    }
-
-                    out.consume(ClacToken::Number(mod_factor))?;
-                    out.consume(ClacToken::Mod)?;
-                    out.consume(ClacToken::Number(mod_factor))?;
-                    out.consume(ClacToken::Add)?;
-                    out.consume(ClacToken::Number(mod_factor))?;
-                    out.consume(ClacToken::Mod)?;
-
-                    if total_shift > 0 {
-                        out.consume(ClacToken::Number(shift_factor))?;
-                        out.consume(ClacToken::Mul)?;
-                    }
-                    out.consume(ClacToken::Add)?;
-
-                    total_shift += trailing;
-                    rhs >>= trailing;
-                    if rhs != 0 {
-                        total_shift += rhs.trailing_zeros();
-                        rhs >>= rhs.trailing_zeros();
-                    } else {
-                        break;
+                        for token in func_impl {
+                            out.consume(token)?;
+                        }
                     }
                 }
-
-                // Neither does this version
-                // // This is more complicated than I expected
-                // let mut total_shift = 0;
-                // while rhs.count_ones() > 0 {
-                //     let trailing = rhs.trailing_ones();
-                //
-                //     for _ in 0..trailing {
-                //         out.consume(ClacToken::Number(2))?;
-                //         out.consume(ClacToken::Pick)?;
-                //         if total_shift > 0 {
-                //             out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
-                //             out.consume(ClacToken::Div)?;
-                //         }
-                //         out.consume(ClacToken::Number(2))?;
-                //         out.consume(ClacToken::Mod)?;
-                //         out.consume(ClacToken::Number(1))?;
-                //         out.consume(ClacToken::Pick)?;
-                //         out.consume(ClacToken::Mul)?;
-                //
-                //         if total_shift > 0 {
-                //             out.consume(ClacToken::Number((2 as ClacValue).pow(total_shift)))?;
-                //             out.consume(ClacToken::Mul)?;
-                //         }
-                //         out.consume(ClacToken::Add)?;
-                //         total_shift += 1;
-                //     }
-                //
-                //     rhs >>= trailing;
-                //     if rhs != 0 {
-                //         total_shift += rhs.trailing_zeros();
-                //         rhs >>= rhs.trailing_zeros();
-                //     } else {
-                //         break;
-                //     }
-                // }
 
                 Type::Int
+            }
+            ClacOp::BOr { .. } => {
+                // TODO: improve
+                let (func_impl, def) = out
+                    .ctx()
+                    .lookup_function_like_signature("bwor")
+                    .expect("Call valid definition");
+                let func_impl = func_impl.to_vec();
+                let ret = def.return_type.clone();
+
+                for token in func_impl {
+                    out.consume(token)?;
+                }
+
+                ret
+            }
+            ClacOp::BXor { .. } => {
+                // TODO: improve
+                let (func_impl, def) = out
+                    .ctx()
+                    .lookup_function_like_signature("bwxor")
+                    .expect("Call valid definition");
+                let func_impl = func_impl.to_vec();
+                let ret = def.return_type.clone();
+
+                for token in func_impl {
+                    out.consume(token)?;
+                }
+
+                ret
             }
             ClacOp::If {
                 on_true, on_false, ..
@@ -692,6 +718,11 @@ impl<'b, 'a: 'b> ClacOp<'a> {
 
                 DataReference::Value(Value::Bool(lhs != rhs), None)
             }
+            ClacOp::Inv { value } => {
+                let (value, value_type) = value.as_clac_value()?;
+
+                DataReference::Value(Value::Cast(value_type, Value::Int(!value).into()), None)
+            }
             ClacOp::Neg { value } => {
                 let (value, value_type) = value.as_clac_value()?;
 
@@ -738,7 +769,23 @@ impl<'b, 'a: 'b> ClacOp<'a> {
 
                 DataReference::Value(Value::Cast(lhs_type, Value::Int(lhs & rhs).into()), None)
             }
-            _ => return None,
+            ClacOp::BOr { lhs, rhs } => {
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
+                let (rhs, _rhs_type) = rhs.as_clac_value()?;
+
+                DataReference::Value(Value::Cast(lhs_type, Value::Int(lhs | rhs).into()), None)
+            }
+            ClacOp::BXor { lhs, rhs } => {
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
+                let (rhs, _rhs_type) = rhs.as_clac_value()?;
+
+                DataReference::Value(Value::Cast(lhs_type, Value::Int(lhs ^ rhs).into()), None)
+            }
+            ClacOp::Print { .. }
+            | ClacOp::Quit
+            | ClacOp::If { .. }
+            | ClacOp::Call { .. }
+            | ClacOp::Inline { .. } => return None,
         };
 
         Some(ret)

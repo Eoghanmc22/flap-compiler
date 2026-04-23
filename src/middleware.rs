@@ -994,6 +994,8 @@ fn walk_expr<'a, 'b>(
                 BinaryOp::BShl => ClacOp::BShl { lhs, rhs },
                 BinaryOp::BShr => ClacOp::BShr { lhs, rhs },
                 BinaryOp::BAnd => ClacOp::BAnd { lhs, rhs },
+                BinaryOp::BOr => ClacOp::BOr { lhs, rhs },
+                BinaryOp::BXor => ClacOp::BXor { lhs, rhs },
             };
 
             let ret = clac_op
@@ -1414,6 +1416,7 @@ fn walk_expr<'a, 'b>(
                                 operand_type.clone().into(),
                             )),
                             version: DeferedVersion::ResolvedVersion(version),
+                            // TODO: improve
                             expr: Expr::FunctionCall(FunctionCall {
                                 function: "malloc",
                                 parameters: vec![Expr::SizeOfExpr(
