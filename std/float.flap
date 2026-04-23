@@ -70,10 +70,10 @@ float ___addmag(float a, float b){
         int mantissaA = fracA;
         int mantissaB = fracB;
         if(expA != 0){
-            mantissaA = bwor((1 << 23), mantissaA);
+            mantissaA = (1 << 23) | mantissaA;
         }
         if(expB != 0){
-            mantissaB = bwor((1 << 23), mantissaB);
+            mantissaB = (1 << 23) | mantissaB;
         }
         mantissaA = mantissaA << 32;
         mantissaB = mantissaB << 32;
@@ -99,7 +99,7 @@ float ___addmag(float a, float b){
 
                 // shift mantissaB to be in range of A
                 int lostBitsMask = (1 << expDiff) - 1; // handle potential sticky bits which could be lost in large shifts
-                if(bwand(mantissaB >> 32, lostBitsMask) != 0){
+                if(((mantissaB >> 32) & lostBitsMask) != 0){
                     stickyBit = 1;
                 }
                 mantissaB = mantissaB >> expDiff;
@@ -111,7 +111,7 @@ float ___addmag(float a, float b){
 
                 // shift mantissA to be in range of B
                 int lostBitsMask = (1 << (-expDiff)) - 1; 
-                if(bwand(mantissaA >> 32, lostBitsMask) != 0){
+                if(((mantissaA >> 32) & lostBitsMask) != 0){
                     stickyBit = 1;
                 }
                 mantissaA = mantissaA >> (-expDiff);
@@ -132,7 +132,7 @@ float ___addmag(float a, float b){
         if(((fracRes & 0x3FFFFFFF) != 0)){
             fracSticky = 1;
         }
-        stickyBit = bwor(stickyBit, fracSticky);
+        stickyBit = stickyBit | fracSticky;
 
         // shift back
         fracRes = fracRes >> 32;
@@ -211,10 +211,10 @@ float ___submag(float a, float b){
             int mantissaA = fracA;
             int mantissaB = fracB;
             if(expA != 0){
-                mantissaA = bwor((1 << 23), mantissaA);
+                mantissaA = (1 << 23) | mantissaA;
             }
             if(expB != 0){
-                mantissaB = bwor((1 << 23), mantissaB);
+                mantissaB = (1 << 23) | mantissaB;
             }
             mantissaA = mantissaA << 32;
             mantissaB = mantissaB << 32;
@@ -239,7 +239,7 @@ float ___submag(float a, float b){
             else {
                 // Standard alignment for differences up to 60
                 int lostBitsMask = (1 << expDiff) - 1;
-                if (bwand(mantissaB >> 32, lostBitsMask) != 0) {
+                if (((mantissaB >> 32) & lostBitsMask) != 0) {
                     stickyBit = 1;
                 }
                 mantissaB = mantissaB >> expDiff;
@@ -260,7 +260,7 @@ float ___submag(float a, float b){
             if(((fracRes & 0x3FFFFFFF) != 0)){
                 fracSticky = 1;
             }
-            stickyBit = bwor(stickyBit, fracSticky);
+            stickyBit = stickyBit | fracSticky;
 
             // shift back
             fracRes = fracRes >> 32;
@@ -364,10 +364,10 @@ float __mulsf3(float a, float b){
             int mantissaA = fracA;
             int mantissaB = fracB;
             if(expA != 0){
-                mantissaA = bwor((1 << 23), mantissaA);
+                mantissaA = (1 << 23) | mantissaA;
             }
             if(expB != 0){
-                mantissaB = bwor((1 << 23), mantissaB);
+                mantissaB = (1 << 23) | mantissaB;
             }
 
             int product = mantissaA * mantissaB;
@@ -506,10 +506,10 @@ float __divsf3(float a, float b){
         int mantissaA = fracA;
         int mantissaB = fracB;
         if(expA != 0){
-            mantissaA = bwor((1 << 23), mantissaA);
+            mantissaA = (1 << 23) | mantissaA;
         }
         if(expB != 0){
-            mantissaB = bwor((1 << 23), mantissaB);
+            mantissaB = (1 << 23) | mantissaB;
         }
 
         // We need to have enough bits left after division for the result itself + guard, round, and sticky,
