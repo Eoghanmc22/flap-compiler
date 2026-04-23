@@ -105,27 +105,43 @@ pub enum ClacOp<'a> {
         value: DataReference<'a>,
     },
     Quit,
-    Add {
+    IAdd {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
-    Sub {
+    ISub {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
-    Mul {
+    IMul {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
-    Div {
+    IDiv {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
-    Mod {
+    FAdd {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
-    Pow {
+    FSub {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    FMul {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    FDiv {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    IMod {
+        lhs: DataReference<'a>,
+        rhs: DataReference<'a>,
+    },
+    IPow {
         lhs: DataReference<'a>,
         rhs: DataReference<'a>,
     },
@@ -211,12 +227,16 @@ impl<'b, 'a: 'b> ClacOp<'a> {
         match self {
             ClacOp::Print { value } => ctx.bring_up_references([value], 1),
             ClacOp::Quit => Ok(()),
-            ClacOp::Add { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
-            ClacOp::Sub { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
-            ClacOp::Mul { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
-            ClacOp::Div { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
-            ClacOp::Mod { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
-            ClacOp::Pow { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::IAdd { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::ISub { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::IMul { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::IDiv { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::IMod { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::IPow { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::FAdd { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::FSub { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::FMul { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
+            ClacOp::FDiv { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             ClacOp::Lt { lhs, rhs } => ctx.bring_up_references([lhs, rhs], 2),
             // lhs and rhs reversed to save an instruction
             ClacOp::Gt { lhs, rhs } => ctx.bring_up_references([rhs, lhs], 2),
@@ -257,6 +277,22 @@ impl<'b, 'a: 'b> ClacOp<'a> {
     }
 
     pub fn execute<C: TokenConsumer<'a, 'b>>(&self, mut out: C) -> Result<'a, Type<'a>> {
+        let mut call_lang_item = |name: &str| -> Result<'a, Type<'a>> {
+            // TODO: improve
+            let (func_impl, def) = out
+                .ctx()
+                .lookup_function_like_signature("bwor")
+                .expect("Call valid definition");
+            let func_impl = func_impl.to_vec();
+            let ret = def.return_type.clone();
+
+            for token in func_impl {
+                out.consume(token)?;
+            }
+
+            Ok(ret)
+        };
+
         let return_type = match self {
             ClacOp::Print { .. } => {
                 out.consume(ClacToken::Print)?;
@@ -266,30 +302,34 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                 out.consume(ClacToken::Quit)?;
                 Type::Void
             }
-            ClacOp::Add { .. } => {
+            ClacOp::IAdd { .. } => {
                 out.consume(ClacToken::Add)?;
                 Type::Int
             }
-            ClacOp::Sub { .. } => {
+            ClacOp::ISub { .. } => {
                 out.consume(ClacToken::Sub)?;
                 Type::Int
             }
-            ClacOp::Mul { .. } => {
+            ClacOp::IMul { .. } => {
                 out.consume(ClacToken::Mul)?;
                 Type::Int
             }
-            ClacOp::Div { .. } => {
+            ClacOp::IDiv { .. } => {
                 out.consume(ClacToken::Div)?;
                 Type::Int
             }
-            ClacOp::Mod { .. } => {
+            ClacOp::IMod { .. } => {
                 out.consume(ClacToken::Mod)?;
                 Type::Int
             }
-            ClacOp::Pow { .. } => {
+            ClacOp::IPow { .. } => {
                 out.consume(ClacToken::Pow)?;
                 Type::Int
             }
+            ClacOp::FAdd { .. } => call_lang_item("__addsf3")?,
+            ClacOp::FSub { .. } => call_lang_item("__subsf3")?,
+            ClacOp::FMul { .. } => call_lang_item("__mulsf3")?,
+            ClacOp::FDiv { .. } => call_lang_item("__divsf3")?,
             ClacOp::Lt { .. } => {
                 out.consume(ClacToken::Lt)?;
                 Type::Bool
@@ -439,117 +479,71 @@ impl<'b, 'a: 'b> ClacOp<'a> {
 
                 Type::Int
             }
-            // TODO: this produces bad code, especially when ANDing with a number that is mosly 1s,
-            // and loops for ever when rhs is -1
             ClacOp::BAnd { lhs, rhs } => {
-                let mut unrolled_and = |literal: ClacValue| -> Result<()> {
-                    if literal == -1 {
-                        return Ok(());
-                    }
-
-                    let mut literal = literal as ClacValueUnsigned;
-
-                    out.consume(ClacToken::Number(0))?;
-
-                    let mut total_shift = 0;
-                    while literal.count_ones() > 0 {
-                        let trailing = literal.trailing_ones();
-                        let mod_factor = (2 as ClacValue).pow(trailing);
-                        let shift_factor = (2 as ClacValue).pow(total_shift);
-
-                        out.consume(ClacToken::Number(2))?;
-                        out.consume(ClacToken::Pick)?;
-                        if total_shift > 0 {
-                            // floor div correction
-                            out.consume(ClacToken::Number(1))?;
-                            out.consume(ClacToken::Pick)?;
-                            out.consume(ClacToken::Number(shift_factor))?;
-                            out.consume(ClacToken::Mod)?;
-                            out.consume(ClacToken::Number(shift_factor))?;
-                            out.consume(ClacToken::Add)?;
-                            out.consume(ClacToken::Number(shift_factor))?;
-                            out.consume(ClacToken::Mod)?;
-                            out.consume(ClacToken::Sub)?;
-
-                            out.consume(ClacToken::Number(shift_factor))?;
-                            out.consume(ClacToken::Div)?;
-                        }
-
-                        out.consume(ClacToken::Number(mod_factor))?;
-                        out.consume(ClacToken::Mod)?;
-                        out.consume(ClacToken::Number(mod_factor))?;
-                        out.consume(ClacToken::Add)?;
-                        out.consume(ClacToken::Number(mod_factor))?;
-                        out.consume(ClacToken::Mod)?;
-
-                        if total_shift > 0 {
-                            out.consume(ClacToken::Number(shift_factor))?;
-                            out.consume(ClacToken::Mul)?;
-                        }
-                        out.consume(ClacToken::Add)?;
-
-                        total_shift += trailing;
-                        literal >>= trailing;
-                        if literal != 0 {
-                            total_shift += literal.trailing_zeros();
-                            literal >>= literal.trailing_zeros();
-                        } else {
-                            break;
-                        }
-                    }
-
-                    Ok(())
-                };
-
                 match (lhs.as_clac_value(), rhs.as_clac_value()) {
-                    (Some((lhs, _)), _) => unrolled_and(lhs)?,
-                    (_, Some((rhs, _))) => unrolled_and(rhs)?,
-                    (None, None) => {
-                        // TODO: improve
-                        let (func_impl, _def) = out
-                            .ctx()
-                            .lookup_function_like_signature("bwand")
-                            .expect("Call valid definition");
-                        let func_impl = func_impl.to_vec();
-
-                        for token in func_impl {
-                            out.consume(token)?;
+                    (Some((literal, _)), _) | (_, Some((literal, _))) => {
+                        if literal == -1 {
+                            return Ok(Type::Int);
                         }
+
+                        let mut literal = literal as ClacValueUnsigned;
+
+                        out.consume(ClacToken::Number(0))?;
+
+                        let mut total_shift = 0;
+                        while literal.count_ones() > 0 {
+                            let trailing = literal.trailing_ones();
+                            let mod_factor = (2 as ClacValue).pow(trailing);
+                            let shift_factor = (2 as ClacValue).pow(total_shift);
+
+                            out.consume(ClacToken::Number(2))?;
+                            out.consume(ClacToken::Pick)?;
+                            if total_shift > 0 {
+                                // floor div correction
+                                out.consume(ClacToken::Number(1))?;
+                                out.consume(ClacToken::Pick)?;
+                                out.consume(ClacToken::Number(shift_factor))?;
+                                out.consume(ClacToken::Mod)?;
+                                out.consume(ClacToken::Number(shift_factor))?;
+                                out.consume(ClacToken::Add)?;
+                                out.consume(ClacToken::Number(shift_factor))?;
+                                out.consume(ClacToken::Mod)?;
+                                out.consume(ClacToken::Sub)?;
+
+                                out.consume(ClacToken::Number(shift_factor))?;
+                                out.consume(ClacToken::Div)?;
+                            }
+
+                            out.consume(ClacToken::Number(mod_factor))?;
+                            out.consume(ClacToken::Mod)?;
+                            out.consume(ClacToken::Number(mod_factor))?;
+                            out.consume(ClacToken::Add)?;
+                            out.consume(ClacToken::Number(mod_factor))?;
+                            out.consume(ClacToken::Mod)?;
+
+                            if total_shift > 0 {
+                                out.consume(ClacToken::Number(shift_factor))?;
+                                out.consume(ClacToken::Mul)?;
+                            }
+                            out.consume(ClacToken::Add)?;
+
+                            total_shift += trailing;
+                            literal >>= trailing;
+                            if literal != 0 {
+                                total_shift += literal.trailing_zeros();
+                                literal >>= literal.trailing_zeros();
+                            } else {
+                                break;
+                            }
+                        }
+
+                        Type::Int
                     }
+                    (None, None) => call_lang_item("bwand")?,
                 }
-
-                Type::Int
             }
-            ClacOp::BOr { .. } => {
-                // TODO: improve
-                let (func_impl, def) = out
-                    .ctx()
-                    .lookup_function_like_signature("bwor")
-                    .expect("Call valid definition");
-                let func_impl = func_impl.to_vec();
-                let ret = def.return_type.clone();
-
-                for token in func_impl {
-                    out.consume(token)?;
-                }
-
-                ret
-            }
-            ClacOp::BXor { .. } => {
-                // TODO: improve
-                let (func_impl, def) = out
-                    .ctx()
-                    .lookup_function_like_signature("bwxor")
-                    .expect("Call valid definition");
-                let func_impl = func_impl.to_vec();
-                let ret = def.return_type.clone();
-
-                for token in func_impl {
-                    out.consume(token)?;
-                }
-
-                ret
-            }
+            ClacOp::BOr { .. } => call_lang_item("bwor")?,
+            ClacOp::BXor { .. } => call_lang_item("bwxor")?,
             ClacOp::If {
                 on_true, on_false, ..
             } => {
@@ -628,7 +622,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
 
     pub fn try_execute_const(&self, _ctx: &mut CodegenCtx<'a, 'b>) -> Option<DataReference<'a>> {
         let ret = match self {
-            ClacOp::Add { lhs, rhs } => {
+            ClacOp::IAdd { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
@@ -637,7 +631,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     None,
                 )
             }
-            ClacOp::Sub { lhs, rhs } => {
+            ClacOp::ISub { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
@@ -646,7 +640,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     None,
                 )
             }
-            ClacOp::Mul { lhs, rhs } => {
+            ClacOp::IMul { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
@@ -655,7 +649,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     None,
                 )
             }
-            ClacOp::Div { lhs, rhs } => {
+            ClacOp::IDiv { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
@@ -664,7 +658,67 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     None,
                 )
             }
-            ClacOp::Mod { lhs, rhs } => {
+            ClacOp::FAdd { lhs, rhs } => {
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
+                let (rhs, _rhs_type) = rhs.as_clac_value()?;
+
+                let lhs = f32::from_bits(lhs as _);
+                let rhs = f32::from_bits(rhs as _);
+
+                DataReference::Value(
+                    Value::Cast(
+                        lhs_type.into(),
+                        Value::Int((lhs + rhs).to_bits() as _).into(),
+                    ),
+                    None,
+                )
+            }
+            ClacOp::FSub { lhs, rhs } => {
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
+                let (rhs, _rhs_type) = rhs.as_clac_value()?;
+
+                let lhs = f32::from_bits(lhs as _);
+                let rhs = f32::from_bits(rhs as _);
+
+                DataReference::Value(
+                    Value::Cast(
+                        lhs_type.into(),
+                        Value::Int((lhs - rhs).to_bits() as _).into(),
+                    ),
+                    None,
+                )
+            }
+            ClacOp::FMul { lhs, rhs } => {
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
+                let (rhs, _rhs_type) = rhs.as_clac_value()?;
+
+                let lhs = f32::from_bits(lhs as _);
+                let rhs = f32::from_bits(rhs as _);
+
+                DataReference::Value(
+                    Value::Cast(
+                        lhs_type.into(),
+                        Value::Int((lhs * rhs).to_bits() as _).into(),
+                    ),
+                    None,
+                )
+            }
+            ClacOp::FDiv { lhs, rhs } => {
+                let (lhs, lhs_type) = lhs.as_clac_value()?;
+                let (rhs, _rhs_type) = rhs.as_clac_value()?;
+
+                let lhs = f32::from_bits(lhs as _);
+                let rhs = f32::from_bits(rhs as _);
+
+                DataReference::Value(
+                    Value::Cast(
+                        lhs_type.into(),
+                        Value::Int((lhs / rhs).to_bits() as _).into(),
+                    ),
+                    None,
+                )
+            }
+            ClacOp::IMod { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 
@@ -673,7 +727,7 @@ impl<'b, 'a: 'b> ClacOp<'a> {
                     None,
                 )
             }
-            ClacOp::Pow { lhs, rhs } => {
+            ClacOp::IPow { lhs, rhs } => {
                 let (lhs, lhs_type) = lhs.as_clac_value()?;
                 let (rhs, _rhs_type) = rhs.as_clac_value()?;
 

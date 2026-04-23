@@ -1,0 +1,748 @@
+#include "../std/bitwise.flap"
+
+// Note: Depends on 64 bit ints
+typedef int float;
+
+int __expsf3(float a){
+    (a >> 23) & 0xFF
+}
+
+int __signsf3(float a){
+    (a >> 31)
+}
+
+int __fracsf3(float a){
+    a & 0x007FFFFF
+}
+
+bool ___isweird(float a){
+    // Nan or Infinity
+    __expsf3(a) == 0xFF
+}
+
+bool __isnansf3(float a){
+    ((((~a) & 0x7F800000) == 0) && ((a & 0x007FFFFF) != 0))
+}
+
+bool __isinfsf3(float a){
+    (__expsf3(a) == 0xFF) && !__isnansf3(a)
+}
+
+bool __iszerosf3(float a){
+    //checks for +/- 0
+    ((a % 0x80000000) == 0)
+}
+
+float ___picknansf3(float a, float b){
+    if(__isnansf3(a)){
+        a
+    }
+    else{
+        b
+    }
+}
+
+float __packsf3(int sign, int exp, int frac){
+    const int signMask = 1;
+    const int expMask = 0xFF;
+    const int fracMask = 0x7FFFFF;
+    (((sign & signMask) << 31) + ((exp & expMask) << 23) + (frac & fracMask))
+}
+
+float ___addmag(float a, float b){
+    // clear upper bits to ensure "valid" floats
+    a = a & 0xFFFFFFFF;
+    b = b & 0xFFFFFFFF;
+
+    int signA = __signsf3(a);
+    int signB = __signsf3(b);
+    int expA = __expsf3(a);
+    int expB = __expsf3(b);
+    int fracA = __fracsf3(a);
+    int fracB = __fracsf3(b);
+
+    int signRes = 0;
+    int expRes = 0;
+    int fracRes = 0;
+
+    if(!___isweird(a) && !___isweird(b)){
+        // handle implicit bit and add room to shift    
+        int mantissaA = fracA;
+        int mantissaB = fracB;
+        if(expA != 0){
+            mantissaA = bwor((1 << 23), mantissaA);
+        }
+        if(expB != 0){
+            mantissaB = bwor((1 << 23), mantissaB);
+        }
+        mantissaA = mantissaA << 32;
+        mantissaB = mantissaB << 32;
+
+        if(expA == 0){
+            expA = 1;
+        }
+        if(expB == 0){
+            expB = 1;
+        }
+
+        int expDiff = expA - expB;
+        int stickyBit = 0;
+
+        if(expDiff == 0){
+            // Same order of magnitude
+            fracRes = mantissaA + mantissaB;
+            expRes = expA;
+        }
+        else{
+            if(expDiff > 0){
+                // expA > expB
+
+                // shift mantissaB to be in range of A
+                int lostBitsMask = (1 << expDiff) - 1; // handle potential sticky bits which could be lost in large shifts
+                if(bwand(mantissaB >> 32, lostBitsMask) != 0){
+                    stickyBit = 1;
+                }
+                mantissaB = mantissaB >> expDiff;
+                fracRes = mantissaA + mantissaB;
+                expRes = expA;
+            }
+            else{
+                // expB > expA
+
+                // shift mantissA to be in range of B
+                int lostBitsMask = (1 << (-expDiff)) - 1; 
+                if(bwand(mantissaA >> 32, lostBitsMask) != 0){
+                    stickyBit = 1;
+                }
+                mantissaA = mantissaA >> (-expDiff);
+                fracRes = mantissaA + mantissaB;
+                expRes = expB;
+            }
+        }
+
+        // handle overflow
+        if (fracRes >= (1 << 56)) { // 1 << 56 is the overflow boundary
+            fracRes = fracRes >> 1;
+            expRes = expRes + 1;
+        }
+
+        int guardBit = (fracRes >> 31) & 1;
+        int roundBit = (fracRes >> 30) & 1;
+        int fracSticky = 0;
+        if(((fracRes & 0x3FFFFFFF) != 0)){
+            fracSticky = 1;
+        }
+        stickyBit = bwor(stickyBit, fracSticky);
+
+        // shift back
+        fracRes = fracRes >> 32;
+
+        // handle rounding
+        if(guardBit != 0){
+            if((roundBit != 0) || (stickyBit != 0)){
+                // amount shifted off > 0.5, round up
+                fracRes = fracRes + 1;
+            }
+            else{
+                // amount shifted off = 0.5, round to even
+                if((fracRes & 1) != 0){
+                    fracRes = fracRes + 1;
+                }
+            }
+        }
+
+        // If rounding caused overflow
+        if (fracRes >= (1 << 24)) {
+            fracRes = fracRes >> 1;
+            expRes = expRes + 1;
+        }
+
+        // handle edge cases
+        if(expRes >= 255){
+            // infinity
+            expRes = 0xFF;
+            fracRes = 0;
+        }
+
+        // assuming both are same sign for the purposes of magnitude addition
+        signRes = signA;
+
+        // remove implicit bit
+        fracRes = fracRes & 0x7FFFFF;
+        __packsf3(signRes, expRes, fracRes)
+    }
+    else{
+        if(__isnansf3(a) || __isnansf3(b)){
+            ___picknansf3(a, b)
+        }
+        else{
+            // infinity
+            expRes = 0xFF;
+            fracRes = 0;
+            signRes = signA;
+            __packsf3(signRes, expRes, fracRes)
+        }
+    }
+}
+
+// REQUIRES |a| >= |b|
+float ___submag(float a, float b){
+    //clear upper bits to ensure "valid" floats
+    a = a & 0xFFFFFFFF;
+    b = b & 0xFFFFFFFF;
+
+    int signA = __signsf3(a);
+    int signB = __signsf3(b);
+    int expA = __expsf3(a);
+    int expB = __expsf3(b);
+    int fracA = __fracsf3(a);
+    int fracB = __fracsf3(b);
+
+    int signRes = 0;
+    int expRes = 0;
+    int fracRes = 0;
+
+    if(!___isweird(a) && !___isweird(b)){
+        if(a == b){
+            0
+        }
+        else{
+            // handle implicit bit and add room to shift    
+            int mantissaA = fracA;
+            int mantissaB = fracB;
+            if(expA != 0){
+                mantissaA = bwor((1 << 23), mantissaA);
+            }
+            if(expB != 0){
+                mantissaB = bwor((1 << 23), mantissaB);
+            }
+            mantissaA = mantissaA << 32;
+            mantissaB = mantissaB << 32;
+
+            if(expA == 0){
+                expA = 1;
+            }
+            if(expB == 0){
+                expB = 1;
+            }
+
+            int expDiff = expA - expB;
+            int stickyBit = 0;
+
+            if (expDiff > 60) { 
+                // If the difference is this massive, B's only contribution is to sticky
+                if (mantissaB != 0) {
+                    stickyBit = 1;
+                }
+                mantissaB = 0;
+            } 
+            else {
+                // Standard alignment for differences up to 60
+                int lostBitsMask = (1 << expDiff) - 1;
+                if (bwand(mantissaB >> 32, lostBitsMask) != 0) {
+                    stickyBit = 1;
+                }
+                mantissaB = mantissaB >> expDiff;
+            }
+
+            fracRes = mantissaA - mantissaB;
+            expRes = expA;
+
+            // renormalize
+            while (fracRes < (1 << 55) && expRes > 0) {
+                fracRes = fracRes << 1;
+                expRes = expRes - 1;
+            }
+
+            int guardBit = (fracRes >> 31) & 1;
+            int roundBit = (fracRes >> 30) & 1;
+            int fracSticky = 0;
+            if(((fracRes & 0x3FFFFFFF) != 0)){
+                fracSticky = 1;
+            }
+            stickyBit = bwor(stickyBit, fracSticky);
+
+            // shift back
+            fracRes = fracRes >> 32;
+
+            // handle rounding
+            if(guardBit != 0){
+                if((roundBit != 0) || (stickyBit != 0)){
+                    // amount shifted off > 0.5, round up
+                    fracRes = fracRes + 1;
+                }
+                else{
+                    // amount shifted off = 0.5, round to even
+                    if((fracRes & 1) != 0){
+                        fracRes = fracRes + 1;
+                    }
+                }
+            }
+
+            // If rounding caused overflow
+            if (fracRes >= (1 << 24)) {
+                fracRes = fracRes >> 1;
+                expRes = expRes + 1;
+            }
+
+            // handle edge cases
+            if(expRes >= 255){
+                // infinity
+                expRes = 0xFF;
+                fracRes = 0;
+            }
+
+            // assuming both are same sign for the purposes of magnitude subtraction
+            signRes = signA;
+
+            // remove implicit bit
+            fracRes = fracRes & 0x7FFFFF;
+            __packsf3(signRes, expRes, fracRes)
+        }
+    }
+    else{
+        if(__isnansf3(a) || __isnansf3(b)){
+            ___picknansf3(a, b)
+        }
+        else{
+            // infinity
+            expRes = 0xFF;
+            fracRes = 0;
+            signRes = signA;
+            __packsf3(signRes, expRes, fracRes)
+        }
+    }
+}
+
+#[lang]
+float __mulsf3(float a, float b){
+    // handle special cases up front
+    if(__isnansf3(a) || __isnansf3(b)){
+        ___picknansf3(a, b)
+    }
+    else{
+        int signRes = 0;
+        if(__signsf3(a) != __signsf3(b)){
+            signRes = 1;
+        }
+
+        if(__isinfsf3(a) || __isinfsf3(b)){
+            if(__iszerosf3(a) || __iszerosf3(b)){
+                0x7fc00000 // NaN
+            }
+            else{
+                __packsf3(signRes, 0xFF, 0) // +/- infinity
+            }
+        }
+        else{
+            // clear upper bits to ensure "valid" floats, also upper 32 needed so multiplication can
+            // non-destructively overflow
+            
+            a = a & 0xFFFFFFFF;
+            b = b & 0xFFFFFFFF;
+
+            int signA = __signsf3(a);
+            int signB = __signsf3(b);
+            int expA = __expsf3(a);
+            int expB = __expsf3(b);
+            int fracA = __fracsf3(a);
+            int fracB = __fracsf3(b);
+
+            int expRes = 0;
+            int fracRes = 0;
+
+            int realExpA = expA;
+            int realExpB = expB;
+
+            // account for expA or expB being subnormal
+            if(realExpA == 0) { realExpA = 1; }
+            if(realExpB == 0) { realExpB = 1; }
+
+            expRes = realExpA + realExpB - 127; // Avoid double counting exponent bias
+
+            // handle implicit bit  
+            int mantissaA = fracA;
+            int mantissaB = fracB;
+            if(expA != 0){
+                mantissaA = bwor((1 << 23), mantissaA);
+            }
+            if(expB != 0){
+                mantissaB = bwor((1 << 23), mantissaB);
+            }
+
+            int product = mantissaA * mantissaB;
+
+            if(product == 0){
+                expRes = 0; // If product is zero, result is just zero
+            }
+
+            // find the shift back into standard 23 bits fractional component, potenitally handling overflow
+            int shift = 23;
+            if(product >= (1<<47)){
+                shift = 24;
+                expRes = expRes + 1;
+            }
+
+            // find the shift needed if underflow occurs
+            if(expRes <= 0){
+                shift = shift + (1 - expRes);
+                expRes = 0;
+            }
+
+            int guardBit = 0;
+            int roundBit = 0;
+            int stickyBit = 0;
+
+            if(shift >= 48){
+                // product shifted to oblivion, check for sticky bit
+                if(product != 0){
+                    stickyBit = 1;
+                }
+            }
+            else if(shift > 0){
+                guardBit = (product >> (shift - 1)) & 1;
+
+                if(shift > 1){
+                    roundBit = (product >> (shift - 2)) & 1;
+                }
+                if(shift > 2){
+                    int stickyRegion = (1 << (shift - 2));
+                    if(product % stickyRegion > 0){
+                        stickyBit = 1;
+                    }
+                }
+            }
+
+            fracRes = product >> shift;
+
+            // handle rounding
+            if(guardBit != 0){
+                if((roundBit != 0) || (stickyBit != 0)){
+                    // amount shifted off > 0.5, round up
+                    fracRes = fracRes + 1;
+                }
+                else{
+                    // amount shifted off = 0.5, round to even
+                    if((fracRes & 1) != 0){
+                        fracRes = fracRes + 1;
+                    }
+                }
+            }
+
+            // If rounding caused overflow
+            if (fracRes >= (1 << 24)) {
+                fracRes = fracRes >> 1;
+                expRes = expRes + 1;
+            }
+
+            // handle edge cases
+            if(expRes >= 255){
+                // infinity
+                expRes = 0xFF;
+                fracRes = 0;
+            }
+
+            // remove implicit bit
+            fracRes = fracRes & 0x7FFFFF;
+            __packsf3(signRes, expRes, fracRes)
+        }
+    }
+}
+
+#[lang]
+float __divsf3(float a, float b){
+    int signRes = 0;
+    if(__signsf3(a) != __signsf3(b)){
+        signRes = 1;
+    }
+
+    // Again, handle special cases up front
+    if(__isnansf3(a) || __isnansf3(b)){
+        ___picknansf3(a, b)
+    }
+    else if(__iszerosf3(b)){
+        if(__iszerosf3(a) || __isnansf3(a)){
+            0x7fc00000 // 0/0 = NaN/0 = Inf/0 = NaN
+        }
+        else{
+            __packsf3(signRes, 0xFF, 0) // Nonzero/0 = Inf
+        }
+    }
+    else if(__isinfsf3(b)){
+        if(___isweird(a)){
+            0x7fc00000 // Inf/Inf = Nan/Inf = NaN
+        }
+        else{
+            __packsf3(signRes, 0, 0) // Nonzero/Inf = 0
+        }
+    }
+    else if(__iszerosf3(a)){
+        a // 0 / Nonzero = 0
+    }
+    else{
+        a = a & 0xFFFFFFFF;
+        b = b & 0xFFFFFFFF;
+
+        int signA = __signsf3(a);
+        int signB = __signsf3(b);
+        int expA = __expsf3(a);
+        int expB = __expsf3(b);
+        int fracA = __fracsf3(a);
+        int fracB = __fracsf3(b);
+
+        int expRes = 0;
+        int fracRes = 0;
+
+        int realExpA = expA;
+        int realExpB = expB;
+
+        // account for expA or expB being subnormal
+        if(realExpA == 0) { realExpA = 1; }
+        if(realExpB == 0) { realExpB = 1; }
+
+        expRes = realExpA - realExpB + 127;
+
+        // handle implicit bit  
+        int mantissaA = fracA;
+        int mantissaB = fracB;
+        if(expA != 0){
+            mantissaA = bwor((1 << 23), mantissaA);
+        }
+        if(expB != 0){
+            mantissaB = bwor((1 << 23), mantissaB);
+        }
+
+        // We need to have enough bits left after division for the result itself + guard, round, and sticky,
+        // but we don't shift somewhere where sign extension might accidentally occur. 30 bits is in the 
+        // sweet spot and is aribtrarily chosen
+        int numerator = mantissaA << 30;
+        int quotient = numerator/mantissaB;
+        int remainder = numerator%mantissaB;
+
+        int stickyBit = 0;
+        if(remainder > 0){
+            stickyBit = 1;
+        }
+
+        // Normalize
+        int shift = 0;
+        if(quotient >= (1 << 30)){
+            // MantissaA > MantissaB
+            shift = 7;
+        }
+        else{
+            // MantissaB > MantissaA
+            shift = 6;
+            expRes = expRes - 1;
+        }
+
+        // Handle underflow / denormalization
+        if (expRes <= 0) {
+            shift = shift + (1 - expRes);
+            expRes = 0;
+        }
+
+        int guardBit = (quotient >> (shift - 1)) & 1;
+        int roundBit = (quotient >> (shift - 2)) & 1;
+        int stickyRegion = (1 << (shift - 2));
+        if(quotient % stickyRegion > 0){
+            stickyBit = 1;
+        }
+        fracRes = quotient >> shift;
+
+        // handle rounding
+        if(guardBit != 0){
+            if((roundBit != 0) || (stickyBit != 0)){
+                // amount shifted off > 0.5, round up
+                fracRes = fracRes + 1;
+            }
+            else{
+                // amount shifted off = 0.5, round to even
+                if((fracRes & 1) != 0){
+                    fracRes = fracRes + 1;
+                }
+            }
+        }
+
+        // If rounding caused overflow
+        if (fracRes >= (1 << 24)) {
+            fracRes = fracRes >> 1;
+            expRes = expRes + 1;
+        }
+
+        // handle edge cases
+        if(expRes >= 255){
+            // infinity
+            expRes = 0xFF;
+            fracRes = 0;
+        }
+
+        // remove implicit bit
+        fracRes = fracRes & 0x7FFFFF;
+        __packsf3(signRes, expRes, fracRes)
+    }
+}
+
+#[lang]
+float __negsf2(float a){
+    (a + 0x80000000) & 0xFFFFFFFF
+}
+
+// Positive if a > b, 0 if a = b, negative if a < b
+#[lang]
+float __cmpsf2(float a, float b){
+    a = a & 0xFFFFFFFF;
+    b = b & 0xFFFFFFFF;
+
+    // NaNs always nonequal
+    if(__isnansf3(a) || __isnansf3(b)){
+        1
+    }
+    else if((a + b) % 0xFFFFFFFF == 0 || (a + b) % 0xFFFFFFFF == 0x80000000)
+    {
+        0 // +/-0 = +/-0
+    }
+    else {
+        int signA = __signsf3(a);
+        int signB = __signsf3(b);
+        
+        if(signA == signB){
+            if(signA == 0){
+                a - b
+            }
+            else{
+                // both negative (larger bits = smaller number)
+                b - a
+            }
+        }
+        else{
+            // signs are different so positive wins
+            if(signA == 0){
+                1
+            }
+            else{
+                -1
+            }
+        }
+    }
+}
+
+#[lang]
+float __addsf3(float a, float b){
+    a = a & 0xFFFFFFFF;
+    b = b & 0xFFFFFFFF;
+
+    bool sameSign = (__signsf3(a) == __signsf3(b));
+
+    if(sameSign){
+        ___addmag(a, b)
+    }
+    else{
+        int absA = a;
+        if(a >= 0x80000000){
+            absA = __negsf2(a);
+        }
+
+        int absB = b;
+        if(b >= 0x80000000){
+            absB = __negsf2(b);
+        }
+
+        if(absA > absB){
+            ___submag(a, b)
+        }
+        else{
+            ___submag(b, a)
+        }
+    }
+}
+
+#[lang]
+float __subsf3(float a, float b){
+    __addsf3(a, __negsf2(b))
+}
+
+#[lang]
+float f64_to_f32(int a){
+    int sign = (a >> 63) & 1;
+    int exp64 = (a >> 52) & 0x7FF;
+    int mant64 = a & 0xFFFFFFFFFFFFF; // 52 bits
+
+    int exp32 = 0;
+    int mant32 = 0;
+
+    if (exp64 == 0x7FF) {
+        // Inf or NaN
+        exp32 = 0xFF;
+        mant32 = 0;
+        if(mant64 != 0){
+            mant32 = 0x400000; // Keep NaN status
+        }
+    } 
+    else if (exp64 == 0) {
+        // Zero or Subnormal double
+        exp32 = 0;
+        mant32 = 0;
+    } 
+    else {
+        exp32 = exp64 - 1023 + 127;
+
+        if (exp32 >= 255) {
+            // Overflow to Infinity
+            exp32 = 0xFF;
+            mant32 = 0;
+        } 
+        else if (exp32 <= 0) {
+            // Underflow, flush to 0 (not compliant)
+            exp32 = 0;
+            mant32 = 0;
+        } 
+        else {
+            // Quantize 52 bits to 23
+            int roundPart = mant64 & 0x1FFFFFFF; 
+            mant32 = (int)(mant64 >> 29);
+
+            // If the discarded part > 0.5 units
+            if (roundPart > 0x10000000) {
+                mant32 = mant32 + 1;
+            } 
+            // If exactly 0.5 units, round to even
+            else if (roundPart == 0x10000000) {
+                if ((mant32 & 1) != 0) {
+                    mant32 = mant32 + 1;
+                }
+            }
+
+            // If rounding caused the mantissa to overflow, bump exponent and reset mantissa
+            if (mant32 >= (1 << 23)) {
+                mant32 = 0;
+                exp32 = exp32 + 1;
+            }
+        }
+    }
+
+    __packsf3(sign, exp32, mant32)
+}
+
+// copied from mineflap tools
+#[lang]
+int floor(float bits) {
+    if (bits == 0) { 0 }
+    else {
+        bool neg = (bits >> 31) != 0;
+        // Strip sign bit using the same i64::MIN trick
+        int abs_bits = if (neg) { bits - (1 << 31) } else { bits };
+        int exp = ((abs_bits >> 23) & 0xFF) - 127;
+        int mantissa = abs_bits & 0x007FFFFF;
+        // Restore implicit leading 1 (2^23)
+        int full = 0x00800000 + mantissa;
+        int value = if (exp >= 23) {
+            full << (exp - 23)
+        } else if (exp >= 0) {
+            full >> (23 - exp)
+        } else {
+            0
+        };
+        if (neg) { -value } else { value }
+    }
+}

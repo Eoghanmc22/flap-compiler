@@ -295,7 +295,7 @@ fn walk_assignment<'a, 'b>(
                             ctx.reference_relative(Type::Char, &expr_data_ref, Offset(idx))?;
 
                         let target_char = if idx != 0 {
-                            let op = ClacOp::Add {
+                            let op = ClacOp::IAdd {
                                 lhs: target_data_ref.clone(),
                                 rhs: DataReference::Value(Value::Int(idx as ClacValue), None),
                             };
@@ -315,7 +315,7 @@ fn walk_assignment<'a, 'b>(
                         let int = ctx.reference_relative(Type::Int, &expr_data_ref, Offset(idx))?;
 
                         let target_int = if idx != 0 {
-                            let op = ClacOp::Add {
+                            let op = ClacOp::IAdd {
                                 lhs: target_data_ref.clone(),
                                 rhs: DataReference::Value(
                                     Value::Int(
@@ -608,7 +608,7 @@ impl<'a> ExpressionOutput<'a> {
 
                         for idx in 0..width {
                             if idx != 0 {
-                                let op = ClacOp::Add {
+                                let op = ClacOp::IAdd {
                                     lhs: target_data_ref.clone(),
                                     rhs: DataReference::Value(Value::Int(idx as ClacValue), None),
                                 };
@@ -638,7 +638,7 @@ impl<'a> ExpressionOutput<'a> {
 
                         for idx in 0..width {
                             if idx != 0 {
-                                let op = ClacOp::Add {
+                                let op = ClacOp::IAdd {
                                     lhs: target_data_ref.clone(),
                                     rhs: DataReference::Value(
                                         Value::Int(
@@ -933,7 +933,7 @@ fn walk_expr<'a, 'b>(
                         (0, _) | (_, Stride::ZST) => todo!(),
                         (1, Stride::Byte) => (lhs, rhs),
                         (1, Stride::Native) => {
-                            let op = ClacOp::Mul {
+                            let op = ClacOp::IMul {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8),
                                     None,
@@ -947,7 +947,7 @@ fn walk_expr<'a, 'b>(
                             (lhs, rhs)
                         }
                         (width, Stride::Byte) => {
-                            let op = ClacOp::Mul {
+                            let op = ClacOp::IMul {
                                 lhs: DataReference::Value(Value::Int(width), None),
                                 rhs,
                             };
@@ -958,7 +958,7 @@ fn walk_expr<'a, 'b>(
                             (lhs, rhs)
                         }
                         (width, Stride::Native) => {
-                            let op = ClacOp::Mul {
+                            let op = ClacOp::IMul {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8 * width),
                                     None,
@@ -977,12 +977,12 @@ fn walk_expr<'a, 'b>(
             };
 
             let clac_op = match op {
-                BinaryOp::Add => ClacOp::Add { lhs, rhs },
-                BinaryOp::Sub => ClacOp::Sub { lhs, rhs },
-                BinaryOp::Mul => ClacOp::Mul { lhs, rhs },
-                BinaryOp::Div => ClacOp::Div { lhs, rhs },
-                BinaryOp::Mod => ClacOp::Mod { lhs, rhs },
-                BinaryOp::Pow => ClacOp::Pow { lhs, rhs },
+                BinaryOp::Add => ClacOp::IAdd { lhs, rhs },
+                BinaryOp::Sub => ClacOp::ISub { lhs, rhs },
+                BinaryOp::Mul => ClacOp::IMul { lhs, rhs },
+                BinaryOp::Div => ClacOp::IDiv { lhs, rhs },
+                BinaryOp::Mod => ClacOp::IMod { lhs, rhs },
+                BinaryOp::Pow => ClacOp::IPow { lhs, rhs },
                 BinaryOp::Eq => ClacOp::Eq { lhs, rhs },
                 BinaryOp::Ne => ClacOp::Ne { lhs, rhs },
                 BinaryOp::Le => ClacOp::Le { lhs, rhs },
@@ -1016,7 +1016,7 @@ fn walk_expr<'a, 'b>(
                         (0, _) | (_, Stride::ZST) => todo!(),
                         (1, Stride::Byte) => ret,
                         (1, Stride::Native) => {
-                            let op = ClacOp::Div {
+                            let op = ClacOp::IDiv {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8),
                                     None,
@@ -1030,7 +1030,7 @@ fn walk_expr<'a, 'b>(
                             ret
                         }
                         (width, Stride::Byte) => {
-                            let op = ClacOp::Div {
+                            let op = ClacOp::IDiv {
                                 lhs: DataReference::Value(Value::Int(width), None),
                                 rhs: ret,
                             };
@@ -1041,7 +1041,7 @@ fn walk_expr<'a, 'b>(
                             ret
                         }
                         (width, Stride::Native) => {
-                            let op = ClacOp::Div {
+                            let op = ClacOp::IDiv {
                                 lhs: DataReference::Value(
                                     Value::Int(ClacValue::BITS as ClacValue / 8 * width),
                                     None,
