@@ -1,0 +1,22 @@
+#include "../std/"
+
+
+/*
+#define O_RDONLY	     00
+#define O_WRONLY	     01
+#define O_RDWR		     02
+*/
+
+int O_RDONLY = 0;
+
+auto path = "/tmp/nonexistent\0";
+char* space = global(sizeof_packed(path));
+*space = path;
+
+int xopen(char* name, int flags, int mode) {
+	syscall(0x02, (int)name, flags, mode, 0, 0, 0)
+}
+
+int res = xopen(space, O_RDONLY, 0);
+print(res);
+
