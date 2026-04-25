@@ -1,10 +1,5 @@
 #include "../../std/"
 
-typedef struct {
-  int len;
-  char *dat;
-} str;
-
 const int INT_WIDTH = 8; // native width in bytes (ASSUMED TO BE 8)
 
 bool find_newline(char *start, int len) {

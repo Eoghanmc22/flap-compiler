@@ -1,0 +1,9 @@
+#include "../std/"
+
+auto dat = "Hello World from flap!\n";
+char* space = global(sizeof_packed(dat));
+*space = dat;
+
+write_all(STDOUT, space, sizeof_packed(dat));
+
+quit();

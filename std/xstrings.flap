@@ -1,0 +1,64 @@
+#include "constants.flap"
+#include "malloc.flap"
+#include "memory.flap"
+#include "strings.flap"
+
+typedef struct {
+  int len;
+  char *dat;
+} str;
+
+// Creates an owned `str` from a C string (it duplicates string).
+str str_from_string(char* old) {
+  int len = strlen(old);
+
+  char* new = malloc(len);
+  memcpy_char(new, old, len);
+  
+  struct {
+    len = len;
+    dat = new;
+  }
+}
+
+atoi_result xatoi(str string) {
+  int n = 0;
+
+  bool success = true;
+  bool negative = false;
+
+  int i = 0;
+
+  if (string.dat[0] == '-') {
+    negative = true;
+    i = 1;
+    // BUG: this doesn't parse "-" correctly.
+  }
+
+  for (int i = 0; i < string.len && success; i = i + 1) {
+    int x = (int)string.dat[i] - (int)'0';
+    
+    if ((x >= 0) && (x < 10)) {
+      n = n * 10 + x;
+    } else {
+      success = false;
+    }
+  }
+
+  struct {
+    success = success;
+    result = if (negative) {-n} else {n};
+  }
+}
+
+
+int xstrlen(str str) {
+  str.len
+}
+
+// TODO: split
+
+// TODO: xstrcmp
+
+// TODO: xstrcpy
+
