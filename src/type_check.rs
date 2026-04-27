@@ -23,7 +23,6 @@ use crate::{
 type Result<'a, T, E = TypeError<'a>> = std::result::Result<T, E>;
 
 pub const GLOBAL_ARENA_START: ClacValue = 0x67670000;
-pub const PAGE_SIZE: ClacValue = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VariableKind {
